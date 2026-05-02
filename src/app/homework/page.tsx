@@ -26,13 +26,16 @@ import Tab from '@mui/material/Tab';
 import Stack from '@mui/material/Stack';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import Alert from '@mui/material/Alert';
+import Snackbar from '@mui/material/Snackbar';
 import { useHomework, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import type { Homework } from '@/types';
 import { v4 as uuid } from 'uuid';
 
 export default function HomeworkPage() {
-  const { data: homework, loading, refetch } = useHomework();
+  const { data: homework, loading, refetch, mutate } = useHomework();
   const { data: classes } = useClasses();
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Homework | null>(null);
   const [tab, setTab] = useState(0); // 0=upcoming, 1=completed, 2=all
@@ -70,20 +73,54 @@ export default function HomeworkPage() {
   };
 
   const handleSave = async () => {
-    if (editing) await apiPut('/api/homework', form);
-    else await apiPost('/api/homework', form);
+    // Optimistic insert/update — same pattern as the Tasks page so the new
+    // row shows up instantly and we surface errors via the snackbar instead
+    // of silently swallowing a failed POST.
+    const snapshot = homework;
+    const isEdit = !!editing;
+    const draft = form;
+    if (isEdit) {
+      mutate((prev) => (prev ? prev.map((h) => (h.id === draft.id ? draft : h)) : prev));
+    } else {
+      mutate((prev) => (prev ? [draft, ...prev] : [draft]));
+    }
     setDialogOpen(false);
-    refetch();
+    try {
+      if (isEdit) await apiPut('/api/homework', draft);
+      else await apiPost('/api/homework', draft);
+      refetch();
+    } catch (e) {
+      mutate(snapshot ?? null);
+      setErrorMsg(`Couldn't save homework: ${(e as Error).message}`);
+    }
   };
 
+  // Optimistic toggle — same pattern as the Tasks page so the checkbox feels
+  // instant. The underlying Sheets round-trip can take a couple of seconds,
+  // and without an optimistic flip the user can't tell whether their click
+  // registered.
   const toggleComplete = async (hw: Homework) => {
-    await apiPut('/api/homework', { ...hw, completed: !hw.completed });
-    refetch();
+    const next = !hw.completed;
+    mutate((prev) => (prev ? prev.map((h) => (h.id === hw.id ? { ...h, completed: next } : h)) : prev));
+    try {
+      await apiPut('/api/homework', { ...hw, completed: next });
+      refetch();
+    } catch (e) {
+      mutate((prev) => (prev ? prev.map((h) => (h.id === hw.id ? { ...h, completed: !next } : h)) : prev));
+      setErrorMsg(`Couldn't update homework: ${(e as Error).message}`);
+    }
   };
 
   const handleDelete = async (id: string) => {
-    await apiDelete(`/api/homework?id=${id}`);
-    refetch();
+    const snapshot = homework;
+    mutate((prev) => (prev ? prev.filter((h) => h.id !== id) : prev));
+    try {
+      await apiDelete(`/api/homework?id=${id}`);
+      refetch();
+    } catch (e) {
+      mutate(snapshot ?? null);
+      setErrorMsg(`Couldn't delete homework: ${(e as Error).message}`);
+    }
   };
 
   const getClassName = (classId: string) => classes?.find((c) => c.id === classId)?.name ?? 'Unknown';
@@ -207,6 +244,17 @@ export default function HomeworkPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={!!errorMsg}
+        autoHideDuration={5000}
+        onClose={() => setErrorMsg(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" variant="filled" onClose={() => setErrorMsg(null)}>
+          {errorMsg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

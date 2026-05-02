@@ -9,6 +9,29 @@ import { buildDaySchedule } from './calendar';
 dayjs.extend(isoWeek);
 
 /**
+ * Find the next date a class meets, given its weekly day pattern.
+ * Returns an ISO date string (YYYY-MM-DD). Returns '' if the class has no
+ * meeting days (which shouldn't happen for any real class).
+ *
+ * Skips today by design: "next time" means the next *future* occurrence. A
+ * student adding a Homework task while sitting in today's class is preparing
+ * for the *following* meeting, not the one happening right now.
+ *
+ * @param days  Day-of-week numbers the class meets (0=Sun..6=Sat).
+ * @param from  Date to search from (default: today).
+ */
+export function nextMeetingDate(days: number[], from: Date = new Date()): string {
+  if (!days || days.length === 0) return '';
+  const start = dayjs(from);
+  // Look ahead up to two weeks — covers any meeting pattern.
+  for (let i = 1; i <= 14; i++) {
+    const candidate = start.add(i, 'day');
+    if (days.includes(candidate.day())) return candidate.format('YYYY-MM-DD');
+  }
+  return '';
+}
+
+/**
  * Get the schedule for an entire week.
  */
 export function getWeekSchedule(

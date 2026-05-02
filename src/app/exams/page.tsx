@@ -26,10 +26,22 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import RoomIcon from '@mui/icons-material/Room';
-import NotificationsIcon from '@mui/icons-material/Notifications';
 import { useExams, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
-import type { Exam } from '@/types';
+import type { Exam, SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
+
+// Format "HH:mm" → "9:30 AM" for display. Exam times come straight from the
+// linked class now, so we want them readable rather than 24-hour.
+function formatTime(t: string | undefined): string {
+  if (!t) return '';
+  const [hStr, mStr] = t.split(':');
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (Number.isNaN(h)) return t;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
 
 export default function ExamsPage() {
   const { data: exams, loading, refetch } = useExams();
@@ -37,9 +49,16 @@ export default function ExamsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Exam | null>(null);
   const [form, setForm] = useState<Exam>({
-    id: '', classId: '', title: '', date: '', startTime: '08:00', endTime: '09:00',
-    location: '', notes: '', reminder: 30,
+    id: '', classId: '', title: '', date: '', startTime: '', endTime: '',
+    location: '', notes: '',
   });
+
+  // O(1) class lookup so the cards can derive time/room from the linked class.
+  const classMap = useMemo(() => {
+    const m = new Map<string, SchoolClass>();
+    (classes || []).forEach((c) => m.set(c.id, c));
+    return m;
+  }, [classes]);
 
   const sorted = useMemo(() => {
     if (!exams) return [];
@@ -53,7 +72,19 @@ export default function ExamsPage() {
     if (exam) { setEditing(exam); setForm(exam); }
     else {
       setEditing(null);
-      setForm({ id: uuid(), classId: classes?.[0]?.id ?? '', title: '', date: dayjs().add(7, 'day').format('YYYY-MM-DD'), startTime: '08:00', endTime: '09:00', location: '', notes: '', reminder: 30 });
+      // startTime/endTime/location intentionally blank — we derive them from
+      // the linked class. The fields stay on the Exam type for backward
+      // compatibility with rows that were created before this simplification.
+      setForm({
+        id: uuid(),
+        classId: classes?.[0]?.id ?? '',
+        title: '',
+        date: dayjs().add(7, 'day').format('YYYY-MM-DD'),
+        startTime: '',
+        endTime: '',
+        location: '',
+        notes: '',
+      });
     }
     setDialogOpen(true);
   };
@@ -78,6 +109,14 @@ export default function ExamsPage() {
   const renderExamCard = (exam: Exam) => {
     const isPast = dayjs(exam.date).isBefore(dayjs(), 'day');
     const daysUntil = dayjs(exam.date).diff(dayjs(), 'day');
+    // The exam happens during the class's normal period: pull the time/room
+    // from the linked class. Fall back to whatever's stored on the exam (for
+    // legacy rows that still have those fields filled in) so old exams keep
+    // displaying useful info.
+    const cls = classMap.get(exam.classId);
+    const startTime = cls?.startTime || exam.startTime;
+    const endTime = cls?.endTime || exam.endTime;
+    const room = cls?.room || exam.location;
     return (
       <Card key={exam.id} sx={{ opacity: isPast ? 0.6 : 1 }}>
         <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
@@ -97,16 +136,15 @@ export default function ExamsPage() {
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 1 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <AccessTimeIcon fontSize="small" />
-                  {dayjs(exam.date).format('MMM D, YYYY')} • {exam.startTime} – {exam.endTime}
+                  {dayjs(exam.date).format('MMM D, YYYY')}
+                  {startTime && endTime ? ` • ${formatTime(startTime)} – ${formatTime(endTime)}` : ''}
+                  {cls && ' (in class)'}
                 </Typography>
-                {exam.location && (
+                {room && (
                   <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <RoomIcon fontSize="small" /> {exam.location}
+                    <RoomIcon fontSize="small" /> Room {room}
                   </Typography>
                 )}
-                <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <NotificationsIcon fontSize="small" /> {exam.reminder}min reminder
-                </Typography>
               </Box>
               {exam.notes && (
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontStyle: 'italic' }}>
@@ -167,10 +205,6 @@ export default function ExamsPage() {
               </FormControl>
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} /></Grid>
-            <Grid size={{ xs: 6, sm: 6 }}><TextField fullWidth label="Start Time" type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} /></Grid>
-            <Grid size={{ xs: 6, sm: 6 }}><TextField fullWidth label="End Time" type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} /></Grid>
-            <Grid size={{ xs: 12, sm: 8 }}><TextField fullWidth label="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></Grid>
-            <Grid size={{ xs: 12, sm: 4 }}><TextField fullWidth label="Reminder (min)" type="number" value={form.reminder} onChange={(e) => setForm({ ...form, reminder: parseInt(e.target.value) || 0 })} /></Grid>
             <Grid size={12}><TextField fullWidth label="Notes" multiline rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Grid>
           </Grid>
         </DialogContent>

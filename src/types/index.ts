@@ -49,7 +49,6 @@ export interface Exam {
   endTime: string;
   location: string;
   notes: string;
-  reminder: number; // minutes before
 }
 
 export interface Task {
@@ -60,6 +59,10 @@ export interface Task {
   completed: boolean;
   priority: 'low' | 'medium' | 'high';
   category: string;
+  // Optional link to a SchoolClass — set by the Quick Add Homework feature
+  // and the Class dropdown on the Add/Edit Task form. Older tasks predate
+  // this column and will simply have undefined here.
+  classId?: string;
 }
 
 export interface ScheduleDisruption {

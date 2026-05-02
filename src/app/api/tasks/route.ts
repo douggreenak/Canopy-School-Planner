@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getTasks, addTask, updateTask, deleteTask } from '@/lib/sheets';
+import { getTasks, addTask, updateTask, deleteTask, deleteTasksBatch } from '@/lib/sheets';
 import type { Task } from '@/types';
 
 export async function GET() {
@@ -37,6 +37,16 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    // Two flavors: ?id=<one> or ?ids=a,b,c for batch. The batch path collapses
+    // N round-trips into one Sheets API call and is safe against the index-
+    // shift race that parallel single deletes would suffer from.
+    const idsParam = searchParams.get('ids');
+    if (idsParam) {
+      const ids = idsParam.split(',').map((s) => s.trim()).filter(Boolean);
+      if (ids.length === 0) return Response.json({ error: 'Empty ids' }, { status: 400 });
+      const deleted = await deleteTasksBatch(ids);
+      return Response.json({ success: true, deleted });
+    }
     const id = searchParams.get('id');
     if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
     await deleteTask(id);

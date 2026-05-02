@@ -46,6 +46,29 @@ async function getRows(sheet: SheetName): Promise<string[][]> {
   return (res.data.values as string[][]) ?? [];
 }
 
+/**
+ * Filter raw sheet rows down to "real" data rows — non-blank ids only.
+ *
+ * Tricky bit: "skip the header" can't be a blind `rows.slice(1)`. If the
+ * user's sheet is missing a header (manual edits, partial init, an early
+ * sync that created the sheet without one, etc.) blindly slicing drops a
+ * real data row. So we detect the header instead — the first row is treated
+ * as a header only if its column A literally says "id" (case-insensitive).
+ * Otherwise we treat ALL rows as data, then filter out any whose id (column
+ * A) is blank/whitespace.
+ *
+ * This stops two failure modes:
+ *   1. Duplicate React keys + ghost rows when blank-id rows leak through.
+ *   2. Total data loss when the header is missing — previously the only
+ *      data row would be skipped as if it were a header.
+ */
+function dataRows(rows: string[][]): string[][] {
+  if (rows.length === 0) return [];
+  const firstCell = (rows[0]?.[0] || '').trim().toLowerCase();
+  const startIdx = firstCell === 'id' ? 1 : 0;
+  return rows.slice(startIdx).filter((r) => (r[0] || '').trim() !== '');
+}
+
 async function appendRow(sheet: SheetName, values: string[]) {
   await getSheets().spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID(),
@@ -153,11 +176,17 @@ export async function initializeSpreadsheet() {
     },
     {
       name: 'Exams',
-      headers: ['id', 'classId', 'title', 'date', 'startTime', 'endTime', 'location', 'notes', 'reminder'],
+      // The trailing 'reminder' column was removed when exam alerts were
+      // dropped. Older sheets still have a 9th column with leftover values,
+      // which is harmless — reads ignore it and writes don't touch it.
+      headers: ['id', 'classId', 'title', 'date', 'startTime', 'endTime', 'location', 'notes'],
     },
     {
       name: 'Tasks',
-      headers: ['id', 'title', 'description', 'dueDate', 'completed', 'priority', 'category'],
+      // classId is optional — the column was added when Quick-Add-Homework
+      // shipped. Older sheets that predate it will read column H as undefined,
+      // which becomes Task.classId === undefined (no link). Additive.
+      headers: ['id', 'title', 'description', 'dueDate', 'completed', 'priority', 'category', 'classId'],
     },
     {
       name: 'Disruptions',
@@ -224,7 +253,7 @@ function classToRow(c: SchoolClass): string[] {
 
 export async function getClasses(): Promise<SchoolClass[]> {
   const rows = await getRows('Classes');
-  return rows.slice(1).map(rowToClass);
+  return dataRows(rows).map(rowToClass);
 }
 
 export async function getClassById(id: string): Promise<SchoolClass | null> {
@@ -257,7 +286,10 @@ function rowToHomework(row: string[]): Homework {
     title: row[2],
     description: row[3],
     dueDate: row[4],
-    completed: row[5] === 'true',
+    // Sheets stores the boolean and reads it back as "TRUE"/"FALSE" (uppercase
+    // formatted-value), so we lowercase before comparing. Older rows that
+    // were written before this fix may also be the literal "true"/"false".
+    completed: (row[5] || '').toLowerCase() === 'true',
     priority: (row[6] as Homework['priority']) || 'medium',
     source: (row[7] as Homework['source']) || 'manual',
     sourceId: row[8] || undefined,
@@ -299,7 +331,7 @@ function homeworkToRow(h: Homework): string[] {
 
 export async function getHomework(): Promise<Homework[]> {
   const rows = await getRows('Homework');
-  return rows.slice(1).map(rowToHomework);
+  return dataRows(rows).map(rowToHomework);
 }
 
 export async function addHomework(h: Homework) {
@@ -531,6 +563,9 @@ export async function syncHomeworkFromSource(
 // --------------- Exams ---------------
 
 function rowToExam(row: string[]): Exam {
+  // Column I (row[8]) used to be `reminder` but the field is gone now. We
+  // simply ignore it on read; existing values stay in the sheet harmlessly
+  // until the row is rewritten, at which point the column gets cleared.
   return {
     id: row[0],
     classId: row[1],
@@ -540,17 +575,16 @@ function rowToExam(row: string[]): Exam {
     endTime: row[5],
     location: row[6],
     notes: row[7],
-    reminder: parseInt(row[8], 10) || 30,
   };
 }
 
 function examToRow(e: Exam): string[] {
-  return [e.id, e.classId, e.title, e.date, e.startTime, e.endTime, e.location, e.notes, String(e.reminder)];
+  return [e.id, e.classId, e.title, e.date, e.startTime, e.endTime, e.location, e.notes];
 }
 
 export async function getExams(): Promise<Exam[]> {
   const rows = await getRows('Exams');
-  return rows.slice(1).map(rowToExam);
+  return dataRows(rows).map(rowToExam);
 }
 
 export async function addExam(e: Exam) {
@@ -577,19 +611,22 @@ function rowToTask(row: string[]): Task {
     title: row[1],
     description: row[2],
     dueDate: row[3],
-    completed: row[4] === 'true',
+    // Same story as Homework — Sheets normalizes the boolean to "TRUE"/"FALSE".
+    completed: (row[4] || '').toLowerCase() === 'true',
     priority: (row[5] as Task['priority']) || 'medium',
     category: row[6] || 'General',
+    // Older rows predate this column — empty becomes undefined.
+    classId: row[7] || undefined,
   };
 }
 
 function taskToRow(t: Task): string[] {
-  return [t.id, t.title, t.description, t.dueDate, String(t.completed), t.priority, t.category];
+  return [t.id, t.title, t.description, t.dueDate, String(t.completed), t.priority, t.category, t.classId || ''];
 }
 
 export async function getTasks(): Promise<Task[]> {
   const rows = await getRows('Tasks');
-  return rows.slice(1).map(rowToTask);
+  return dataRows(rows).map(rowToTask);
 }
 
 export async function addTask(t: Task) {
@@ -606,6 +643,28 @@ export async function deleteTask(id: string) {
   const rows = await getRows('Tasks');
   const idx = rows.findIndex((r) => r[0] === id);
   if (idx > 0) await deleteRow('Tasks', idx + 1);
+}
+
+/**
+ * Delete many tasks in a single Sheets batchUpdate. The "Clear all done"
+ * button on the Tasks page uses this — N parallel single-row deletes from
+ * the client would race against each other, since each one re-reads the
+ * sheet and would compute stale indices once a sibling delete shifted rows
+ * up. One snapshot + one batch delete avoids that entirely.
+ */
+export async function deleteTasksBatch(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const rows = await getRows('Tasks');
+  const idSet = new Set(ids);
+  // 1-based row indices for every row whose id matches; skip the header.
+  const rowIndices: number[] = [];
+  rows.forEach((r, i) => {
+    if (i === 0) return; // header
+    if (r[0] && idSet.has(r[0])) rowIndices.push(i + 1);
+  });
+  if (rowIndices.length === 0) return 0;
+  await deleteRowsBatch('Tasks', rowIndices);
+  return rowIndices.length;
 }
 
 // --------------- Disruptions ---------------
@@ -626,7 +685,7 @@ function disruptionToRow(d: ScheduleDisruption): string[] {
 
 export async function getDisruptions(): Promise<ScheduleDisruption[]> {
   const rows = await getRows('Disruptions');
-  return rows.slice(1).map(rowToDisruption);
+  return dataRows(rows).map(rowToDisruption);
 }
 
 export async function addDisruption(d: ScheduleDisruption) {

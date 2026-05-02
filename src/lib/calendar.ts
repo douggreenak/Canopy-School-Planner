@@ -1,7 +1,7 @@
 // ============================================================
 // iCal Calendar Feed Generator
 // ============================================================
-import ical, { ICalCalendarMethod, ICalAlarmType } from 'ical-generator';
+import ical, { ICalCalendarMethod } from 'ical-generator';
 import dayjs from 'dayjs';
 import type { SchoolClass, Exam, Homework, ScheduleDisruption, DaySchedule, ScheduleEntry } from '@/types';
 
@@ -91,23 +91,30 @@ export function generateCalendarFeed(
   }
 
   // -- Exams --
+  // Exams now happen during the linked class period. Pull start/end time and
+  // room from that class; fall back to the exam's own fields (legacy rows
+  // still have them) and finally to a generic 8–9 AM block.
+  const classById = new Map(classes.map((c) => [c.id, c]));
   for (const exam of exams) {
     const examDate = dayjs(exam.date);
-    const [sh, sm] = (exam.startTime || '08:00').split(':').map(Number);
-    const [eh, em] = (exam.endTime || '09:00').split(':').map(Number);
+    const cls = classById.get(exam.classId);
+    const startTime = exam.startTime || cls?.startTime || '08:00';
+    const endTime = exam.endTime || cls?.endTime || '09:00';
+    const location = exam.location || (cls?.room ? `Room ${cls.room}` : '');
 
-    const event = cal.createEvent({
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+
+    // No alarm — the user opted out of exam reminders. The event still goes
+    // on the calendar; it just won't pop a notification before the exam.
+    cal.createEvent({
       start: examDate.hour(sh).minute(sm).second(0).toDate(),
       end: examDate.hour(eh).minute(em).second(0).toDate(),
       summary: `EXAM: ${exam.title}`,
-      location: exam.location,
+      location,
       description: exam.notes,
       categories: [{ name: 'Exam' }],
     });
-
-    if (exam.reminder > 0) {
-      event.createAlarm({ type: ICalAlarmType.display, trigger: exam.reminder * 60 });
-    }
   }
 
   // -- Homework due dates --

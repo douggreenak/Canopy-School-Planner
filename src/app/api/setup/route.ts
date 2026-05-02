@@ -26,7 +26,7 @@ export async function GET() {
 const REQUIRED_SHEETS: { name: string; headers: string[] }[] = [
   { name: 'Classes',      headers: ['id','name','teacher','room','color','period','startTime','endTime','days','semester','source','sourceId','grade','gradePercent'] },
   { name: 'Homework',     headers: ['id','classId','title','description','dueDate','completed','priority','source','sourceId','score','category'] },
-  { name: 'Exams',        headers: ['id','classId','title','date','startTime','endTime','location','notes','reminder'] },
+  { name: 'Exams',        headers: ['id','classId','title','date','startTime','endTime','location','notes'] },
   { name: 'Tasks',        headers: ['id','title','description','dueDate','completed','priority','category'] },
   { name: 'Disruptions',  headers: ['id','date','type','label','periodOverrides'] },
   { name: 'Settings',     headers: ['key','value'] },

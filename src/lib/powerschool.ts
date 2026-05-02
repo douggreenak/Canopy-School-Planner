@@ -697,14 +697,84 @@ export async function scrapePowerSchool(
           return null;
         }
 
+        // Multi-day wrapper around dayFromHeader. A single column header can
+        // legitimately cover multiple days — "T/Th", "M-F", "M W F", "MTWRF",
+        // "Mon, Wed, Fri" — and the previous code mapped those to a single
+        // day, which is exactly why the schedule was rendering with every
+        // class pinned to Monday.
+        function daysFromHeader(raw: string): number[] {
+          const cleaned = raw
+            .replace(/[\*]+/g, ' ')
+            .replace(/\([^)]*\)/g, ' ')
+            .replace(/[.:;]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (!cleaned) return [];
+
+          // 1. Try the whole string as a single atom ("Monday", "Tue", "M").
+          const single = dayFromHeader(cleaned);
+          if (single !== null) return [single];
+
+          // 2. Split on common separators and try each piece. Catches things
+          // like "T/Th", "Mon, Wed, Fri", "M W F", "M & F". Also handles
+          // ranges like "M-F" or "A-E" by expanding inclusively.
+          const s = cleaned.toLowerCase();
+          const parts = s.split(/[\s,/&|]+/).filter(Boolean);
+          const days = new Set<number>();
+          let allTokensMatched = parts.length > 0;
+          for (const p of parts) {
+            const range = p.match(/^([a-z]+)-([a-z]+)$/);
+            if (range) {
+              const a = dayFromHeader(range[1]);
+              const b = dayFromHeader(range[2]);
+              if (a !== null && b !== null && a <= b) {
+                for (let d = a; d <= b; d++) days.add(d);
+                continue;
+              }
+              allTokensMatched = false;
+              continue;
+            }
+            const d = dayFromHeader(p);
+            if (d !== null) days.add(d);
+            else allTokensMatched = false;
+          }
+          if (days.size > 0 && allTokensMatched) return Array.from(days).sort((a, b) => a - b);
+
+          // 3. Last resort: treat each letter as a day. Catches squashed
+          // strings like "MTWRF" or "MTWThF". We only accept this when every
+          // letter resolves cleanly so we don't mistake "FRI" for [F, R, I].
+          const letters = s.replace(/[^a-z]/g, '').split('');
+          const lettersDays = new Set<number>();
+          let allLettersMatched = letters.length >= 2;
+          let i = 0;
+          while (i < letters.length) {
+            // "th" together is Thursday; consume both letters.
+            if (i + 1 < letters.length && letters[i] === 't' && letters[i + 1] === 'h') {
+              lettersDays.add(4);
+              i += 2;
+              continue;
+            }
+            const d = dayFromHeader(letters[i]);
+            if (d === null) { allLettersMatched = false; break; }
+            lettersDays.add(d);
+            i += 1;
+          }
+          if (allLettersMatched && lettersDays.size > 0) return Array.from(lettersDays).sort((a, b) => a - b);
+
+          return [];
+        }
+
         // Find a table whose first row's header cells look like weekday names.
         const tables = Array.from(document.querySelectorAll('table'));
-        type Col = { idx: number; day: number };
+        type Col = { idx: number; days: number[] };
         let target: HTMLTableElement | null = null;
         let cols: Col[] = [];
-        // Diagnostic: what header texts did we see across all tables? Lets us
-        // tell the user (and the dev) WHY the matrix wasn't recognised.
+        // Diagnostic: what header texts did we see across all tables AND what
+        // each one parsed to. Surfaces single-column-multi-day matches like
+        // "T/Th=[Tue,Thu]" so it's obvious from the sync log when a wider
+        // pattern is being recognised.
         const headerSamples: string[] = [];
+        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
         for (const t of tables) {
           const headerRow = t.querySelector('tr');
@@ -714,15 +784,21 @@ export async function scrapePowerSchool(
           const sample: string[] = [];
           headerCells.forEach((cell, i) => {
             const text = (cell.textContent || '').replace(/\s+/g, ' ').trim();
-            if (text) sample.push(text);
-            const d = dayFromHeader(text);
-            if (d !== null) candidate.push({ idx: i, day: d });
+            if (!text) return;
+            const days = daysFromHeader(text);
+            const label = days.length > 0
+              ? `${text}=[${days.map((d) => dayLabels[d]).join(',')}]`
+              : text;
+            sample.push(label);
+            if (days.length > 0) candidate.push({ idx: i, days });
           });
           if (sample.length > 0 && headerSamples.length < 4) {
             headerSamples.push(sample.slice(0, 8).join(' | '));
           }
-          // Need at least two weekday columns to be a schedule matrix
-          if (candidate.length >= 2) {
+          // Accept the table if at least 2 day columns OR a single column
+          // covering ≥2 days (e.g. one "M-F" cell on a flat schedule).
+          const totalDays = candidate.reduce((acc, c) => acc + c.days.length, 0);
+          if (candidate.length >= 2 || totalDays >= 2) {
             target = t as HTMLTableElement;
             cols = candidate;
             break;
@@ -773,11 +849,16 @@ export async function scrapePowerSchool(
             if (raw === '-' || raw === '—' || /^no\b/i.test(raw)) continue;
             const courseName = raw.split(/\s*[-–]\s*/)[0].trim();
             if (!courseName) continue;
-            entries.push({ periodLabel, startTime, endTime, courseName, day: col.day });
+            // One entry per (cell, day). For a "T/Th" column, this produces
+            // both a Tuesday and a Thursday entry, which the rollup later
+            // collapses into a single class with days=[2,4].
+            for (const day of col.days) {
+              entries.push({ periodLabel, startTime, endTime, courseName, day });
+            }
           }
         }
 
-        return { entries, note: 'ok', headerSamples: [] as string[] };
+        return { entries, note: 'ok', headerSamples };
       });
 
       if (matrixRaw.note === 'no-matrix') {
@@ -816,6 +897,11 @@ export async function scrapePowerSchool(
           });
         }
         log.push(`Parsed ${matrixByKey.size} class/period entries from My Schedule matrix`);
+        // Always surface what the column headers parsed to — this is the
+        // single most useful clue when a class ends up with the wrong days.
+        if (matrixRaw.headerSamples && matrixRaw.headerSamples.length > 0) {
+          for (const s of matrixRaw.headerSamples) log.push(`    headers: ${s}`);
+        }
       }
     } catch (err) {
       log.push(`Could not load My Schedule matrix: ${(err as Error).message}`);
