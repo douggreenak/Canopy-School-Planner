@@ -224,7 +224,10 @@ function rowToClass(row: string[]): SchoolClass {
     startTime: row[6],
     endTime: row[7],
     days: JSON.parse(row[8] || '[]'),
-    dayTimes: (() => { try { return JSON.parse(row[9] || '{}'); } catch { return undefined; } })(),
+    // dayTimes stored as JSON in column 10 (index 9). If the cell is blank,
+    // return undefined so callers can distinguish "no overrides set" from
+    // an explicit empty object.
+    dayTimes: (() => { try { return row[9] ? JSON.parse(row[9]) : undefined; } catch { return undefined; } })(),
     semester: row[10],
     source: (row[11] as SchoolClass['source']) || undefined,
     sourceId: row[12] || undefined,
@@ -270,7 +273,19 @@ export async function addClass(c: SchoolClass) {
 export async function updateClass(c: SchoolClass) {
   const rows = await getRows('Classes');
   const idx = rows.findIndex((r) => r[0] === c.id);
-  if (idx > 0) await updateRow('Classes', idx + 1, classToRow(c));
+  if (idx > 0) {
+    // Preserve existing per-day overrides when the incoming object does
+    // not include dayTimes (e.g. edits from ClassDialog which don't edit
+    // per-day times). Merge conservatively so we don't accidentally wipe
+    // user-managed schedule fields.
+    const prior = rowToClass(rows[idx]);
+    const merged: SchoolClass = {
+      ...prior,
+      ...c,
+      dayTimes: c.dayTimes === undefined ? prior.dayTimes : c.dayTimes,
+    };
+    await updateRow('Classes', idx + 1, classToRow(merged));
+  }
 }
 
 export async function deleteClass(id: string) {
@@ -463,6 +478,8 @@ export async function syncClassesFromSource(
       if (prior.cls.days && Array.isArray(prior.cls.days) && prior.cls.days.length > 0) merged.days = prior.cls.days;
       if (prior.cls.startTime && prior.cls.startTime.trim()) merged.startTime = prior.cls.startTime;
       if (prior.cls.endTime && prior.cls.endTime.trim()) merged.endTime = prior.cls.endTime;
+      // Preserve any per-day override times the user previously set.
+      if (prior.cls.dayTimes && Object.keys(prior.cls.dayTimes).length > 0) merged.dayTimes = prior.cls.dayTimes;
       // Prefer the persisted numeric period when set (> 0), otherwise accept incoming
       if (prior.cls.period && Number(prior.cls.period) > 0) merged.period = prior.cls.period;
 

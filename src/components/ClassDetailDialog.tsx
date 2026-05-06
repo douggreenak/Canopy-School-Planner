@@ -72,9 +72,12 @@ export default function ClassDetailDialog({ open, onClose, entry, date, disrupti
   const isPast = dateObj.endOf('day').isBefore(dayjs());
   const isToday = dateObj.isSame(dayjs(), 'day');
 
-  // Did the time differ from the class's normal schedule? If so, show both.
-  const isShifted =
-    !cancelled && (startTime !== classInfo.startTime || endTime !== classInfo.endTime);
+  // Determine the class's normal times for this weekday (respect per-day overrides).
+  const weekday = dateObj.day();
+  const normalStart = classInfo.dayTimes?.[weekday]?.startTime || classInfo.startTime;
+  const normalEnd = classInfo.dayTimes?.[weekday]?.endTime || classInfo.endTime;
+  // Did the time differ from the class's normal schedule for this weekday?
+  const isShifted = !cancelled && (startTime !== normalStart || endTime !== normalEnd);
 
   // Sort meeting days for consistent display ("Mon, Tue, Wed…").
   const sortedDays = [...classInfo.days].sort();
@@ -185,7 +188,7 @@ export default function ClassDetailDialog({ open, onClose, entry, date, disrupti
         {isShifted && (
           <Box sx={{ ml: 4.5, mb: 1.5 }}>
             <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
-              Normally: {formatTime(classInfo.startTime)} – {formatTime(classInfo.endTime)}
+              Normally: {formatTime(normalStart)} – {formatTime(normalEnd)}
             </Typography>
           </Box>
         )}
