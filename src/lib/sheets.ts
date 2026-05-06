@@ -434,7 +434,7 @@ export async function syncClassesFromSource(
   const toUpdate: { rowIndex: number; values: string[] }[] = [];
   const toAppend: string[][] = [];
 
-  for (const cls of incoming) {
+    for (const cls of incoming) {
     if (!cls.sourceId) {
       // Incoming class has no stable key — just append. Can't dedupe it against
       // existing rows, so treat every such class as brand new each sync.
@@ -446,7 +446,10 @@ export async function syncClassesFromSource(
     const prior = bySourceId.get(cls.sourceId);
     if (prior) {
       // Update in place, keeping the user's chosen color and the stable UUID
-      // (so homework foreign keys remain valid).
+      // (so homework foreign keys remain valid). Additionally, preserve any
+      // user-managed schedule fields (days, startTime, endTime, period) so
+      // repeated PowerSchool syncs don't overwrite the local schedule the
+      // user configured in the Settings wizard.
       const merged: SchoolClass = {
         ...prior.cls,
         ...cls,
@@ -454,6 +457,13 @@ export async function syncClassesFromSource(
         color: prior.cls.color || cls.color,
         source,
       };
+      // Preserve schedule overrides from the persisted row when present.
+      if (prior.cls.days && Array.isArray(prior.cls.days) && prior.cls.days.length > 0) merged.days = prior.cls.days;
+      if (prior.cls.startTime && prior.cls.startTime.trim()) merged.startTime = prior.cls.startTime;
+      if (prior.cls.endTime && prior.cls.endTime.trim()) merged.endTime = prior.cls.endTime;
+      // Prefer the persisted numeric period when set (> 0), otherwise accept incoming
+      if (prior.cls.period && Number(prior.cls.period) > 0) merged.period = prior.cls.period;
+
       toUpdate.push({ rowIndex: prior.rowIdx, values: classToRow(merged) });
       idMap.set(cls.id, prior.cls.id);
       updated++;

@@ -49,6 +49,62 @@ function defaultBellTime(period: number): { start: string; end: string } {
   };
 }
 
+// Small delay helper used instead of page.waitForTimeout which may not
+// exist in some puppeteer-core environments. Keep this local and minimal.
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Normalize course names for matching between the home page and the
+// My Schedule matrix. Strips common trailing parenthetical period markers
+// like "(P1)" and collapses whitespace so keys match more reliably.
+function normalizeCourseKey(s: string | undefined | null): string {
+  if (!s) return '';
+  return s
+    .replace(/\u00A0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    // Remove trailing parenthetical period markers like "(P1)" or "(Period 1)".
+    .replace(/\s*\(\s*p\.?\s*\d+[A-Za-z]?\s*\)\s*$/i, '')
+    .replace(/\s*\(\s*period\s*\d+\s*\)\s*$/i, '')
+    // Strip appended teacher names or room fragments that often appear in the
+    // matrix (e.g. "Course Name Smith, John Rm101 08:00 am - 08:50 am").
+    .replace(/\s+[,\-\/]?\s*[A-Za-z][a-zA-Z\.\s-]*\s*,\s*[A-Za-z][a-zA-Z\.\s-]*$/i, '')
+    .replace(/\s+rm\.?\s*[A-Za-z0-9-]+$/i, '')
+    // Remove any trailing time and anything after it (teacher/room/time
+    // tokens are commonly glued to the time). This cuts at the first
+    // occurrence of a time like "07:30" and drops the rest.
+    .replace(/\s*\d{1,2}:\d{2}\s*(?:am|pm)?\b.*$/i, '')
+    // If a comma appears (common teacher: "Last, First"), strip the
+    // comma and everything after — aggressive but helpful for matching.
+    .replace(/\s*,\s*.*$/, '')
+    .toLowerCase();
+}
+
+// Very small fuzzy matching utility: compare two normalized names by
+// stripping non-word characters and checking token overlap. Returns true
+// if they share at least half of the shorter token set.
+function fuzzyNameMatch(a: string, b: string): boolean {
+  const norm = (x: string) => x.replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  const ta = norm(a);
+  const tb = norm(b);
+  if (ta.length === 0 || tb.length === 0) return false;
+  const setB = new Set(tb);
+  const shared = ta.filter((t) => setB.has(t)).length;
+  const shorter = Math.min(ta.length, tb.length);
+  return shared >= Math.max(1, Math.floor(shorter / 2));
+}
+
+function tokenOverlapScore(a: string, b: string): number {
+  const norm = (x: string) => x.replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  const ta = norm(a);
+  const tb = norm(b);
+  if (ta.length === 0 || tb.length === 0) return 0;
+  const setB = new Set(tb);
+  const shared = ta.filter((t) => setB.has(t)).length;
+  return shared / Math.min(ta.length, tb.length);
+}
+
 // ----------------------------------------------------------------------------
 // Parse PowerSchool's "expression" string for day-of-week info.
 // PowerSchool puts a code like "1(A-E)" or "1(M,W,F)" in the period column on
@@ -71,7 +127,7 @@ function defaultBellTime(period: number): { start: string; end: string } {
 //   "1 A-E"      → [1,2,3,4,5]
 //   "1"          → null (no day info)
 // ----------------------------------------------------------------------------
-function parseDaysFromExpression(expression: string): number[] | null {
+function parseDaysFromExpression(expression: string, letterMap?: Record<string, number[] | number>): number[] | null {
   if (!expression) return null;
   // Drop the leading period number; keep whatever follows.
   const after = expression.replace(/^\d+\s*[-:]?\s*/, '').trim();
@@ -81,34 +137,80 @@ function parseDaysFromExpression(expression: string): number[] | null {
   const content = (paren ? paren[1] : after).trim();
   if (!content) return null;
 
-  const letterToDay: Record<string, number> = {
+  // Default letter/day map (legacy fallback). If a letterMap override is
+  // provided we will prefer it for single-letter rotation tokens (A..E).
+  const defaultMap: Record<string, number> = {
     'm': 1, 'mon': 1, 'monday': 1,
     't': 2, 'tue': 2, 'tues': 2, 'tuesday': 2,
     'w': 3, 'wed': 3, 'wednesday': 3,
     'h': 4, 'r': 4, 'th': 4, 'thu': 4, 'thur': 4, 'thurs': 4, 'thursday': 4,
     'f': 5, 'fri': 5, 'friday': 5,
-    'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, // A/B/C/D/E rotation → assume M–F
     's': 6, 'sat': 6, 'saturday': 6,
     'u': 0, 'sun': 0, 'sunday': 0,
   };
 
   const parts = content.split(/[,\s/|;]+/).filter(Boolean);
   const days = new Set<number>();
-  for (const p of parts) {
-    const t = p.toLowerCase();
-    // Range like "A-E" or "M-F" — expand inclusively.
-    const range = t.match(/^([a-z]+)-([a-z]+)$/);
-    if (range) {
-      const a = letterToDay[range[1]];
-      const b = letterToDay[range[2]];
-      if (a !== undefined && b !== undefined && a <= b) {
-        for (let d = a; d <= b; d++) days.add(d);
-        continue;
+
+  const addLetterToken = (tok: string) => {
+    const lc = tok.toLowerCase();
+    // If an explicit letterMap was provided and contains this token (e.g.
+    // 'a' → 2), prefer it. Accept arrays or single numbers.
+    if (letterMap && letterMap[lc]) {
+      const mapped = letterMap[lc];
+      if (Array.isArray(mapped)) {
+        for (const d of mapped) days.add(d);
+        return true;
+      } else if (typeof mapped === 'number') {
+        days.add(mapped);
+        return true;
       }
     }
-    const d = letterToDay[t];
-    if (d !== undefined) days.add(d);
+    // Fall back to defaultMap entries (day names or letters A→1..E→5).
+    if (defaultMap[lc] !== undefined) { days.add(defaultMap[lc]); return true; }
+    // A..E rotation fallback: map single letters a–e to Mon–Fri when no
+    // explicit mapping is available.
+    if (/^[a-e]$/.test(lc)) {
+      const v = { a: 1, b: 2, c: 3, d: 4, e: 5 }[lc];
+      if (v !== undefined) { days.add(v); return true; }
+    }
+    return false;
+  };
+
+  for (const p of parts) {
+    const t = p.toLowerCase();
+    // Range like "A-E" or "M-F" — expand inclusively. For letter ranges
+    // expand by letter; for day-name ranges fall back to numeric expansion.
+    const range = t.match(/^([a-z]+)-([a-z]+)$/);
+    if (range) {
+      const aTok = range[1];
+      const bTok = range[2];
+      // If both endpoints are single letters, expand across the alphabet
+      // (e.g. a-e → a,b,c,d,e) and map each token.
+      if (/^[a-z]$/.test(aTok) && /^[a-z]$/.test(bTok)) {
+        const aCode = aTok.charCodeAt(0);
+        const bCode = bTok.charCodeAt(0);
+        if (aCode <= bCode) {
+          for (let c = aCode; c <= bCode; c++) addLetterToken(String.fromCharCode(c));
+          continue;
+        }
+      }
+      // Otherwise try numeric day expansion via defaultMap tokens.
+      const aDay = defaultMap[aTok] ?? null;
+      const bDay = defaultMap[bTok] ?? null;
+      if (aDay !== null && bDay !== null && aDay <= bDay) {
+        for (let d = aDay; d <= bDay; d++) days.add(d);
+        continue;
+      }
+      // If we couldn't interpret the range, skip it.
+      continue;
+    }
+    // Single token — could be a known day name, single letter, or numeric.
+    if (/^\d+$/.test(t)) { days.add(parseInt(t, 10)); continue; }
+    // Try as letter/day token (A, M, Tue, etc.)
+    addLetterToken(p);
   }
+
   if (days.size === 0) return null;
   return Array.from(days).sort((a, b) => a - b);
 }
@@ -655,211 +757,619 @@ export async function scrapePowerSchool(
       await page.goto(`${baseUrl}/guardian/myschedule.html`, { waitUntil: 'domcontentloaded', timeout: 20000 });
       log.push('Loaded My Schedule page for day-of-week matrix');
 
-      const matrixRaw = await page.evaluate(() => {
-        // Map a header string ("M", "Mon", "Monday", "Tue", "Day 1", "A Day"…)
-        // to a JS day number (0=Sun..6=Sat). Returns null if the header
-        // doesn't look like a weekday or rotation-day.
-        function dayFromHeader(raw: string): number | null {
-          // Strip footnote markers, asterisks, parens before matching.
-          const cleaned = raw.replace(/[\* ]+/g, ' ').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
-          const s = cleaned.toLowerCase();
-          if (!s) return null;
-          // Full names and prefixes first (so "sun" doesn't get swallowed by "s")
-          if (/^sun(day)?$/.test(s)) return 0;
-          if (/^mon(day)?$/.test(s)) return 1;
-          if (/^tue(s(day)?)?$/.test(s)) return 2;
-          if (/^wed(nesday)?$/.test(s)) return 3;
-          if (/^thu(r(s(day)?)?)?$/.test(s)) return 4;
-          if (/^fri(day)?$/.test(s)) return 5;
-          if (/^sat(urday)?$/.test(s)) return 6;
-          // Single-letter columns common on PowerSchool matrices: M T W R F
-          // "R" = Thursday (conventional in US school schedules), "U" = Sunday
-          if (s === 'm') return 1;
-          if (s === 't') return 2;
-          if (s === 'w') return 3;
-          if (s === 'r' || s === 'h' || s === 'th') return 4;
-          if (s === 'f') return 5;
-          if (s === 's') return 6;
-          if (s === 'u') return 0;
-          // Block-rotation: "Day 1" / "Day 2" / ... → map sequentially to weekdays.
-          // Day 1=Mon, Day 5=Fri, Day 6=Sat, Day 7=Sun. (Same convention as ISO.)
-          const dayN = s.match(/^day\s*([1-7])$/);
-          if (dayN) {
-            const n = parseInt(dayN[1], 10);
-            return n === 7 ? 0 : n;
+      // Attempt to switch the My Schedule view to "Week View". Some PowerSchool
+      // installs default to a single-day view (which can explain why only
+      // Monday was being scraped). Try multiple heuristics: explicit data-attrs
+      // / classnames, links with "week" in the href, or visible controls with
+      // text/title/aria-label that mention "Week" or "Week View".
+      try {
+        const switchedToWeek = await page.evaluate(() => {
+          const tryClick = (el: Element | null) => {
+            if (!el) return false;
+            try {
+              (el as HTMLElement).click();
+              return true;
+            } catch {
+              return false;
+            }
+          };
+
+          // 1) Common data-attrs / classnames that might indicate a week toggle
+          const selectors = [
+            '[data-view="week"]',
+            '[data-mode="week"]',
+            '.week-view',
+            '.view-week',
+            '.calendar-week',
+            '.weekTab',
+            '.nav-week',
+            '.tab-week',
+          ];
+          for (const s of selectors) {
+            const el = document.querySelector(s);
+            if (tryClick(el)) return true;
           }
-          // "Day A" / "A Day" / bare "A" — map A=Mon, B=Tue, C=Wed, D=Thu, E=Fri
-          const letter = s.match(/^(?:day\s+)?([a-g])(?:\s+day)?$/);
-          if (letter) {
-            const map: Record<string, number> = { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 0 };
-            return map[letter[1]] ?? null;
+
+          // 2) Anchors whose href mentions "week" (and preferably the schedule)
+          const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+          for (const a of anchors) {
+            const h = a.getAttribute('href') || '';
+            if (/week/i.test(h) && (/myschedule|schedule|view/i.test(h))) {
+              if (tryClick(a)) return true;
+            }
           }
-          return null;
+
+          // 3) Visible controls (buttons/links/labels) with text/title/aria-label
+          // that explicitly mention "Week" or "Week View".
+          const candidates = Array.from(document.querySelectorAll('a,button,div,span,label,li')) as Element[];
+          const weekRe = /\bweek(?:\s+view)?\b/i;
+          for (const el of candidates) {
+            const text = (el.textContent || '').trim();
+            if (weekRe.test(text) && tryClick(el)) return true;
+            const title = (el.getAttribute && el.getAttribute('title')) || '';
+            if (weekRe.test(title) && tryClick(el)) return true;
+            const aria = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('aria')) ) || '';
+            if (weekRe.test(aria) && tryClick(el)) return true;
+          }
+
+          return false;
+        });
+
+          if (switchedToWeek) {
+            // Give the UI a moment to render the week matrix after the click.
+            // Some skins hydrate slowly; increase the delay so the matrix has
+            // time to populate before parsing.
+            await delay(1600);
+            log.push('Switched My Schedule to Week View');
+          } else {
+            log.push('Week View toggle not found; continuing with current My Schedule view');
+          }
+      } catch (err) {
+        log.push(`Error trying to switch to Week View: ${(err as Error).message}`);
+      }
+
+      // Parse the schedule matrix from every reachable frame (main frame + iframes).
+      // This attempts a Week View toggle inside each frame, then runs the same
+      // matrix-detection logic inside that frame. Results are merged.
+      const matrixNameKeys = rawClasses.map((c) => normalizeCourseKey(c.name));
+      const frames = page.frames();
+      const combinedEntries: { periodLabel: string; startTime: string; endTime: string; courseName: string; day: number }[] = [];
+      const combinedHeaderSamples: string[] = [];
+      let matrixNote = 'no-matrix';
+
+      for (const frame of frames) {
+        try {
+          // Try toggling Week View inside the frame
+          const toggled = await frame.evaluate(() => {
+            const tryClick = (el: Element | null) => {
+              if (!el) return false;
+              try { (el as HTMLElement).click(); return true; } catch { return false; }
+            };
+            const selectors = [
+              '[data-view="week"]', '[data-mode="week"]', '[data-mode*="week"]', '.week-view', '.view-week', '.calendar-week', '.weekTab', '.nav-week', '.tab-week', '.toggle-week'
+            ];
+            for (const s of selectors) {
+              const el = document.querySelector(s);
+              if (tryClick(el)) return true;
+            }
+            const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+            for (const a of anchors) {
+              const h = a.getAttribute('href') || '';
+              if (/week/i.test(h) && (/myschedule|schedule|view/i.test(h))) { if (tryClick(a)) return true; }
+            }
+            const candidates = Array.from(document.querySelectorAll('a,button,div,span,label,li')) as Element[];
+            const weekRe = /\bweek(?:\s+view)?\b/i;
+            for (const el of candidates) {
+              const text = (el.textContent || '').trim();
+              if (weekRe.test(text) && tryClick(el)) return true;
+              const title = (el.getAttribute && el.getAttribute('title')) || '';
+              if (weekRe.test(title) && tryClick(el)) return true;
+              const aria = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('aria'))) || '';
+              if (weekRe.test(aria) && tryClick(el)) return true;
+            }
+            return false;
+          });
+           if (toggled) {
+             // allow UI to update. Increase the delay for slow renderers.
+             await delay(1600);
+             log.push(`Toggled Week View in frame: ${frame.url().slice(0, 120)}`);
+           }
+        } catch (err) {
+          log.push(`Toggling Week View in frame failed: ${(err as Error).message}`);
         }
 
-        // Multi-day wrapper around dayFromHeader. A single column header can
-        // legitimately cover multiple days — "T/Th", "M-F", "M W F", "MTWRF",
-        // "Mon, Wed, Fri" — and the previous code mapped those to a single
-        // day, which is exactly why the schedule was rendering with every
-        // class pinned to Monday.
-        function daysFromHeader(raw: string): number[] {
+        try {
+          const res = await frame.evaluate((matrixNames: string[]) => {
+            // DOM-only parsing function — same logic as the old single-frame
+            // parser but executed inside the frame.
+            function dayFromHeader(raw: string): number | null {
+          // Remove footnote markers and parenthesized notes, strip any
+          // trailing date fragments like "05/04/2026" that are glued to
+          // the weekday (e.g. "Monday05/04/2026"), and normalize whitespace.
+          const cleaned = raw
+            .replace(/[\* ]+/g, ' ')
+            .replace(/\([^)]*\)/g, ' ')
+            .replace(/\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?/g, ' ')
+            .replace(/([A-Za-z])(?=\d)/g, '$1 ')
+            .replace(/\s+/g, ' ')
+            .trim();
+              const s = cleaned.toLowerCase();
+              if (!s) return null;
+              if (/^sun(day)?$/.test(s)) return 0;
+              if (/^mon(day)?$/.test(s)) return 1;
+              if (/^tue(s(day)?)?$/.test(s)) return 2;
+              if (/^wed(nesday)?$/.test(s)) return 3;
+              if (/^thu(r(s(day)?)?)?$/.test(s)) return 4;
+              if (/^fri(day)?$/.test(s)) return 5;
+              if (/^sat(urday)?$/.test(s)) return 6;
+              if (s === 'm') return 1;
+              if (s === 't') return 2;
+              if (s === 'w') return 3;
+              if (s === 'r' || s === 'h' || s === 'th') return 4;
+              if (s === 'f') return 5;
+              if (s === 's') return 6;
+              if (s === 'u') return 0;
+              const dayN = s.match(/^day\s*([1-7])$/);
+              if (dayN) { const n = parseInt(dayN[1], 10); return n === 7 ? 0 : n; }
+              const letter = s.match(/^(?:day\s+)?([a-g])(?:\s+day)?$/);
+              if (letter) { const map: Record<string, number> = { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 0 }; return map[letter[1]] ?? null; }
+              return null;
+            }
+            function daysFromHeader(raw: string): number[] {
+          // Normalize header text and strip date fragments so headers like
+          // "Monday05/04/2026" become parseable as weekday names.
           const cleaned = raw
             .replace(/[\*]+/g, ' ')
             .replace(/\([^)]*\)/g, ' ')
             .replace(/[.:;]+/g, ' ')
+            .replace(/\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?/g, ' ')
+            .replace(/([A-Za-z])(?=\d)/g, '$1 ')
             .replace(/\s+/g, ' ')
             .trim();
-          if (!cleaned) return [];
-
-          // 1. Try the whole string as a single atom ("Monday", "Tue", "M").
-          const single = dayFromHeader(cleaned);
-          if (single !== null) return [single];
-
-          // 2. Split on common separators and try each piece. Catches things
-          // like "T/Th", "Mon, Wed, Fri", "M W F", "M & F". Also handles
-          // ranges like "M-F" or "A-E" by expanding inclusively.
-          const s = cleaned.toLowerCase();
-          const parts = s.split(/[\s,/&|]+/).filter(Boolean);
-          const days = new Set<number>();
-          let allTokensMatched = parts.length > 0;
-          for (const p of parts) {
-            const range = p.match(/^([a-z]+)-([a-z]+)$/);
-            if (range) {
-              const a = dayFromHeader(range[1]);
-              const b = dayFromHeader(range[2]);
-              if (a !== null && b !== null && a <= b) {
-                for (let d = a; d <= b; d++) days.add(d);
-                continue;
+              if (!cleaned) return [];
+              const single = dayFromHeader(cleaned);
+              if (single !== null) return [single];
+              const s = cleaned.toLowerCase();
+              const parts = s.split(/[\s,/&|]+/).filter(Boolean);
+              const days = new Set<number>();
+              let allTokensMatched = parts.length > 0;
+              for (const p of parts) {
+                const range = p.match(/^([a-z]+)-([a-z]+)$/);
+                if (range) {
+                  const a = dayFromHeader(range[1]);
+                  const b = dayFromHeader(range[2]);
+                  if (a !== null && b !== null && a <= b) { for (let d = a; d <= b; d++) days.add(d); continue; }
+                  allTokensMatched = false; continue;
+                }
+                const d = dayFromHeader(p);
+                if (d !== null) days.add(d); else allTokensMatched = false;
               }
-              allTokensMatched = false;
-              continue;
+              if (days.size > 0 && allTokensMatched) return Array.from(days).sort((a, b) => a - b);
+              const letters = s.replace(/[^a-z]/g, '').split('');
+              const lettersDays = new Set<number>();
+              let allLettersMatched = letters.length >= 2;
+              let i = 0;
+              while (i < letters.length) {
+                if (i + 1 < letters.length && letters[i] === 't' && letters[i + 1] === 'h') { lettersDays.add(4); i += 2; continue; }
+                const d = dayFromHeader(letters[i]); if (d === null) { allLettersMatched = false; break; } lettersDays.add(d); i += 1;
+              }
+              if (allLettersMatched && lettersDays.size > 0) return Array.from(lettersDays).sort((a, b) => a - b);
+              return [];
             }
-            const d = dayFromHeader(p);
-            if (d !== null) days.add(d);
-            else allTokensMatched = false;
-          }
-          if (days.size > 0 && allTokensMatched) return Array.from(days).sort((a, b) => a - b);
-
-          // 3. Last resort: treat each letter as a day. Catches squashed
-          // strings like "MTWRF" or "MTWThF". We only accept this when every
-          // letter resolves cleanly so we don't mistake "FRI" for [F, R, I].
-          const letters = s.replace(/[^a-z]/g, '').split('');
-          const lettersDays = new Set<number>();
-          let allLettersMatched = letters.length >= 2;
-          let i = 0;
-          while (i < letters.length) {
-            // "th" together is Thursday; consume both letters.
-            if (i + 1 < letters.length && letters[i] === 't' && letters[i + 1] === 'h') {
-              lettersDays.add(4);
-              i += 2;
-              continue;
+            // Helper to extract meaningful text from a cell. Some PowerSchool
+            // skins populate accessible names via attributes (title / aria-
+            // label) or use images with alt text rather than visible text.
+            // This tries several fallbacks to produce a usable string.
+            function getText(node: Element | null): string {
+              if (!node) return '';
+              try {
+                const el = node as HTMLElement;
+                // innerText reflects rendered text and often matches what
+                // users see in the browser. Fallback to textContent when
+                // innerText is empty.
+                let txt = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+                if (txt) return txt;
+                // Check common accessible attributes
+                const attrs = ['aria-label', 'title', 'alt', 'data-tooltip', 'data-title'];
+                for (const a of attrs) {
+                  const v = (el.getAttribute && el.getAttribute(a)) || '';
+                  if (v && String(v).trim()) return String(v).trim();
+                }
+                // Look for anchors with titles or aria-labels
+                const a = el.querySelector && (el.querySelector('a[title]') || el.querySelector('a[aria-label]'));
+                if (a) {
+                  const av = (a.getAttribute('title') || a.getAttribute('aria-label') || (a.textContent || '')).trim();
+                  if (av) return av.replace(/\s+/g, ' ').trim();
+                }
+                // Image alt text
+                const img = el.querySelector && el.querySelector('img[alt]');
+                if (img) {
+                  const alt = img.getAttribute('alt') || '';
+                  if (alt.trim()) return alt.trim();
+                }
+                // As a last resort, collect descendant text nodes.
+                let acc = '';
+                const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+                let nodeText: Node | null;
+                while ((nodeText = walker.nextNode())) {
+                  acc += ' ' + (nodeText.nodeValue || '');
+                }
+                acc = acc.replace(/\s+/g, ' ').trim();
+                return acc;
+              } catch {
+                return '';
+              }
             }
-            const d = dayFromHeader(letters[i]);
-            if (d === null) { allLettersMatched = false; break; }
-            lettersDays.add(d);
-            i += 1;
-          }
-          if (allLettersMatched && lettersDays.size > 0) return Array.from(lettersDays).sort((a, b) => a - b);
+            const tables = Array.from(document.querySelectorAll('table'));
+            type Col = { idx: number; days: number[] };
+            let target: HTMLTableElement | null = null;
+            let cols: Col[] = [];
+            const headerSamples: string[] = [];
+            const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            let targetHeaderIndex = -1;
+            // Debug capture slots (populated when we select a target table).
+            let debug_headerTexts: string[] = [];
+            let debug_headerStartIdx: number[] = [];
+            let debug_totalCols = 0;
+            let debug_candidateIdxs: number[] = [];
+            let debug_candidateDays: number[][] = [];
+            let debug_tableIndex = -1;
+            // Helper: given candidate columns and a small preview of body
+            // rows, decide whether the columns look like week-day columns.
+            // Week matrices tend to have mostly-empty cells with some course
+            // names/times sprinkled (moderate non-empty fraction), whereas
+            // ordinary data tables have dense, consistently-filled columns.
+            function candidateLooksLikeMatrix(candidateCols: Array<{ idx: number; days: number[] }>, rowsPreview: HTMLTableRowElement[]) {
+              if (!candidateCols || candidateCols.length === 0) return false;
+              const rows = Math.max(1, rowsPreview.length);
+              let goodCols = 0;
+              for (const c of candidateCols) {
+                const idx = c.idx;
+                let nonEmpty = 0;
+                const uniques = new Set<string>();
+                for (const r of rowsPreview) {
+                  const cell = r.cells[idx];
+                  const txt = cell ? getText(cell).replace(/\s+/g, ' ').trim() : '';
+                  if (!txt) continue;
+                  // Treat a single dash or em-dash or 'no' as empty for matrix
+                  if (txt === '-' || txt === '—' || /^no\b/i.test(txt)) continue;
+                  nonEmpty++;
+                  uniques.add(txt.toLowerCase());
+                }
+                const frac = nonEmpty / rows;
+                // Good matrix column: some non-empty cells but not almost all
+                // rows filled, and at least one distinct value.
+                if (frac > 0 && frac < 0.9 && uniques.size >= 1) goodCols++;
+              }
+              // Require at least two reasonably-behaving columns to consider
+              // the table a schedule matrix.
+              return goodCols >= Math.min(2, candidateCols.length);
+            }
+            // Evaluate every table and score it to find the best candidate
+            // schedule matrix. Some PowerSchool skins bury the matrix among
+            // many incidental tables; instead of accepting the first plausible
+            // match we compute a small heuristic score and pick the top table.
+            let bestTableInfo: any = null;
+            let bestTableScore = 0;
+            for (const t of tables) {
+              const allRows = Array.from((t as HTMLTableElement).rows || []);
+              if (allRows.length === 0) continue;
 
-          return [];
-        }
+              // Heuristic: find the header row (within the first few rows)
+              // that contains the most day-like header cells.
+              let bestHeaderIndex = -1;
+              let bestDayCount = 0;
+              let bestTotalDays = 0;
+              for (let ri = 0; ri < Math.min(allRows.length, 12); ri++) {
+                const hr = allRows[ri];
+                const cells = Array.from(hr.cells || []);
+                if (cells.length === 0) continue;
+                let dayCount = 0;
+                let totalDaysLocal = 0;
+                for (const cell of cells) {
+                  const text = getText(cell).replace(/\s+/g, ' ').trim();
+                  const days = daysFromHeader(text);
+                  if (days.length > 0) dayCount++;
+                  totalDaysLocal += days.length;
+                }
+                if (dayCount > bestDayCount || (dayCount === bestDayCount && totalDaysLocal > bestTotalDays)) {
+                  bestHeaderIndex = ri;
+                  bestDayCount = dayCount;
+                  bestTotalDays = totalDaysLocal;
+                }
+              }
 
-        // Find a table whose first row's header cells look like weekday names.
-        const tables = Array.from(document.querySelectorAll('table'));
-        type Col = { idx: number; days: number[] };
-        let target: HTMLTableElement | null = null;
-        let cols: Col[] = [];
-        // Diagnostic: what header texts did we see across all tables AND what
-        // each one parsed to. Surfaces single-column-multi-day matches like
-        // "T/Th=[Tue,Thu]" so it's obvious from the sync log when a wider
-        // pattern is being recognised.
-        const headerSamples: string[] = [];
-        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+              // If we didn't find an obvious day-like header, prefer the
+              // row with the most cells within the first several rows.
+              let headerIndex = bestHeaderIndex >= 0 ? bestHeaderIndex : -1;
+              if (headerIndex === -1) {
+                let maxCells = -1;
+                let maxIdx = -1;
+                const limit = Math.min(allRows.length, 12);
+                for (let r = 0; r < limit; r++) {
+                  const cnt = (allRows[r].cells || []).length;
+                  if (cnt > maxCells) { maxCells = cnt; maxIdx = r; }
+                }
+                headerIndex = maxIdx >= 0 ? maxIdx : 0;
+              }
+              const headerRow = allRows[headerIndex] || allRows[0];
+              const headerCells = Array.from(headerRow.cells || []);
 
-        for (const t of tables) {
-          const headerRow = t.querySelector('tr');
-          if (!headerRow) continue;
-          const headerCells = Array.from(headerRow.querySelectorAll('th, td'));
-          const candidate: Col[] = [];
-          const sample: string[] = [];
-          headerCells.forEach((cell, i) => {
-            const text = (cell.textContent || '').replace(/\s+/g, ' ').trim();
-            if (!text) return;
-            const days = daysFromHeader(text);
-            const label = days.length > 0
-              ? `${text}=[${days.map((d) => dayLabels[d]).join(',')}]`
-              : text;
-            sample.push(label);
-            if (days.length > 0) candidate.push({ idx: i, days });
-          });
-          if (sample.length > 0 && headerSamples.length < 4) {
-            headerSamples.push(sample.slice(0, 8).join(' | '));
-          }
-          // Accept the table if at least 2 day columns OR a single column
-          // covering ≥2 days (e.g. one "M-F" cell on a flat schedule).
-          const totalDays = candidate.reduce((acc, c) => acc + c.days.length, 0);
-          if (candidate.length >= 2 || totalDays >= 2) {
-            target = t as HTMLTableElement;
-            cols = candidate;
-            break;
-          }
-        }
+              // Build expanded per-column day mapping that respects colspan.
+              const colDays: number[][] = [];
+              const headerStartIdx: number[] = [];
+              let expandedIdx = 0;
+              const sample: string[] = [];
+              for (const cell of headerCells) {
+                const span = (cell as HTMLTableCellElement).colSpan || 1;
+                const text = getText(cell).replace(/\s+/g, ' ').trim();
+                const days = daysFromHeader(text);
+                const label = days.length > 0 ? `${text}=[${days.map((d) => dayLabels[d]).join(',')}]` : text;
+                if (sample.length < 8) sample.push(label);
+                headerStartIdx.push(expandedIdx);
+                for (let j = 0; j < span; j++) {
+                  colDays[expandedIdx + j] = days;
+                }
+                expandedIdx += span;
+              }
 
-        if (!target) return { entries: [], note: 'no-matrix', headerSamples };
+              const totalCols = expandedIdx;
 
-        // Each body row is a period. The first cell usually has a period number
-        // plus a time range like "1(A) 8:00-8:50". Iterate the day columns and
-        // grab the class-name cell text. Skip header rows.
-        const entries: {
-          periodLabel: string;
-          startTime: string;
-          endTime: string;
-          courseName: string;
-          day: number;
-        }[] = [];
+              // Convert expanded map into candidate columns
+              const candidate: Col[] = [];
+              for (let i = 0; i < (totalCols || 0); i++) {
+                const d = colDays[i] || [];
+                if (d.length > 0) candidate.push({ idx: i, days: d });
+              }
 
-        const bodyRows = Array.from(target.querySelectorAll('tr')).slice(1);
-        for (const row of bodyRows) {
-          if (row.querySelector('th')) continue; // sub-header
-          const cells = Array.from(row.querySelectorAll('td'));
-          if (cells.length < 2) continue;
+              // Preview some body rows to compute name/time/non-empty stats
+              const startRowIndex = headerIndex >= 0 ? headerIndex + 1 : 1;
+              const bodyRowsPreview = allRows.slice(startRowIndex, startRowIndex + 12);
+              let maxCols = 0;
+              for (const r of bodyRowsPreview) maxCols = Math.max(maxCols, (r.cells || []).length);
+              const matchCounts: number[] = new Array(maxCols).fill(0);
+              const nonEmptyCounts: number[] = new Array(maxCols).fill(0);
+              const timeCounts: number[] = new Array(maxCols).fill(0);
+              const timeRe = /(\d{1,2}:\d{2})/;
+              for (const r of bodyRowsPreview) {
+                const cells = Array.from(r.cells || []);
+                for (let j = 0; j < Math.min(maxCols, cells.length); j++) {
+                  const txtRaw = (cells[j]?.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  const txt = txtRaw.replace(/[^a-z0-9]+/g, ' ').trim();
+                  if (!txt) continue;
+                  nonEmptyCounts[j] = (nonEmptyCounts[j] || 0) + 1;
+                  if (timeRe.test(txtRaw)) timeCounts[j] = (timeCounts[j] || 0) + 1;
+                  for (const nm of matrixNames) {
+                    if (!nm) continue;
+                    const nmClean = (nm || '').replace(/[^a-z0-9]+/g, ' ').trim();
+                    if (!nmClean) continue;
+                    if (nmClean.length <= 2) {
+                      // Escape regex metacharacters in the short name before
+                      // building a word-boundary regexp. Ensure character-class
+                      // metacharacters are properly escaped so the TS parser
+                      // doesn't choke on the literal.
+                      const re = new RegExp('\\b' + nmClean.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&') + '\\b');
+                      if (re.test(txt)) { matchCounts[j] = (matchCounts[j] || 0) + 1; break; }
+                    } else {
+                      if (txt.indexOf(nmClean) !== -1) { matchCounts[j] = (matchCounts[j] || 0) + 1; break; }
+                    }
+                  }
+                }
+              }
+              const rowsConsidered = Math.max(1, bodyRowsPreview.length);
+              const matrixNameMatches = matchCounts.reduce((a, b) => a + b, 0);
+              const nonEmptyFracAvg = maxCols > 0 ? nonEmptyCounts.reduce((a, b) => a + b, 0) / (rowsConsidered * maxCols) : 0;
+              const timeCountSum = timeCounts.reduce((a, b) => a + b, 0);
 
-          // First cell: period + time range
-          const firstText = (cells[0].textContent || '').replace(/\s+/g, ' ').trim();
-          const periodMatch = firstText.match(/^(\d+)/);
-          const periodLabel = periodMatch ? periodMatch[1] : firstText;
-          // Time range like "8:00-8:50" or "08:00 - 08:50 AM"
-          let startTime = '';
-          let endTime = '';
-          const timeMatch = firstText.match(/(\d{1,2}:\d{2})\s*(?:AM|PM)?\s*[-–]\s*(\d{1,2}:\d{2})\s*(?:AM|PM)?/i);
-          if (timeMatch) {
-            startTime = timeMatch[1];
-            endTime = timeMatch[2];
-          }
+              // Score the table heuristically
+              let tableScore = 0;
+              tableScore += bestDayCount * 3;
+              tableScore += bestTotalDays * 1;
+              tableScore += matrixNameMatches * 4;
+              tableScore += nonEmptyFracAvg * 10;
+              tableScore += timeCountSum * 1;
+              tableScore += allRows.length >= 4 ? 2 : 0;
+              tableScore += totalCols >= 5 ? 1 : 0;
 
-          for (const col of cols) {
-            const cell = cells[col.idx];
-            if (!cell) continue;
-            // The cell's text is usually "CourseName - Room X - Teacher", or
-            // just the course name. Take everything up to the first dash as
-            // the course name; the name is what we match against rawClasses.
-            const raw = (cell.textContent || '').replace(/\s+/g, ' ').trim();
-            if (!raw) continue;
-            // Skip placeholder cells
-            if (raw === '-' || raw === '—' || /^no\b/i.test(raw)) continue;
-            const courseName = raw.split(/\s*[-–]\s*/)[0].trim();
-            if (!courseName) continue;
-            // One entry per (cell, day). For a "T/Th" column, this produces
-            // both a Tuesday and a Thursday entry, which the rollup later
-            // collapses into a single class with days=[2,4].
-            for (const day of col.days) {
-              entries.push({ periodLabel, startTime, endTime, courseName, day });
+              // If header-derived candidate is empty but we have decent name
+              // matches in the body, create a candidate from the best-matching
+              // columns (up to 7) and assign sequential weekdays left-to-right.
+              if (candidate.length === 0 && matrixNameMatches > 0) {
+                const candidateIdxs: number[] = [];
+                for (let j = 0; j < maxCols; j++) {
+                  const nonEmptyFrac = (nonEmptyCounts[j] || 0) / rowsConsidered;
+                  if ((matchCounts[j] || 0) > 0 || (timeCounts[j] || 0) > 0 || nonEmptyFrac >= 0.35) candidateIdxs.push(j);
+                }
+                if (candidateIdxs.length > 0) {
+                  candidateIdxs.sort((a, b) => ((matchCounts[b] || 0) - (matchCounts[a] || 0)) || (a - b));
+                  const selected = candidateIdxs.slice(0, 7).sort((a, b) => a - b);
+                  let seq = 1;
+                  for (const idx of selected) { candidate.push({ idx, days: [seq] }); seq = Math.min(6, seq + 1); }
+                }
+              }
+
+              // Keep the best-scoring table info
+              if (tableScore > bestTableScore) {
+                bestTableScore = tableScore;
+                bestTableInfo = {
+                  table: t,
+                  headerIndex,
+                  headerCells,
+                  headerStartIdx: headerStartIdx.slice(),
+                  totalCols,
+                  candidate: candidate.slice(),
+                  sample: sample.slice(0, 8),
+                  matchCounts: matchCounts.slice(),
+                };
+              }
+
+              // If this table has a strong header-derived candidate, accept it
+              const totalDays = candidate.reduce((acc, c) => acc + c.days.length, 0);
+              if (candidate.length >= 2 || totalDays >= 2 || (candidate.length >= 1 && headerCells.length >= 5)) {
+                // Capture debug info from this header prior to breaking out.
+                // Use getText to prefer rendered / accessible strings over raw
+                // textContent so we capture what users actually see.
+                debug_headerTexts = headerCells.map((c) => getText(c).replace(/\s+/g, ' ').trim()).slice(0, 12);
+                debug_headerStartIdx = headerStartIdx.slice();
+                debug_totalCols = totalCols;
+                debug_candidateIdxs = candidate.map((c) => c.idx);
+                debug_candidateDays = candidate.map((c) => c.days.slice());
+                debug_tableIndex = tables.indexOf(t);
+                target = t as HTMLTableElement;
+                cols = candidate;
+                targetHeaderIndex = headerIndex;
+                break;
+              }
+            }
+            // If we didn't break with a clear target, pick the highest-scoring
+            // table if it looks plausible.
+            if (!target && bestTableInfo) {
+              // Require a modest score to avoid false positives.
+              if (bestTableScore >= 6) {
+                target = bestTableInfo.table as HTMLTableElement;
+                cols = bestTableInfo.candidate;
+                targetHeaderIndex = bestTableInfo.headerIndex;
+                debug_headerTexts = bestTableInfo.sample.map((s: string) => s);
+                debug_headerStartIdx = bestTableInfo.headerStartIdx.slice();
+                debug_totalCols = bestTableInfo.totalCols;
+                debug_candidateIdxs = (bestTableInfo.candidate || []).map((c: any) => c.idx);
+                debug_candidateDays = (bestTableInfo.candidate || []).map((c: any) => c.days);
+                debug_tableIndex = tables.indexOf(target as HTMLTableElement);
+              }
+            }
+            if (!target) return { entries: [], note: 'no-matrix', headerSamples };
+            const entries: { periodLabel: string; startTime: string; endTime: string; courseName: string; day: number }[] = [];
+            const allTableRows = Array.from(target.querySelectorAll('tr'));
+            const startRowIndex = targetHeaderIndex >= 0 ? targetHeaderIndex + 1 : 1;
+            const firstDataRow = allTableRows[startRowIndex] || allTableRows[1] || allTableRows[0];
+            const firstCells = firstDataRow ? Array.from(firstDataRow.cells) : [];
+            // headerExpandedColumns: how many columns the header mapped to
+            // headerExpandedColumns: how many columns the header mapped to. If
+            // we had a header with leading/trailing blank cells this will be
+            // captured by the maximum index in `cols` + 1. If we had stored
+            // a more complete expanded map earlier this would be preferable,
+            // but this is a practical heuristic.
+            const headerExpandedColumns = cols.length > 0 ? Math.max(...cols.map((c) => c.idx)) + 1 : 0;
+            // Determine how many leading offset columns exist in the body by
+            // comparing the first data row's cell count to the header's.
+            // Allow up to a few leading columns (1..3) as some skins include
+            // extra blank cells or row headers.
+            const shift = firstCells.length - headerExpandedColumns;
+            const colOffset = (shift > 0 && shift <= 3) ? shift : 0;
+            const bodyRows = allTableRows.slice(startRowIndex);
+            for (const row of bodyRows) {
+              const cells = Array.from(row.cells || []);
+              if (cells.length === 0) continue;
+              // Determine period label from a leading row cell when present
+              let periodLabel = '';
+              const firstText = (cells[0]?.textContent || '').replace(/\s+/g, ' ').trim();
+              const pm = firstText.match(/^(\d+)/);
+              if (pm) periodLabel = pm[1];
+              // Try to find any time in the row (prefer left-side cells). This
+              // acts as a fallback when cell-level times are not present.
+              let rowTimeMatch: RegExpMatchArray | null = null;
+              const timeRe = /((\d{1,2}:\d{2})\s*(?:am|pm)?)[\s\-–]+((\d{1,2}:\d{2})\s*(?:am|pm)?)/i;
+              for (let ci = 0; ci < Math.min(4, cells.length); ci++) {
+                const txt = (cells[ci]?.textContent || '').replace(/\s+/g, ' ').trim();
+                const m = txt.match(timeRe);
+                if (m) { rowTimeMatch = m; break; }
+              }
+              let startTime = '';
+              let endTime = '';
+              if (rowTimeMatch) { startTime = rowTimeMatch[1]; endTime = rowTimeMatch[3] || rowTimeMatch[2] || ''; }
+              for (const col of cols) {
+                const cellIndex = col.idx + colOffset;
+                const cell = cells[cellIndex];
+                if (!cell) continue;
+                const raw = getText(cell).replace(/\s+/g, ' ').trim();
+                if (!raw) continue;
+                if (raw === '-' || raw === '—' || /^no\b/i.test(raw)) continue;
+                // Extract a clean course name (text before an em-dash or similar),
+                // then try to parse a time range from the cell itself. Cell-level
+                // times override any row-level time we may have captured.
+                const courseName = raw.split(/\s*[-–]\s*/)[0].trim();
+                if (!courseName) continue;
+                let entryStart = startTime;
+                let entryEnd = endTime;
+                const cellTimeMatch = raw.match(timeRe);
+                if (cellTimeMatch) { entryStart = cellTimeMatch[1]; entryEnd = cellTimeMatch[3] || cellTimeMatch[2] || entryEnd; }
+                for (const day of col.days) entries.push({ periodLabel, startTime: entryStart, endTime: entryEnd, courseName, day });
+              }
+            }
+            // Collect lightweight debug info about the chosen table so the
+            // caller can log diagnostics to help tune parsers for different
+            // PowerSchool skins.
+            const tablesAll = Array.from(document.querySelectorAll('table'));
+            const tableIndex = debug_tableIndex >= 0 ? debug_tableIndex : tablesAll.indexOf(target);
+            const headerTexts = debug_headerTexts.length > 0 ? debug_headerTexts : (Array.from((target?.rows[0]?.cells || []) as HTMLCollectionOf<Element>).map((c) => getText(c).replace(/\s+/g, ' ').trim()).slice(0, 12));
+            const bodyRowDumps = bodyRows.slice(0, 6).map((r) => {
+              return Array.from(r.cells).map((c) => (getText(c).replace(/\s+/g, ' ').trim()).slice(0, 120)).join(' | ');
+            });
+            // Capture innerHTML for the first few rows to help debugging
+            // skins where visible text is embedded in attributes or nested
+            // elements. Truncate to avoid huge payloads.
+            const bodyRowHtml = bodyRows.slice(0, 6).map((r) => {
+              return Array.from(r.cells).map((c) => ((c as HTMLElement).innerHTML || '').replace(/\s+/g, ' ').trim().slice(0, 600)).join(' | ');
+            });
+               const debug = {
+                tableIndex,
+                headerIndex: targetHeaderIndex,
+                headerTexts,
+                headerExpandedColumns: debug_totalCols || (cols.length > 0 ? Math.max(...cols.map((c) => c.idx)) + 1 : 0),
+                headerStartIdx: debug_headerStartIdx,
+                candidateIdxs: debug_candidateIdxs.length > 0 ? debug_candidateIdxs : cols.map((c) => c.idx),
+                candidateDays: debug_candidateDays.length > 0 ? debug_candidateDays : cols.map((c) => c.days),
+                bodyRowCount: bodyRows.length,
+               bodyRowDumps,
+               bodyRowHtml,
+              };
+            return { entries, note: 'ok', headerSamples, debug };
+          }, matrixNameKeys);
+          if (res && res.entries && res.entries.length > 0) {
+            combinedEntries.push(...res.entries);
+            if (res.headerSamples && res.headerSamples.length) combinedHeaderSamples.push(...res.headerSamples);
+            matrixNote = 'ok';
+            // Surface debug info if present so the server log shows exactly
+            // what the in-frame parser saw. This is invaluable for tuning
+            // heuristics across many PowerSchool skins.
+            if (res.debug) {
+              try {
+                // Keep the log lines compact but informative.
+                const dbg = res.debug;
+                log.push(`Matrix debug (frame=${frame.url().slice(0,120)}): tableIndex=${dbg.tableIndex} headerIndex=${dbg.headerIndex} headerTexts=${JSON.stringify(dbg.headerTexts || []).slice(0,300)} headerExpandedColumns=${dbg.headerExpandedColumns} candidateIdxs=${JSON.stringify(dbg.candidateIdxs)} candidateDays=${JSON.stringify(dbg.candidateDays)} bodyRows=${dbg.bodyRowCount}`);
+                // Also include a couple of body-row previews (text and HTML)
+                if (dbg.bodyRowDumps && dbg.bodyRowDumps.length > 0) {
+                  for (const r of dbg.bodyRowDumps.slice(0,4)) log.push(`  bodyRow (text): ${r}`);
+                }
+                if (dbg.bodyRowHtml && dbg.bodyRowHtml.length > 0) {
+                  for (const r of dbg.bodyRowHtml.slice(0,4)) log.push(`  bodyRow (html): ${r}`);
+                }
+              } catch {}
+            }
+          } else {
+            if (res && res.headerSamples && res.headerSamples.length) combinedHeaderSamples.push(...res.headerSamples);
+            if (matrixNote !== 'ok' && res && res.note) matrixNote = res.note;
+            // If the parser returned a debug object even without entries, log
+            // it too so we can see why it declined the table.
+            if (res && res.debug) {
+              try {
+                const dbg = res.debug;
+                log.push(`Matrix debug (frame=${frame.url().slice(0,120)}): note=${res.note} tableIndex=${dbg.tableIndex} headerIndex=${dbg.headerIndex} headerTexts=${JSON.stringify(dbg.headerTexts || []).slice(0,300)} candidateIdxs=${JSON.stringify(dbg.candidateIdxs)} candidateDays=${JSON.stringify(dbg.candidateDays)} bodyRows=${dbg.bodyRowCount}`);
+                if (dbg.bodyRowDumps && dbg.bodyRowDumps.length > 0) {
+                  for (const r of dbg.bodyRowDumps.slice(0,4)) log.push(`  bodyRow (text): ${r}`);
+                }
+                if (dbg.bodyRowHtml && dbg.bodyRowHtml.length > 0) {
+                  for (const r of dbg.bodyRowHtml.slice(0,4)) log.push(`  bodyRow (html): ${r}`);
+                }
+              } catch {}
             }
           }
+        } catch (err) {
+          log.push(`Frame parse error: ${(err as Error).message}`);
         }
+      }
 
-        return { entries, note: 'ok', headerSamples };
-      });
+      const matrixRaw = { entries: combinedEntries, note: matrixNote, headerSamples: combinedHeaderSamples };
 
       if (matrixRaw.note === 'no-matrix') {
         log.push('My Schedule matrix not found — falling back to expression-parsed days');
@@ -875,7 +1385,13 @@ export async function scrapePowerSchool(
         type RollupVal = { days: Set<number>; startTime: string; endTime: string };
         const rollup = new Map<string, RollupVal>();
         for (const e of matrixRaw.entries) {
-          const key = `${e.courseName.toLowerCase()}||${e.periodLabel}`;
+          // Normalize the course name and a simple period token for stable keys.
+          const periodTxt = (e.periodLabel || '').toString().trim();
+          const periodMatch = periodTxt.match(/^(\d+)/);
+          // Only use numeric period keys; otherwise leave blank so name-only
+          // matching is used.
+          const periodKey = periodMatch ? periodMatch[1] : '';
+          const key = `${normalizeCourseKey(e.courseName)}||${periodKey}`;
           const existing = rollup.get(key);
           if (existing) {
             existing.days.add(e.day);
@@ -897,6 +1413,13 @@ export async function scrapePowerSchool(
           });
         }
         log.push(`Parsed ${matrixByKey.size} class/period entries from My Schedule matrix`);
+        // Surface the matrix keys we built so debugging name mismatches is easy.
+        if (matrixByKey.size > 0) {
+          log.push('  matrix keys:');
+          for (const [k, v] of matrixByKey) {
+            log.push(`    ${k} => days=[${v.days.join(',')}]${v.startTime ? `; ${v.startTime}–${v.endTime || ''}` : ''}`);
+          }
+        }
         // Always surface what the column headers parsed to — this is the
         // single most useful clue when a class ends up with the wrong days.
         if (matrixRaw.headerSamples && matrixRaw.headerSamples.length > 0) {
@@ -905,6 +1428,51 @@ export async function scrapePowerSchool(
       }
     } catch (err) {
       log.push(`Could not load My Schedule matrix: ${(err as Error).message}`);
+    }
+
+    // ------------------------------------------------------------------
+    // Infer A/B-letter to concrete weekday mapping from matrix entries.
+    // Many schools use letter rotations (A/B/C/D/E) in the home page
+    // expressions, e.g. "2(A)". If we have at least one class where the
+    // expression contains letters and we also matched that class in the
+    // matrix (giving concrete weekdays), we can infer that A→Mon, B→Tue,
+    // etc. However some schools map differently — so infer from observed
+    // data rather than assuming A→Mon by default.
+    // ------------------------------------------------------------------
+    const inferredLetterMap: Record<string, number[]> = {};
+    try {
+      // Build a quick lookup of rawClasses by normalized name||period
+      const rawByKey = new Map<string, typeof rawClasses[0]>();
+      for (const rc of rawClasses) rawByKey.set(`${normalizeCourseKey(rc.name)}||${rc.period || ''}`, rc);
+      // For each matrix entry key that looks like it came from a class with
+      // an expression, parse the expression and map letters to observed day
+      for (const [mk, mv] of matrixByKey) {
+        const rc = rawByKey.get(mk);
+        if (!rc || !rc.expression) continue;
+        // Extract bare tokens from expression parenthesis e.g. "(A,B)" or "(M,W,F)"
+        const m = rc.expression.replace(/^\d+\s*-?:?\s*/, '').match(/\(([^)]+)\)/);
+        const tokens = m ? m[1].split(/[,\s/|]+/).filter(Boolean) : rc.expression.split(/[,\s/|]+/).slice(1).filter(Boolean);
+        for (const t of tokens) {
+          const tok = t.trim().toLowerCase();
+          if (!tok) continue;
+          // Only consider single-letter tokens a..z (common A/B rotations)
+          if (/^[a-z]$/.test(tok)) {
+            if (!inferredLetterMap[tok]) inferredLetterMap[tok] = [];
+            // Map this token to every observed concrete weekday in the matrix
+            for (const d of mv.days) inferredLetterMap[tok].push(d);
+          }
+        }
+      }
+      // Consolidate to primary mapping: for each letter pick unique list
+      // of weekdays observed (dedup). Keep arrays because some letters may
+      // map to multiple weekdays in odd rotations.
+      for (const k of Object.keys(inferredLetterMap)) {
+        inferredLetterMap[k] = Array.from(new Set(inferredLetterMap[k]));
+        log.push(`Inferred mapping: ${k.toUpperCase()} -> [${inferredLetterMap[k].join(',')}]`);
+      }
+    } catch (err) {
+      // Non-fatal
+      log.push(`Letter-map inference error: ${(err as Error).message}`);
     }
 
     // Build proper SchoolClass objects.
@@ -919,13 +1487,47 @@ export async function scrapePowerSchool(
       // Look up the matrix entry two ways — by period (most specific) and by
       // course name alone (fallback for instances where the period label on
       // the matrix doesn't match the period extracted from the home page).
-      const matrixKey = `${c.name.toLowerCase()}||${c.period || ''}`;
+      const matrixKey = `${normalizeCourseKey(c.name)}||${c.period || ''}`;
       let mx = matrixByKey.get(matrixKey);
-      if (!mx) {
-        // Loosely: first entry whose key starts with the name
-        const nameLc = c.name.toLowerCase();
+          if (!mx) {
+        // Loosely: first entry whose normalized name matches the start of
+        // the matrix key. If that fails, fall back to a fuzzy token-overlap
+        // match so small punctuation/abbreviation differences don't break
+        // the lookup.
+        const nameKey = normalizeCourseKey(c.name);
         for (const [k, v] of matrixByKey) {
-          if (k.startsWith(`${nameLc}||`)) { mx = v; break; }
+          if (k.startsWith(`${nameKey}||`)) { mx = v; break; }
+        }
+        if (!mx) {
+          // Pick the matrix entry with the highest token-overlap score,
+          // preferring numeric period matches when available. We require a
+          // minimum overlap to avoid accidental matches.
+          let bestScore = 0;
+          let best: { days: number[]; startTime?: string; endTime?: string } | null = null;
+          for (const [k, v] of matrixByKey) {
+            const [matrixName, matrixPeriod] = k.split('||');
+            const score = tokenOverlapScore(nameKey, matrixName);
+            // If the class has a period and the matrix entry has a numeric
+            // period, give a small boost to exact period matches.
+            let boosted = score;
+            if (c.period && matrixPeriod && String(c.period) === matrixPeriod) boosted += 0.25;
+            if (boosted > bestScore && boosted >= 0.33) { bestScore = boosted; best = v; }
+          }
+          if (best) mx = best;
+          // As a last-ditch aggressive fallback, if we still have no match
+          // prefer any matrix entry that has a non-empty day list and the
+          // highest token overlap (even if below threshold). This helps in
+          // pathological skins where the course name is abbreviated.
+          if (!mx) {
+            let bestScoreLow = 0;
+            let bestLow: { days: number[]; startTime?: string; endTime?: string } | null = null;
+            for (const [k, v] of matrixByKey) {
+              const [matrixName] = k.split('||');
+              const sc = tokenOverlapScore(nameKey, matrixName);
+              if (sc > bestScoreLow && v.days && v.days.length > 0) { bestScoreLow = sc; bestLow = v; }
+            }
+            if (bestLow) mx = bestLow;
+          }
         }
       }
 
@@ -940,7 +1542,10 @@ export async function scrapePowerSchool(
         days = mx.days;
         daysSource = 'matrix';
       } else {
-        const fromExpr = parseDaysFromExpression(c.expression);
+        const letterMapForParse: Record<string, number[] | number> | undefined = Object.keys(inferredLetterMap || {}).length > 0
+          ? Object.fromEntries(Object.entries(inferredLetterMap).map(([k, v]) => [k, v]))
+          : undefined;
+        const fromExpr = parseDaysFromExpression(c.expression, letterMapForParse);
         if (fromExpr && fromExpr.length > 0) {
           days = fromExpr;
           daysSource = `expression "${c.expression}"`;
@@ -949,6 +1554,9 @@ export async function scrapePowerSchool(
           daysSource = 'default Mon–Fri';
         }
       }
+      // Prefer matrix times when available. If the match came from a
+      // fuzzy/low-confidence match, prefer matrix times only if they exist;
+      // otherwise fall back to the bell times.
       const startTime = mx?.startTime || bell.start;
       const endTime = mx?.endTime || bell.end;
       const timesSource = mx?.startTime ? 'matrix' : 'default bell';
@@ -1147,7 +1755,7 @@ export async function scrapePowerSchool(
               // default PowerSchool flag sprite), <svg>, or icon-font <i>.
               const hasIcon = !!cell.querySelector('img, svg, i[class*="icon"], i[class*="fa-"], [class*="filled"], [class*="active"]');
               if (!hasIcon) continue;
-              const label = (cell.textContent || '').replace(/\s+/g, ' ').trim();
+               const label = (cell.textContent || '').replace(/\s+/g, ' ').trim();
               if (label) activeFlags.push(label);
             }
             flags = activeFlags.join(', ');

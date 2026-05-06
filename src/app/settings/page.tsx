@@ -45,6 +45,10 @@ import QrCodeIcon from '@mui/icons-material/QrCode';
 import DevicesIcon from '@mui/icons-material/Devices';
 import LockIcon from '@mui/icons-material/Lock';
 import { useClasses } from '@/lib/hooks';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 
 export default function SettingsPage() {
   return (
@@ -57,6 +61,7 @@ export default function SettingsPage() {
 function SettingsInner() {
   const searchParams = useSearchParams();
   const { refetch: refetchClasses } = useClasses();
+  const { data: importedClasses, loading: classesLoading, refetch: refetchClassesList, mutate: mutateClasses } = useClasses();
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
   const [syncing, setSyncing] = useState<string | null>(null);
 
@@ -141,6 +146,9 @@ function SettingsInner() {
   const [generatedCode, setGeneratedCode] = useState('');
   const [generatePassphrase, setGeneratePassphrase] = useState('');
   const [showGeneratePassphrase, setShowGeneratePassphrase] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardIndex, setWizardIndex] = useState(0);
+  const [editableClass, setEditableClass] = useState<any>(null);
 
   useEffect(() => {
     setCalendarUrl(`${window.location.origin}/api/calendar?token=${calendarToken || 'your-token'}`);
@@ -346,6 +354,8 @@ function SettingsInner() {
         });
         if (hasPassword) setPsPass('');
         refetchClasses();
+        // Refresh the local classes list for the schedule wizard
+        refetchClassesList();
         // Refresh setup status so the "saved" pill shows up after a fresh save
         const status = await fetch('/api/setup').then((r) => r.json());
         setSetupStatus(status);
@@ -937,6 +947,110 @@ function SettingsInner() {
                 </Grid>
               )}
             </Grid>
+          </CardContent>
+        </Card>
+
+        {/* ===== SCHEDULE WIZARD ===== */}
+        <Card>
+          <CardContent>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <CalendarMonthIcon color="primary" />
+              <Typography variant="h6">Schedule Setup Wizard</Typography>
+              <Chip label="Optional" size="small" variant="outlined" />
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Create and edit your internal schedule. Pick from classes imported from PowerSchool and set the days, period, and times the app should use. PowerSchool syncs will preserve these manual schedule fields.
+            </Typography>
+
+            <Box sx={{ mb: 2 }}>
+              <Button variant="contained" onClick={() => { setWizardOpen(true); setWizardIndex(0); }} disabled={classesLoading || !importedClasses}>
+                Open Schedule Wizard
+              </Button>
+              <Button variant="text" sx={{ ml: 2 }} onClick={() => refetchClassesList()} disabled={classesLoading}>
+                Refresh Classes
+              </Button>
+            </Box>
+
+            <Collapse in={wizardOpen}>
+              <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="subtitle1">Step {wizardIndex + 1} of {importedClasses ? importedClasses.length + 1 : 1}</Typography>
+                  <Box>
+                    <Button size="small" onClick={() => { setWizardOpen(false); setEditableClass(null); }}>Close</Button>
+                  </Box>
+                </Box>
+
+                {wizardIndex === 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body2" sx={{ mb: 1 }}>Pick a class to edit its schedule:</Typography>
+                    {classesLoading && <CircularProgress />}
+                    {!classesLoading && importedClasses && (
+                      <Stack spacing={1}>
+                        {importedClasses.map((c: any) => (
+                          <Box key={c.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Button size="small" onClick={() => { setEditableClass(c); setWizardIndex(1); }}>
+                              Edit
+                            </Button>
+                            <Typography>{c.name} (P{c.period})</Typography>
+                          </Box>
+                        ))}
+                      </Stack>
+                    )}
+                  </Box>
+                )}
+
+                {wizardIndex === 1 && editableClass && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="subtitle2">Editing: {editableClass.name}</Typography>
+                    <Grid container spacing={1} sx={{ mt: 1 }}>
+                      <Grid size={12}>
+                        <TextField fullWidth label="Period" type="number" value={editableClass.period || ''} onChange={(e) => setEditableClass({ ...editableClass, period: parseInt(e.target.value || '0', 10) || 0 })} />
+                      </Grid>
+                      <Grid size={6}>
+                        <TextField fullWidth label="Start Time" type="time" value={editableClass.startTime || '08:00'} onChange={(e) => setEditableClass({ ...editableClass, startTime: e.target.value })} InputLabelProps={{ shrink: true }} />
+                      </Grid>
+                      <Grid size={6}>
+                        <TextField fullWidth label="End Time" type="time" value={editableClass.endTime || '08:50'} onChange={(e) => setEditableClass({ ...editableClass, endTime: e.target.value })} InputLabelProps={{ shrink: true }} />
+                      </Grid>
+                      <Grid size={12}>
+                        <Typography variant="body2">Days</Typography>
+                        <Box>
+                          {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d, idx) => (
+                            <FormControlLabel key={d} control={<Checkbox checked={(editableClass.days || []).includes(idx)} onChange={(e) => {
+                              const days = new Set(editableClass.days || []);
+                              if (e.target.checked) days.add(idx); else days.delete(idx);
+                              setEditableClass({ ...editableClass, days: Array.from(days).sort((a:any,b:any)=>a-b) });
+                            }} />} label={d} />
+                          ))}
+                        </Box>
+                      </Grid>
+                    </Grid>
+                    <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                      <Button variant="contained" onClick={async () => {
+                        try {
+                          // Persist to server (preserves links via sourceId)
+                          const res = await fetch('/api/classes', { method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(editableClass) });
+                          if (res.ok) {
+                            setSnackbar({ open: true, message: 'Schedule saved', severity: 'success' });
+                            setWizardIndex(0);
+                            refetchClassesList();
+                            refetchClasses();
+                            setEditableClass(null);
+                          } else {
+                            const j = await res.json().catch(() => ({}));
+                            setSnackbar({ open: true, message: j.error || 'Failed to save', severity: 'error' });
+                          }
+                        } catch (e) {
+                          setSnackbar({ open: true, message: `Network error: ${(e as Error).message}`, severity: 'error' });
+                        }
+                      }}>Save</Button>
+                      <Button variant="outlined" onClick={() => { setEditableClass(null); setWizardIndex(0); }}>Back</Button>
+                    </Box>
+                  </Box>
+                )}
+
+              </Card>
+            </Collapse>
           </CardContent>
         </Card>
 
