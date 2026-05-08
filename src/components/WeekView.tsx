@@ -11,6 +11,7 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import { alpha, useTheme } from '@mui/material/styles';
+import { DAY_START_MIN, DAY_END_MIN, TOTAL_HEIGHT, PX_PER_HOUR, TIME_GUTTER, hourTop, halfHourTop, topForMinutes, heightForMinutes } from '@/lib/calendarMetrics';
 import dayjs from 'dayjs';
 import type { DaySchedule, ScheduleEntry } from '@/types';
 
@@ -24,11 +25,7 @@ interface Props {
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 7); // 7 AM through 7 PM
-const PX_PER_HOUR = 48;
-const DAY_START_MIN = 7 * 60;
-const DAY_END_MIN = 19 * 60;
-const TOTAL_HEIGHT = ((DAY_END_MIN - DAY_START_MIN) / 60) * PX_PER_HOUR;
-const TIME_GUTTER = 56;
+// constants imported from calendarMetrics to match DayView
 
 function formatHour(h: number): string {
   if (h === 12) return '12p';
@@ -38,6 +35,7 @@ function formatHour(h: number): string {
 
 export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
   const theme = useTheme();
+  const debug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debugSchedule') === '1';
   const start = dayjs(weekStart);
 
   // Now indicator updates every minute (only useful for "today" column).
@@ -51,7 +49,7 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
 
   return (
     <Box sx={{ overflowX: 'auto' }}>
-      <Box sx={{ minWidth: 760 }}>
+          <Box sx={{ minWidth: 760 }}>
         {/* ===== Header row: weekday + date ===== */}
         <Box sx={{ display: 'grid', gridTemplateColumns: `${TIME_GUTTER}px repeat(7, 1fr)` }}>
           <Box />
@@ -105,7 +103,7 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
           {/* Hour-label gutter */}
           <Box sx={{ position: 'relative' }}>
             {HOURS.map((hour) => {
-              const top = (hour - 7) * PX_PER_HOUR;
+               const top = hourTop(hour);
               return (
                 <Typography
                   key={hour}
@@ -141,33 +139,27 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
                 }}
               >
                 {/* Hour gridlines (full lines) */}
-                {HOURS.map((hour) => {
-                  const top = (hour - 7) * PX_PER_HOUR;
-                  return (
-                    <Box
-                      key={`hr-${hour}`}
-                      sx={{
-                        position: 'absolute',
-                        top,
-                        left: 0,
-                        right: 0,
-                        borderTop: 1,
-                        borderColor: alpha(theme.palette.divider, 0.5),
-                        pointerEvents: 'none',
-                      }}
-                    />
-                  );
-                })}
+                 {HOURS.map((hour) => {
+                   const top = hourTop(hour);
+                   return <Box key={`hr-${hour}`} sx={{ position: 'absolute', top, left: 0, right: 0, borderTop: 1, borderColor: alpha(theme.palette.divider, 0.5), pointerEvents: 'none' }} />;
+                 })}
 
                 {/* Class blocks */}
                 {day.classes.map((entry) => {
                   const [sh, sm] = entry.startTime.split(':').map(Number);
                   const [eh, em] = entry.endTime.split(':').map(Number);
-                  const startMin = sh * 60 + sm;
-                  const endMin = eh * 60 + em;
-                  const top = ((startMin - DAY_START_MIN) / 60) * PX_PER_HOUR;
-                  const height = Math.max(((endMin - startMin) / 60) * PX_PER_HOUR, 22);
-                  const clickable = !!onClassClick;
+                const startMin = sh * 60 + sm;
+                const endMin = eh * 60 + em;
+                const top = topForMinutes(startMin);
+                const height = heightForMinutes(startMin, endMin);
+                const clickable = !!onClassClick;
+
+                if (debug) {
+                  // eslint-disable-next-line no-console
+                  console.debug(
+                    `WeekView entry: ${entry.classInfo.name} ${entry.startTime}-${entry.endTime} (day ${day.date}) -> top=${top.toFixed(2)}px height=${height.toFixed(2)}px`
+                  );
+                }
 
                   return (
                     <Box
@@ -226,15 +218,20 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
                       >
                         {entry.classInfo.name}
                       </Typography>
-                      {height >= 36 && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ fontSize: '0.6rem', display: 'block', lineHeight: 1.15 }}
-                        >
-                          {entry.startTime}
-                        </Typography>
-                      )}
+                        {height >= 36 && (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ fontSize: '0.6rem', display: 'block', lineHeight: 1.15 }}
+                          >
+                            {entry.startTime}
+                          </Typography>
+                        )}
+                        {debug && (
+                          <Typography variant="caption" sx={{ position: 'absolute', right: 6, top: 4, fontSize: '0.6rem', color: 'text.secondary' }}>
+                            {`${top.toFixed(1)} / ${height.toFixed(1)}`}
+                          </Typography>
+                        )}
                     </Box>
                   );
                 })}
@@ -244,7 +241,7 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
                   <Box
                     sx={{
                       position: 'absolute',
-                      top: ((nowMin - DAY_START_MIN) / 60) * PX_PER_HOUR,
+                      top: topForMinutes(nowMin),
                       left: 0,
                       right: 0,
                       display: 'flex',

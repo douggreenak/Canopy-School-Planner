@@ -11,7 +11,6 @@ import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import Grid from '@mui/material/Grid';
 import IconButton from '@mui/material/IconButton';
-import LinearProgress from '@mui/material/LinearProgress';
 import Stack from '@mui/material/Stack';
 import Paper from '@mui/material/Paper';
 import Alert from '@mui/material/Alert';
@@ -93,7 +92,7 @@ export default function Dashboard() {
     };
   }, [manualHomework, tasks]);
 
-  if (classesLoading) return <LinearProgress />;
+  if (classesLoading) return null;
 
   const navigateDate = (dir: number) => {
     if (tab === 0) setSelectedDate(selectedDate.add(dir, 'day'));

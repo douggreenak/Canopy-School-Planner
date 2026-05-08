@@ -10,17 +10,24 @@ function useFetch<T>(url: string) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refetch = useCallback(() => {
+  const refetch = useCallback((): Promise<T> => {
     setLoading(true);
     setError(null);
-    fetch(url)
+    const p = fetch(url)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((d) => setData(d))
-      .catch((e) => setError(e.message))
+      .then((d) => {
+        setData(d);
+        return d as T;
+      })
+      .catch((e) => {
+        setError((e && e.message) || String(e));
+        throw e;
+      })
       .finally(() => setLoading(false));
+    return p as Promise<T>;
   }, [url]);
 
   useEffect(() => { refetch(); }, [refetch]);

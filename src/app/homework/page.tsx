@@ -9,7 +9,6 @@ import Fab from '@mui/material/Fab';
 import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
 import Checkbox from '@mui/material/Checkbox';
-import LinearProgress from '@mui/material/LinearProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -126,7 +125,7 @@ export default function HomeworkPage() {
   const getClassName = (classId: string) => classes?.find((c) => c.id === classId)?.name ?? 'Unknown';
   const getClassColor = (classId: string) => classes?.find((c) => c.id === classId)?.color ?? '';
 
-  if (loading) return <LinearProgress />;
+  if (loading) return null;
 
   return (
     <Box>

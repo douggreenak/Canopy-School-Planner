@@ -30,6 +30,7 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import { useThemeMode } from '@/components/ThemeRegistry';
+import LoadingOverlay from '@/components/LoadingOverlay';
 
 const DRAWER_WIDTH = 256;
 
@@ -245,6 +246,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <LoadingOverlay />
       {/* App bar – mobile only */}
       {isMobile && (
         <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>

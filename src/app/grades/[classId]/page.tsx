@@ -21,7 +21,6 @@ import CardContent from '@mui/material/CardContent';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
-import LinearProgress from '@mui/material/LinearProgress';
 import Stack from '@mui/material/Stack';
 import Grid from '@mui/material/Grid';
 import Table from '@mui/material/Table';
@@ -205,13 +204,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
   const loading = loadingClasses || loadingHomework;
   const color = cls ? gradeColor(cls.gradePercent, theme) : theme.palette.text.disabled;
 
-  if (loading && !cls) {
-    return (
-      <Box>
-        <LinearProgress />
-      </Box>
-    );
-  }
+  if (loading && !cls) return null;
 
   if (!loading && !cls) {
     return (

@@ -19,7 +19,6 @@ import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import LinearProgress from '@mui/material/LinearProgress';
 import Stack from '@mui/material/Stack';
 import Grid from '@mui/material/Grid';
 import Table from '@mui/material/Table';
@@ -515,7 +514,7 @@ export default function GradesPage() {
       )}
 
       {/* ===== Loading / empty states ===== */}
-      {loading && <LinearProgress />}
+      {loading && null}
 
       {!loading && psClasses.length === 0 && (
         <Card>

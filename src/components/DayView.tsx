@@ -14,12 +14,8 @@ import dayjs from 'dayjs';
 import type { DaySchedule, ScheduleEntry } from '@/types';
 
 // 7 AM through 7 PM = 13 hour labels, 12 hour intervals.
+import { PX_PER_HOUR, DAY_START_MIN, DAY_END_MIN, TOTAL_HEIGHT, TIME_GUTTER, MIN_BLOCK_HEIGHT, hourTop, halfHourTop, minutesToPixels, heightForMinutes, topForMinutes } from '@/lib/calendarMetrics';
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 7);
-const PX_PER_HOUR = 64;
-const DAY_START_MIN = 7 * 60;   // 420 — top of the timeline
-const DAY_END_MIN = 19 * 60;    // 1140 — bottom (7 PM)
-const TOTAL_HEIGHT = ((DAY_END_MIN - DAY_START_MIN) / 60) * PX_PER_HOUR; // 768px
-const TIME_GUTTER = 64; // px reserved for the hour labels on the left
 
 function formatHour(h: number): string {
   if (h === 0) return '12 AM';
@@ -50,6 +46,7 @@ interface Props {
 
 export default function DayView({ schedule, date, onClassClick }: Props) {
   const theme = useTheme();
+  const debug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debugSchedule') === '1';
 
   // "Now" indicator updates every minute. Only meaningful when viewing today.
   const [now, setNow] = useState(() => dayjs());
@@ -76,7 +73,7 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
     <Box sx={{ position: 'relative', height: TOTAL_HEIGHT, mt: 1 }}>
       {/* Hour rows: label on the left, divider line across the right. */}
       {HOURS.map((hour) => {
-        const top = (hour - 7) * PX_PER_HOUR;
+  const top = hourTop(hour);
         return (
           <Box key={hour}>
             <Typography
@@ -112,7 +109,7 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
 
       {/* Half-hour ticks — faint dashed lines, just enough visual rhythm. */}
       {HOURS.slice(0, -1).map((hour) => {
-        const top = (hour - 7) * PX_PER_HOUR + PX_PER_HOUR / 2;
+        const top = halfHourTop(hour);
         return (
           <Box
             key={`half-${hour}`}
@@ -135,13 +132,18 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
         const [eh, em] = entry.endTime.split(':').map(Number);
         const startMin = sh * 60 + sm;
         const endMin = eh * 60 + em;
-        const top = ((startMin - DAY_START_MIN) / 60) * PX_PER_HOUR;
-        // Floor at 28px so very short classes (or weird import data) still
+        const top = topForMinutes(startMin);
+        // Floor at MIN_BLOCK_HEIGHT so very short classes (or weird import data) still
         // show up as something readable rather than a 4px line.
-        const height = Math.max(((endMin - startMin) / 60) * PX_PER_HOUR, 28);
+        const height = heightForMinutes(startMin, endMin);
         // Only show the teacher/room row when the block is tall enough.
         const showTeacher = height >= 56;
         const clickable = !!onClassClick;
+
+        if (debug) {
+          // eslint-disable-next-line no-console
+          console.debug(`DayView entry: ${entry.classInfo.name} ${entry.startTime}-${entry.endTime} -> top=${top.toFixed(2)}px height=${height.toFixed(2)}px`);
+        }
 
         return (
           <Box
@@ -222,6 +224,11 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
                 {entry.classInfo.teacher}{entry.classInfo.room ? ` · Rm ${entry.classInfo.room}` : ''}
               </Typography>
             )}
+            {debug && (
+              <Typography variant="caption" sx={{ position: 'absolute', right: 6, top: 4, fontSize: '0.6rem', color: 'text.secondary' }}>
+                {`${top.toFixed(1)} / ${height.toFixed(1)}`}
+              </Typography>
+            )}
           </Box>
         );
       })}
@@ -232,7 +239,7 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
         <Box
           sx={{
             position: 'absolute',
-            top: ((nowMin - DAY_START_MIN) / 60) * PX_PER_HOUR,
+            top: topForMinutes(nowMin),
             left: TIME_GUTTER - 4,
             right: 0,
             display: 'flex',

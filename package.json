@@ -14,6 +14,7 @@
     "@mui/icons-material": "^9.0.0",
     "@mui/material": "^9.0.0",
     "@mui/x-date-pickers": "^9.0.0",
+    "date-fns": "^4.1.0",
     "dayjs": "^1.11.20",
     "google-auth-library": "^10.6.2",
     "googleapis": "^171.4.0",
@@ -21,6 +22,7 @@
     "next": "16.2.3",
     "puppeteer-core": "^24.40.0",
     "react": "19.2.4",
+    "react-big-calendar": "^1.19.4",
     "react-dom": "19.2.4",
     "uuid": "^13.0.0"
   },

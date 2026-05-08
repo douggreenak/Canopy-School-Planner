@@ -75,13 +75,8 @@ const VIEW_MODE_INDEX: Record<ViewMode, number> = { day: 0, week: 1, year: 2 };
 const VIEW_MODES: ViewMode[] = ['day', 'week', 'year'];
 
 export default function SchedulePage() {
-  // useSearchParams forces a Suspense boundary in Next 16 to keep the page
-  // statically renderable. Wrap the whole thing once, not per-component.
-  return (
-    <Suspense fallback={<LinearProgress />}>
-      <SchedulePageInner />
-    </Suspense>
-  );
+  // Suspense fallback removed — rely on central LoadingOverlay instead.
+  return <SchedulePageInner />;
 }
 
 function SchedulePageInner() {
@@ -214,7 +209,7 @@ function SchedulePageInner() {
     setDetailDate(date);
   };
 
-  if (cLoading || dLoading) return <LinearProgress />;
+  if (cLoading || dLoading) return null;
 
   const isTodaySelected = selectedDate.isSame(dayjs(), 'day');
   const todayDisruption = daySchedule?.disruption;

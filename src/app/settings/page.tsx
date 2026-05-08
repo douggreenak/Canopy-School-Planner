@@ -133,6 +133,27 @@ function SettingsInner() {
   // Normalize names client-side for matching to PowerSchool rows
   const normalizeName = (s?: string | null) => (s ? String(s).replace(/\u00A0/g, ' ').replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase() : '');
 
+  // Normalize various human-entered time strings to 24-hour HH:mm for
+  // input[type=time] compatibility. Accepts inputs like "7:30", "7:30 AM",
+  // "07:30am" and returns "07:30". Falls back to the raw input when it
+  // doesn't match an expected pattern.
+  const normalizeTime = (input?: string | null): string | undefined => {
+    if (!input) return undefined;
+    const s = String(input).trim();
+    const m = s.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/i);
+    if (!m) return undefined;
+    let hh = parseInt(m[1], 10);
+    const mm = parseInt(m[2], 10);
+    const ampm = (m[3] || '').toLowerCase();
+    if (ampm === 'pm') {
+      if (hh < 12) hh += 12;
+    } else if (ampm === 'am') {
+      if (hh === 12) hh = 0;
+    }
+    if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return undefined;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  };
+
   // Google Classroom OAuth
   const [classroomClientId, setClassroomClientId] = useState('');
   const [classroomClientSecret, setClassroomClientSecret] = useState('');
@@ -1000,7 +1021,20 @@ function SettingsInner() {
             </Typography>
 
               <Box sx={{ mb: 2 }}>
-                <Button variant="contained" onClick={() => { setWizardOpen(true); setWizardIndex(0); }} disabled={classesLoading || !importedClasses}>
+                <Button
+                  variant="contained"
+                  onClick={async () => {
+                    try {
+                      // Ensure we have a fresh classes list before opening the wizard.
+                      await refetchClassesList();
+                      setWizardOpen(true);
+                      setWizardIndex(0);
+                    } catch (e) {
+                      setSnackbar({ open: true, message: `Failed to refresh classes: ${(e as Error).message}`, severity: 'error' });
+                    }
+                  }}
+                  disabled={classesLoading}
+                >
                   Open Schedule Wizard
                 </Button>
                 <Button variant="outlined" sx={{ ml: 2 }} onClick={async () => {
@@ -1099,12 +1133,31 @@ function SettingsInner() {
                       <Stack spacing={1}>
                         {importedClasses.map((c: SchoolClass) => (
                           <Box key={c.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Button size="small" onClick={() => {
-                              // Clone to avoid mutating the original object from the list
-                              const clone: SchoolClass = { ...c, dayTimes: c.dayTimes ? { ...c.dayTimes } : undefined };
-                              setEditableClass(clone);
-                              setWizardIndex(1);
-                            }}>
+                               <Button size="small" onClick={() => {
+                               // Clone to avoid mutating the original object from the list
+                               const clone: SchoolClass = { ...c, dayTimes: c.dayTimes ? { ...c.dayTimes } : undefined };
+                               // Normalize stored times so the time inputs accept them.
+                               if (clone.startTime) {
+                                 const n = normalizeTime(clone.startTime);
+                                 if (n) clone.startTime = n;
+                               }
+                               if (clone.endTime) {
+                                 const n = normalizeTime(clone.endTime);
+                                 if (n) clone.endTime = n;
+                               }
+                               if (clone.dayTimes) {
+                                 for (const k of Object.keys(clone.dayTimes)) {
+                                   const dt = clone.dayTimes[Number(k)];
+                                   if (!dt) continue;
+                                   const ns = normalizeTime(dt.startTime);
+                                   const ne = normalizeTime(dt.endTime);
+                                   if (ns) dt.startTime = ns;
+                                   if (ne) dt.endTime = ne;
+                                 }
+                               }
+                               setEditableClass(clone);
+                               setWizardIndex(1);
+                             }}>
                               Edit
                             </Button>
                             <Typography>{c.name} (P{c.period})</Typography>
@@ -1139,8 +1192,10 @@ function SettingsInner() {
                                   // If the matrix included times, set per-day overrides for those days.
                                   const newDayTimes = { ...(editableClass.dayTimes || {}) } as Record<number, { startTime: string; endTime: string }>;
                                   if (suggestion.startTime) {
+                                    const ns = normalizeTime(suggestion.startTime) || suggestion.startTime!;
+                                    const ne = normalizeTime(suggestion.endTime) || suggestion.endTime || suggestion.startTime!;
                                     for (const d of daysArr) {
-                                      newDayTimes[d] = { startTime: suggestion.startTime!, endTime: suggestion.endTime || suggestion.startTime! };
+                                      newDayTimes[d] = { startTime: ns, endTime: ne };
                                     }
                                   }
                                   setEditableClass({ ...editableClass, days: daysArr, dayTimes: Object.keys(newDayTimes).length > 0 ? newDayTimes : undefined });
@@ -1162,30 +1217,55 @@ function SettingsInner() {
                         <TextField fullWidth label="Period" type="number" value={editableClass.period || ''} onChange={(e) => setEditableClass({ ...editableClass, period: parseInt(e.target.value || '0', 10) || 0 })} />
                       </Grid>
                       <Grid size={6}>
-                        <TextField fullWidth label="Start Time" type="time" value={editableClass.startTime || '08:00'} onChange={(e) => setEditableClass({ ...editableClass, startTime: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} />
+                        <TextField
+                          fullWidth
+                          label="Start Time"
+                          type="time"
+                          value={normalizeTime(editableClass.startTime) || editableClass.startTime || '08:00'}
+                          onChange={(e) => setEditableClass({ ...editableClass, startTime: e.target.value })}
+                          slotProps={{ inputLabel: { shrink: true } }}
+                        />
                       </Grid>
                       <Grid size={6}>
-                        <TextField fullWidth label="End Time" type="time" value={editableClass.endTime || '08:50'} onChange={(e) => setEditableClass({ ...editableClass, endTime: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} />
+                        <TextField
+                          fullWidth
+                          label="End Time"
+                          type="time"
+                          value={normalizeTime(editableClass.endTime) || editableClass.endTime || '08:50'}
+                          onChange={(e) => setEditableClass({ ...editableClass, endTime: e.target.value })}
+                          slotProps={{ inputLabel: { shrink: true } }}
+                        />
                       </Grid>
                       <Grid size={12}>
                         <Typography variant="body2">Days</Typography>
                         <Box>
-                          {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d, idx) => (
-                            <FormControlLabel key={d} control={<Checkbox checked={(editableClass.days || []).includes(idx)} onChange={(e) => {
-                              const daysSet = new Set<number>(editableClass.days || []);
-                              let dayTimesCopy: Record<number, { startTime: string; endTime: string }> | undefined = editableClass.dayTimes ? { ...editableClass.dayTimes } : undefined;
-                              if (e.target.checked) {
-                                daysSet.add(idx);
-                              } else {
-                                daysSet.delete(idx);
-                                if (dayTimesCopy) {
-                                  delete dayTimesCopy[idx as any];
-                                  if (Object.keys(dayTimesCopy).length === 0) dayTimesCopy = undefined;
-                                }
-                              }
-                              setEditableClass({ ...editableClass, days: Array.from(daysSet).sort((a, b) => a - b), dayTimes: dayTimesCopy });
-                            }} />} label={d} />
-                          ))}
+                          {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d, idx) => {
+                            // UI shows Mon..Sun (idx 0..6); internal representation uses 0=Sun..6=Sat.
+                            // Map UI index to weekday number: Mon -> 1, ..., Sun -> 0
+                            const weekdayNum = (idx + 1) % 7;
+                            return (
+                              <FormControlLabel
+                                key={d}
+                                control={<Checkbox
+                                  checked={(editableClass.days || []).includes(weekdayNum)}
+                                  onChange={(e) => {
+                                    const daysSet = new Set<number>(editableClass.days || []);
+                                    let dayTimesCopy: Record<number, { startTime: string; endTime: string }> | undefined = editableClass.dayTimes ? { ...editableClass.dayTimes } : undefined;
+                                    if (e.target.checked) {
+                                      daysSet.add(weekdayNum);
+                                    } else {
+                                      daysSet.delete(weekdayNum);
+                                      if (dayTimesCopy) {
+                                        delete dayTimesCopy[weekdayNum as any];
+                                        if (Object.keys(dayTimesCopy).length === 0) dayTimesCopy = undefined;
+                                      }
+                                    }
+                                    setEditableClass({ ...editableClass, days: Array.from(daysSet).sort((a, b) => a - b), dayTimes: dayTimesCopy });
+                                  }}
+                                />} label={d}
+                              />
+                            );
+                          })}
                         </Box>
                       </Grid>
 
@@ -1193,8 +1273,10 @@ function SettingsInner() {
                         <Typography variant="body2" sx={{ mt: 1, mb: 1 }}>Per-day Times (optional)</Typography>
                         <Box>
                           {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d, idx) => {
-                            const meets = (editableClass.days || []).includes(idx);
-                            const dt = editableClass.dayTimes && editableClass.dayTimes[idx];
+                            // Map UI index (Mon..Sun) to internal weekday number (0=Sun..6=Sat)
+                            const weekdayNum = (idx + 1) % 7;
+                            const meets = (editableClass.days || []).includes(weekdayNum);
+                            const dt = editableClass.dayTimes && editableClass.dayTimes[weekdayNum];
                             const overrideChecked = !!dt;
                             return (
                               <Box key={d} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -1205,9 +1287,11 @@ function SettingsInner() {
                                       onChange={(e) => {
                                         const dayTimes = { ...(editableClass.dayTimes || {}) } as Record<number, { startTime: string; endTime: string }>;
                                         if (e.target.checked) {
-                                          dayTimes[idx] = dayTimes[idx] || { startTime: editableClass.startTime || '08:00', endTime: editableClass.endTime || '08:50' };
+                                          const ns = normalizeTime(editableClass.startTime) || editableClass.startTime || '08:00';
+                                          const ne = normalizeTime(editableClass.endTime) || editableClass.endTime || '08:50';
+                                          dayTimes[weekdayNum] = dayTimes[weekdayNum] || { startTime: ns, endTime: ne };
                                         } else {
-                                          delete dayTimes[idx as any];
+                                          delete dayTimes[weekdayNum as any];
                                         }
                                         const newDayTimes = Object.keys(dayTimes).length > 0 ? dayTimes : undefined;
                                         setEditableClass({ ...editableClass, dayTimes: newDayTimes });
@@ -1220,11 +1304,13 @@ function SettingsInner() {
                                 <TextField
                                   size="small"
                                   type="time"
-                                  value={(editableClass.dayTimes && editableClass.dayTimes[idx]?.startTime) || ''}
+                                  value={normalizeTime(editableClass.dayTimes && editableClass.dayTimes[weekdayNum]?.startTime) || (editableClass.dayTimes && editableClass.dayTimes[weekdayNum]?.startTime) || ''}
                                   onChange={(e) => {
                                     const newDayTimes = { ...(editableClass.dayTimes || {}) } as Record<number, { startTime: string; endTime: string }>;
-                                    newDayTimes[idx] = newDayTimes[idx] || { startTime: editableClass.startTime || '08:00', endTime: editableClass.endTime || '08:50' };
-                                    newDayTimes[idx].startTime = e.target.value;
+                                    const ns = normalizeTime(editableClass.startTime) || editableClass.startTime || '08:00';
+                                    const ne = normalizeTime(editableClass.endTime) || editableClass.endTime || '08:50';
+                                    newDayTimes[weekdayNum] = newDayTimes[weekdayNum] || { startTime: ns, endTime: ne };
+                                    newDayTimes[weekdayNum].startTime = e.target.value;
                                     setEditableClass({ ...editableClass, dayTimes: newDayTimes });
                                   }}
                                   sx={{ width: 120 }}
@@ -1234,11 +1320,13 @@ function SettingsInner() {
                                 <TextField
                                   size="small"
                                   type="time"
-                                  value={(editableClass.dayTimes && editableClass.dayTimes[idx]?.endTime) || ''}
+                                  value={normalizeTime(editableClass.dayTimes && editableClass.dayTimes[weekdayNum]?.endTime) || (editableClass.dayTimes && editableClass.dayTimes[weekdayNum]?.endTime) || ''}
                                   onChange={(e) => {
                                     const newDayTimes = { ...(editableClass.dayTimes || {}) } as Record<number, { startTime: string; endTime: string }>;
-                                    newDayTimes[idx] = newDayTimes[idx] || { startTime: editableClass.startTime || '08:00', endTime: editableClass.endTime || '08:50' };
-                                    newDayTimes[idx].endTime = e.target.value;
+                                    const ns = normalizeTime(editableClass.startTime) || editableClass.startTime || '08:00';
+                                    const ne = normalizeTime(editableClass.endTime) || editableClass.endTime || '08:50';
+                                    newDayTimes[weekdayNum] = newDayTimes[weekdayNum] || { startTime: ns, endTime: ne };
+                                    newDayTimes[weekdayNum].endTime = e.target.value;
                                     setEditableClass({ ...editableClass, dayTimes: newDayTimes });
                                   }}
                                   sx={{ width: 120 }}
@@ -1252,8 +1340,11 @@ function SettingsInner() {
                             <Button size="small" onClick={() => {
                               const daysArr = editableClass.days || [];
                               const newDayTimes = { ...(editableClass.dayTimes || {}) } as Record<number, { startTime: string; endTime: string }>;
+                              // Ensure we use normalized HH:mm values for inputs.
+                              const normStart = normalizeTime(editableClass.startTime) || editableClass.startTime || '08:00';
+                              const normEnd = normalizeTime(editableClass.endTime) || editableClass.endTime || '08:50';
                               for (const d of daysArr) {
-                                newDayTimes[d] = { startTime: editableClass.startTime || '08:00', endTime: editableClass.endTime || '08:50' };
+                                newDayTimes[d] = { startTime: normStart, endTime: normEnd };
                               }
                               setEditableClass({ ...editableClass, dayTimes: newDayTimes });
                             }}>Apply Default Times To Selected Days</Button>
