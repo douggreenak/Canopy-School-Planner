@@ -12,21 +12,25 @@ export function minutesToPixels(minutesSinceMidnight: number) {
 }
 
 export function topForMinutes(minutesSinceMidnight: number) {
-  // Use floor for top so elements align to the earlier pixel and avoid
-  // 1px gaps caused by inconsistent rounding between start/end calculations.
-  return Math.floor(minutesToPixels(minutesSinceMidnight));
+  // Return fractional pixel value (no rounding). Using exact floats keeps
+  // relative gaps proportional to actual minute differences which is more
+  // visually consistent than asymmetric floor/ceil rounding.
+  return minutesToPixels(minutesSinceMidnight);
 }
 
 export function heightForMinutes(startMinutes: number, endMinutes: number) {
-  // Use ceil for height so the block covers the full fractional pixel area
-  // between start and end; this prevents tiny gaps at boundaries.
-  return Math.max(Math.ceil(minutesToPixels(endMinutes) - minutesToPixels(startMinutes)), MIN_BLOCK_HEIGHT);
+  // Use exact fractional height. Keep a minimum so very small intervals
+  // remain visible.
+  const startPx = minutesToPixels(startMinutes);
+  const endPx = minutesToPixels(endMinutes);
+  const height = endPx - startPx;
+  return Math.max(height, MIN_BLOCK_HEIGHT);
 }
 
 export function hourTop(hour: number) {
-  return Math.floor((hour - 7) * PX_PER_HOUR);
+  return (hour - 7) * PX_PER_HOUR;
 }
 
 export function halfHourTop(hour: number) {
-  return Math.floor((hour - 7) * PX_PER_HOUR + PX_PER_HOUR / 2);
+  return (hour - 7) * PX_PER_HOUR + PX_PER_HOUR / 2;
 }

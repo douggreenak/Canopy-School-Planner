@@ -142,8 +142,8 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
 
                 {/* Class blocks */}
                 {day.classes.map((entry) => {
-                  const [sh, sm] = entry.startTime.split(':').map(Number);
-                  const [eh, em] = entry.endTime.split(':').map(Number);
+                const [sh, sm] = entry.startTime.split(':').map(Number);
+                const [eh, em] = entry.endTime.split(':').map(Number);
                 const startMin = sh * 60 + sm;
                 const endMin = eh * 60 + em;
                 const top = topForMinutes(startMin);

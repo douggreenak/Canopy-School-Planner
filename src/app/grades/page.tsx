@@ -37,6 +37,7 @@ import { alpha, useTheme } from '@mui/material/styles';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
+import LinearProgress from '@mui/material/LinearProgress';
 import SchoolIcon from '@mui/icons-material/School';
 import SyncIcon from '@mui/icons-material/Sync';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
