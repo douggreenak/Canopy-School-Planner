@@ -361,8 +361,8 @@ export async function scrapePowerSchool(
         document.querySelector('.box-round') ||
         document.querySelector('[class*="student"]') ||
         document.querySelector('a[href*="scores.html"]') ||
-        document.body.innerHTML.includes('Quick Lookup') ||
-        document.body.innerHTML.includes('Grades and Attendance')
+        (document.body?.innerHTML ?? '').includes('Quick Lookup') ||
+        (document.body?.innerHTML ?? '').includes('Grades and Attendance')
       );
     });
 

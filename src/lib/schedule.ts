@@ -94,16 +94,53 @@ export function generateEarlyOutOverrides(
   const newDuration = earlyEnd - firstStart;
   const ratio = newDuration / normalDuration;
 
-  return sorted.map((c) => {
-    const relativeStart = timeToMinutes(c.startTime) - firstStart;
-    const relativeEnd = timeToMinutes(c.endTime) - firstStart;
-    return {
-      period: c.period,
-      startTime: minutesToTime(firstStart + Math.round(relativeStart * ratio)),
-      endTime: minutesToTime(firstStart + Math.round(relativeEnd * ratio)),
-      cancelled: false,
-    };
-  });
+  // Compute each class's ideal (floating) new duration, then allocate
+  // integer minutes using the Largest Remainder method so the rounded
+  // durations sum exactly to newDuration. This avoids 1-minute rounding
+  // gaps between adjacent periods that were visible on the calendar.
+  const originalDurations = sorted.map((c) => timeToMinutes(c.endTime) - timeToMinutes(c.startTime));
+  const idealDurations = originalDurations.map((d) => d * ratio);
+  const floored = idealDurations.map((d) => Math.floor(d));
+  const remainders = idealDurations.map((d, i) => ({ i, rem: d - floored[i] }));
+  const floorSum = floored.reduce((a, b) => a + b, 0);
+  let remaining = newDuration - floorSum;
+  // If for any reason remaining is negative (shouldn't happen), clamp to 0.
+  if (remaining < 0) remaining = 0;
+
+  // Sort by fractional remainder descending to distribute the leftover minutes.
+  remainders.sort((a, b) => b.rem - a.rem);
+  const addOne = new Array(sorted.length).fill(0);
+  for (let k = 0; k < remaining && k < remainders.length; k++) {
+    addOne[remainders[k].i] = 1;
+  }
+
+  // Build the overrides by walking the sorted classes and assigning
+  // consecutive minute ranges so there are no gaps between them. The
+  // final class's end time is implicitly constrained to firstStart+newDuration
+  // by construction.
+  const overrides: { period: number; startTime: string; endTime: string; cancelled: boolean }[] = [];
+  let cursor = firstStart;
+  for (let idx = 0; idx < sorted.length; idx++) {
+    const assigned = Math.max(1, floored[idx] + addOne[idx]); // ensure at least 1 minute
+    const start = cursor;
+    const end = cursor + assigned;
+    overrides.push({ period: sorted[idx].period, startTime: minutesToTime(start), endTime: minutesToTime(end), cancelled: false });
+    cursor = end;
+  }
+
+  // If rounding left us short (due to clamping to 1), ensure the last
+  // class ends exactly at earlyEnd to avoid tiny gaps/overlaps.
+  if (overrides.length > 0) {
+    const last = overrides[overrides.length - 1];
+    last.endTime = minutesToTime(earlyEnd);
+    // Also ensure the penultimate end equals last start, adjust if necessary
+    for (let i = overrides.length - 2; i >= 0; i--) {
+      const nextStart = timeToMinutes(overrides[i + 1].startTime);
+      overrides[i].endTime = minutesToTime(nextStart);
+    }
+  }
+
+  return overrides;
 }
 
 /**
