@@ -75,8 +75,11 @@ const VIEW_MODE_INDEX: Record<ViewMode, number> = { day: 0, week: 1, year: 2 };
 const VIEW_MODES: ViewMode[] = ['day', 'week', 'year'];
 
 export default function SchedulePage() {
-  // Suspense fallback removed — rely on central LoadingOverlay instead.
-  return <SchedulePageInner />;
+  return (
+    <Suspense fallback={null}>
+      <SchedulePageInner />
+    </Suspense>
+  );
 }
 
 function SchedulePageInner() {
