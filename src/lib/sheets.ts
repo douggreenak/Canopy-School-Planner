@@ -38,7 +38,7 @@ const SPREADSHEET_ID = () => {
 
 // --------------- Helpers ---------------
 
-async function getRows(sheet: SheetName): Promise<string[][]> {
+export async function getRows(sheet: SheetName): Promise<string[][]> {
   const res = await getSheets().spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID(),
     range: `${sheet}!A:Z`,
@@ -62,7 +62,7 @@ async function getRows(sheet: SheetName): Promise<string[][]> {
  *   2. Total data loss when the header is missing — previously the only
  *      data row would be skipped as if it were a header.
  */
-function dataRows(rows: string[][]): string[][] {
+export function dataRows(rows: string[][]): string[][] {
   if (rows.length === 0) return [];
   const firstCell = (rows[0]?.[0] || '').trim().toLowerCase();
   const startIdx = firstCell === 'id' ? 1 : 0;
@@ -108,7 +108,7 @@ async function appendRows(sheet: SheetName, rows: string[][]) {
  * entry in `updates` becomes one range in the batch. Same rationale as
  * appendRows — collapses N updates into 1.
  */
-async function batchUpdateRows(
+export async function batchUpdateRows(
   sheet: SheetName,
   updates: { rowIndex: number; values: string[] }[],
 ) {
@@ -213,7 +213,7 @@ export async function initializeSpreadsheet() {
 
 // --------------- Classes ---------------
 
-function rowToClass(row: string[]): SchoolClass {
+export function rowToClass(row: string[]): SchoolClass {
   return {
     id: row[0],
     name: row[1],
@@ -236,7 +236,7 @@ function rowToClass(row: string[]): SchoolClass {
   };
 }
 
-function classToRow(c: SchoolClass): string[] {
+export function classToRow(c: SchoolClass): string[] {
   return [
     c.id,
     c.name,
@@ -270,15 +270,15 @@ export async function addClass(c: SchoolClass) {
   await appendRow('Classes', classToRow(c));
 }
 
-export async function updateClass(c: SchoolClass) {
-  const rows = await getRows('Classes');
-  const idx = rows.findIndex((r) => r[0] === c.id);
+export async function updateClass(c: SchoolClass, rows?: string[][]) {
+  const currentRows = rows ?? await getRows('Classes');
+  const idx = currentRows.findIndex((r) => r[0] === c.id);
   if (idx > 0) {
     // Preserve existing per-day overrides when the incoming object does
     // not include dayTimes (e.g. edits from ClassDialog which don't edit
     // per-day times). Merge conservatively so we don't accidentally wipe
     // user-managed schedule fields.
-    const prior = rowToClass(rows[idx]);
+    const prior = rowToClass(currentRows[idx]);
     const merged: SchoolClass = {
       ...prior,
       ...c,
@@ -355,9 +355,9 @@ export async function addHomework(h: Homework) {
   await appendRow('Homework', homeworkToRow(h));
 }
 
-export async function updateHomework(h: Homework) {
-  const rows = await getRows('Homework');
-  const idx = rows.findIndex((r) => r[0] === h.id);
+export async function updateHomework(h: Homework, rows?: string[][]) {
+  const currentRows = rows ?? await getRows('Homework');
+  const idx = currentRows.findIndex((r) => r[0] === h.id);
   if (idx > 0) await updateRow('Homework', idx + 1, homeworkToRow(h));
 }
 
@@ -726,9 +726,9 @@ export async function addExam(e: Exam) {
   await appendRow('Exams', examToRow(e));
 }
 
-export async function updateExam(e: Exam) {
-  const rows = await getRows('Exams');
-  const idx = rows.findIndex((r) => r[0] === e.id);
+export async function updateExam(e: Exam, rows?: string[][]) {
+  const currentRows = rows ?? await getRows('Exams');
+  const idx = currentRows.findIndex((r) => r[0] === e.id);
   if (idx > 0) await updateRow('Exams', idx + 1, examToRow(e));
 }
 
@@ -768,9 +768,9 @@ export async function addTask(t: Task) {
   await appendRow('Tasks', taskToRow(t));
 }
 
-export async function updateTask(t: Task) {
-  const rows = await getRows('Tasks');
-  const idx = rows.findIndex((r) => r[0] === t.id);
+export async function updateTask(t: Task, rows?: string[][]) {
+  const currentRows = rows ?? await getRows('Tasks');
+  const idx = currentRows.findIndex((r) => r[0] === t.id);
   if (idx > 0) await updateRow('Tasks', idx + 1, taskToRow(t));
 }
 
@@ -827,9 +827,9 @@ export async function addDisruption(d: ScheduleDisruption) {
   await appendRow('Disruptions', disruptionToRow(d));
 }
 
-export async function updateDisruption(d: ScheduleDisruption) {
-  const rows = await getRows('Disruptions');
-  const idx = rows.findIndex((r) => r[0] === d.id);
+export async function updateDisruption(d: ScheduleDisruption, rows?: string[][]) {
+  const currentRows = rows ?? await getRows('Disruptions');
+  const idx = currentRows.findIndex((r) => r[0] === d.id);
   if (idx > 0) await updateRow('Disruptions', idx + 1, disruptionToRow(d));
 }
 

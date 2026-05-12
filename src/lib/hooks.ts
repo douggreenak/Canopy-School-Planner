@@ -5,39 +5,70 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { SchoolClass, Homework, Exam, Task, ScheduleDisruption } from '@/types';
 
+// Global state to deduplicate ongoing requests and provide a basic cache.
+const ongoingRequests = new Map<string, Promise<any>>();
+const globalCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 5_000; // 5 seconds
+
+async function fetchWithDeduplication<T>(url: string, forceRefresh = false): Promise<T> {
+  if (!forceRefresh) {
+    const cached = globalCache.get(url);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return cached.data;
+    }
+  }
+
+  if (ongoingRequests.has(url)) {
+    return ongoingRequests.get(url);
+  }
+
+  const requestPromise = fetch(url)
+    .then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then((d) => {
+      globalCache.set(url, { data: d, timestamp: Date.now() });
+      return d as T;
+    })
+    .finally(() => {
+      ongoingRequests.delete(url);
+    });
+
+  ongoingRequests.set(url, requestPromise);
+  return requestPromise;
+}
+
 function useFetch<T>(url: string) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refetch = useCallback((): Promise<T> => {
+  const refetch = useCallback(async (forceRefresh = false): Promise<T> => {
     setLoading(true);
     setError(null);
-    const p = fetch(url)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => {
-        setData(d);
-        return d as T;
-      })
-      .catch((e) => {
-        setError((e && e.message) || String(e));
-        throw e;
-      })
-      .finally(() => setLoading(false));
-    return p as Promise<T>;
+    try {
+      const d = await fetchWithDeduplication<T>(url, forceRefresh);
+      setData(d);
+      return d;
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      setError(errorMessage);
+      throw e;
+    } finally {
+      setLoading(false);
+    }
   }, [url]);
 
   useEffect(() => { refetch(); }, [refetch]);
 
-  // Optimistic update helper: lets callers change the cached data without
-  // waiting for a network round-trip (delete a row, flip a checkbox, etc.).
-  // Accepts either the next value or an updater function, mirroring setState.
   const mutate = useCallback((next: T | null | ((prev: T | null) => T | null)) => {
-    setData((prev) => (typeof next === 'function' ? (next as (p: T | null) => T | null)(prev) : next));
-  }, []);
+    setData((prev) => {
+      const updated = typeof next === 'function' ? (next as (p: T | null) => T | null)(prev) : next;
+      globalCache.set(url, { data: updated, timestamp: Date.now() });
+      return updated;
+    });
+  }, [url]);
 
   return { data, loading, error, refetch, mutate };
 }
