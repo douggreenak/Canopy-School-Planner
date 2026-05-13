@@ -31,6 +31,7 @@ import DarkModeIcon from '@mui/icons-material/DarkMode';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import { useThemeMode } from '@/components/ThemeRegistry';
 import LoadingOverlay from '@/components/LoadingOverlay';
+import SetupWizard from '@/components/SetupWizard';
 
 const DRAWER_WIDTH = 256;
 
@@ -171,16 +172,26 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // which case we render nothing (don't nag new users with red dots).
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [healthError, setHealthError] = useState<string | undefined>();
+  const [wizardOpen, setWizardOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setWizardOpen(true);
+    window.addEventListener('open-setup-wizard', handler);
+    return () => window.removeEventListener('open-setup-wizard', handler);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     fetch('/api/setup/health')
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        // If the error is "Missing credentials", treat it as "not set up yet"
-        // rather than a scary red dot. New users haven't failed at anything.
         if (!data.ok && data.error === 'Missing credentials') {
           setHealthOk(null);
+          // Show the wizard on first visit if creds are not configured.
+          if (typeof window !== 'undefined' && !localStorage.getItem('sp-wizard-dismissed')) {
+            setWizardOpen(true);
+          }
         } else {
           setHealthOk(!!data.ok);
           setHealthError(data.error);
@@ -247,6 +258,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <LoadingOverlay />
+      <SetupWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
       {/* App bar – mobile only */}
       {isMobile && (
         <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>

@@ -72,6 +72,7 @@ interface ClassBlockProps {
 }
 
 const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug }: ClassBlockProps) => {
+  const showTime = height >= 48;
   const showTeacher = height >= 56;
   const clickable = !!onClassClick;
 
@@ -139,10 +140,12 @@ const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug }: Cla
       >
         {entry.classInfo.name}
       </Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.2, fontWeight: 600 }}>
-        {formatTime(entry.startTime)} – {formatTime(entry.endTime)}
-        {entry.cancelled && ' · Cancelled'}
-      </Typography>
+      {showTime && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.2, fontWeight: 600 }}>
+          {formatTime(entry.startTime)} – {formatTime(entry.endTime)}
+          {entry.cancelled && ' · Cancelled'}
+        </Typography>
+      )}
       {showTeacher && entry.classInfo.teacher && entry.classInfo.teacher !== 'TBD' && (
         <Typography
           variant="caption"

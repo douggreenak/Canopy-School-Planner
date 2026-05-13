@@ -620,6 +620,17 @@ function SettingsInner() {
 
       <Stack spacing={3}>
 
+        {/* ===== SETUP WIZARD LAUNCHER ===== */}
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => window.dispatchEvent(new Event('open-setup-wizard'))}
+          >
+            Launch Setup Wizard
+          </Button>
+        </Box>
+
         {/* ===== QUICK SETUP ===== */}
         <Card sx={(theme) => ({
             border: '2px solid',
