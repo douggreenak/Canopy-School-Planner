@@ -727,16 +727,21 @@ export async function scrapePowerSchool(
             const frn = decodeURIComponent(frnMatch[1]);
 
             const txt = (link.textContent || '').replace(/\s+/g, ' ').trim();
-            // Skip info/placeholder links — e.g. "[ i ]" or "[ - ]"
-            if (txt === '[ i ]' || txt === '[i]' || /^\[\s*[-–]+\s*\]$/.test(txt)) continue;
+            // "[ i ]" and "[ - ]" are PowerSchool placeholder links — no grade
+            // yet assigned, or the term uses a non-letter scale. The frn in the
+            // href is still a valid scores.html URL that may have assignments, so
+            // we keep the entry but leave grade/gradePercent blank.
+            const isPlaceholder = txt === '[ i ]' || txt === '[i]' || /^\[\s*[-–]+\s*\]$/.test(txt);
             let grade = '';
             let gradePercent: number | null = null;
-            const letterMatch = txt.match(/\b([A-F][+-]?)\b/);
-            if (letterMatch) grade = letterMatch[1];
-            const pctMatch = txt.match(/(\d{1,3}(?:\.\d+)?)\s*%?/);
-            if (pctMatch) {
-              const n = parseFloat(pctMatch[1]);
-              if (!isNaN(n) && n >= 0 && n <= 100) gradePercent = n;
+            if (!isPlaceholder) {
+              const letterMatch = txt.match(/\b([A-F][+-]?)\b/);
+              if (letterMatch) grade = letterMatch[1];
+              const pctMatch = txt.match(/(\d{1,3}(?:\.\d+)?)\s*%?/);
+              if (pctMatch) {
+                const n = parseFloat(pctMatch[1]);
+                if (!isNaN(n) && n >= 0 && n <= 100) gradePercent = n;
+              }
             }
             termFrns.push({ term, termType, frn, href: link.href, grade, gradePercent });
           }
