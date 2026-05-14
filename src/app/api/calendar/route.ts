@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getClasses, getExams, getHomework, getDisruptions, getSettings } from '@/lib/sheets';
+import { getClasses, getExams, getHomework, getDisruptions, getSettings } from '@/lib/db';
 import { getConfigFromRequest } from '@/lib/config';
 import { generateCalendarFeed } from '@/lib/calendar';
 

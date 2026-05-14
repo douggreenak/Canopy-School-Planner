@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getTokens, importAllFromClassroom } from '@/lib/classroom';
-import { addClass, addHomework, getClasses } from '@/lib/sheets';
+import { addClass, addHomework, getClasses } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';

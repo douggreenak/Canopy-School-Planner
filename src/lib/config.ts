@@ -1,13 +1,16 @@
 // ============================================================
 // Local Server Configuration
-// Priority order for each value: config.json / /tmp > cookie > env var.
+// Stores non-database credentials (PowerSchool, Classroom OAuth,
+// calendar token). The database connection uses DATABASE_URL from
+// the environment, which Vercel sets automatically via the Neon
+// integration.
 //
+// Priority order: config.json / /tmp > cookie > env var.
 // In read-only serverless environments (Vercel/Lambda) the primary
-// config.json path is not writable. In that case we fall back to /tmp
-// (writable but ephemeral per Lambda instance). To survive across cold
-// starts we also persist the config in an httpOnly cookie on the
-// browser — call `getConfigFromRequest(request)` in route handlers so
-// the cookie is included as a fallback tier.
+// config.json path is not writable, so we fall back to /tmp
+// (writable but ephemeral). To survive cold starts we also persist
+// the config in an httpOnly cookie — call `getConfigFromRequest`
+// in route handlers so the cookie is included as a fallback tier.
 // ============================================================
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -18,9 +21,6 @@ const TMP_CONFIG_PATH = '/tmp/school-planner-config.json';
 export const CONFIG_COOKIE = 'sp-config';
 
 export interface ServerConfig {
-  googleServiceAccountEmail?: string;
-  googlePrivateKey?: string;
-  googleSpreadsheetId?: string;
   googleClientId?: string;
   googleClientSecret?: string;
   calendarSecretToken?: string;
@@ -53,7 +53,6 @@ export function writeConfigFile(updates: Partial<ServerConfig>) {
   const merged = { ...current, ...updates };
   memoryConfig = merged;
 
-  // Try the primary location (works locally and in writable containers).
   try {
     writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf-8');
     return;
@@ -61,18 +60,15 @@ export function writeConfigFile(updates: Partial<ServerConfig>) {
     if ((e as NodeJS.ErrnoException).code !== 'EROFS') throw e;
   }
 
-  // Read-only filesystem — write to /tmp instead.
   writeFileSync(TMP_CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf-8');
 }
 
 // ---- Cookie helpers ----
 
-/** Encode a config as a base64 cookie value. */
 export function encodeConfigCookie(cfg: ServerConfig): string {
   return Buffer.from(JSON.stringify(cfg)).toString('base64');
 }
 
-/** Decode a config from a base64 cookie value. Returns {} on any error. */
 function decodeConfigCookie(value: string): ServerConfig {
   try {
     return JSON.parse(Buffer.from(value, 'base64').toString('utf-8')) as ServerConfig;
@@ -81,7 +77,6 @@ function decodeConfigCookie(value: string): ServerConfig {
   }
 }
 
-/** Return the Set-Cookie header string for the config cookie. */
 export function buildConfigCookieHeader(cfg: ServerConfig): string {
   const encoded = encodeConfigCookie(cfg);
   const maxAge = 60 * 60 * 24 * 365; // 1 year
@@ -92,12 +87,6 @@ export function buildConfigCookieHeader(cfg: ServerConfig): string {
 
 function merge(file: ServerConfig, cookie: ServerConfig): ServerConfig {
   return {
-    googleServiceAccountEmail:
-      file.googleServiceAccountEmail || cookie.googleServiceAccountEmail || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '',
-    googlePrivateKey:
-      file.googlePrivateKey || cookie.googlePrivateKey || process.env.GOOGLE_PRIVATE_KEY || '',
-    googleSpreadsheetId:
-      file.googleSpreadsheetId || cookie.googleSpreadsheetId || process.env.GOOGLE_SPREADSHEET_ID || '',
     googleClientId:
       file.googleClientId || cookie.googleClientId || process.env.GOOGLE_CLIENT_ID || '',
     googleClientSecret:
@@ -113,15 +102,12 @@ function merge(file: ServerConfig, cookie: ServerConfig): ServerConfig {
   };
 }
 
-/** Resolve config without a request (no cookie tier). Use in non-route contexts. */
 export function getConfig(): ServerConfig {
   return merge(readConfigFile(), {});
 }
 
-/** Resolve config with a request so the cookie tier is included. Use in route handlers. */
 export function getConfigFromRequest(request: NextRequest | Request): ServerConfig {
   const file = readConfigFile();
-  // NextRequest has a .cookies property; plain Request requires manual parsing.
   let cookieValue: string | undefined;
   if ('cookies' in request && typeof (request as NextRequest).cookies?.get === 'function') {
     cookieValue = (request as NextRequest).cookies.get(CONFIG_COOKIE)?.value;
@@ -131,27 +117,19 @@ export function getConfigFromRequest(request: NextRequest | Request): ServerConf
     cookieValue = match?.[1];
   }
   const cookie = cookieValue ? decodeConfigCookie(cookieValue) : {};
-  // Also warm the memory cache if the file tier was empty.
   if (!memoryConfig && Object.keys(cookie).length > 0) {
     memoryConfig = cookie as ServerConfig;
   }
   return merge(file, cookie);
 }
 
-/** Check whether the minimum required config is present (no request — for boot checks). */
+/** Check whether the database is connected (DATABASE_URL is set). */
 export function isConfigured(): { configured: boolean; missing: string[] } {
-  return isConfiguredWith(getConfig());
-}
-
-/** Check whether the minimum required config is present given a request. */
-export function isConfiguredFromRequest(request: NextRequest | Request): { configured: boolean; missing: string[] } {
-  return isConfiguredWith(getConfigFromRequest(request));
-}
-
-function isConfiguredWith(cfg: ServerConfig): { configured: boolean; missing: string[] } {
   const missing: string[] = [];
-  if (!cfg.googleServiceAccountEmail) missing.push('Service Account Email');
-  if (!cfg.googlePrivateKey) missing.push('Service Account Private Key');
-  if (!cfg.googleSpreadsheetId) missing.push('Spreadsheet ID');
+  if (!process.env.DATABASE_URL) missing.push('DATABASE_URL');
   return { configured: missing.length === 0, missing };
+}
+
+export function isConfiguredFromRequest(_request: NextRequest | Request): { configured: boolean; missing: string[] } {
+  return isConfigured();
 }

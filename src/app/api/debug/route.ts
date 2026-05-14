@@ -3,24 +3,17 @@
 // Diagnostic endpoint: dumps class IDs and how many homework
 // rows point to each class. Helps trace classId mismatches.
 // ============================================================
-import { getClasses, getHomework } from '@/lib/sheets';
-import { getConfigFromRequest } from '@/lib/config';
+import { getClasses, getHomework } from '@/lib/db';
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    // Warm memoryConfig from the cookie so sheets.ts uses the same
-    // credentials (and spreadsheetId) as the sync route does.
-    const cfg = getConfigFromRequest(request);
-
     const [classes, homework] = await Promise.all([getClasses(), getHomework()]);
 
-    // Count homework rows per classId
     const hwCountByClassId = new Map<string, number>();
     for (const h of homework) {
       hwCountByClassId.set(h.classId, (hwCountByClassId.get(h.classId) ?? 0) + 1);
     }
 
-    // For each class, show id + homework count
     const classReport = classes.map((c) => ({
       name: c.name,
       id: c.id,
@@ -29,7 +22,6 @@ export async function GET(request: Request) {
       hwCount: hwCountByClassId.get(c.id) ?? 0,
     }));
 
-    // Any homework classIds that don't match any class (orphaned)
     const knownIds = new Set(classes.map((c) => c.id));
     const orphaned = new Map<string, number>();
     for (const h of homework) {
@@ -39,8 +31,6 @@ export async function GET(request: Request) {
     }
 
     return Response.json({
-      // Show the spreadsheetId so we can verify this is the same sheet the sync uses
-      spreadsheetId: cfg.googleSpreadsheetId ?? '(not set)',
       classes: classReport,
       orphanedClassIds: Object.fromEntries(orphaned),
       totalHomework: homework.length,

@@ -1,17 +1,11 @@
 // ============================================================
 // GET /api/setup/health
-// Live "can I actually query the Google Sheet right now?" check.
-// This is different from GET /api/setup, which only reports whether
-// credentials are PRESENT in config. This endpoint actually makes a
-// sheets.spreadsheets.get call and reports the result.
+// Live database connectivity check. Runs a lightweight query
+// against Neon and reports success/failure.
 // ============================================================
-import { getConfigFromRequest } from '@/lib/config';
-import { google } from 'googleapis';
+import { neon } from '@neondatabase/serverless';
 
-// Lightweight in-memory cache so repeated polling doesn't hammer the Sheets API.
-// A failed check is cached for 10s, a successful one for 30s. This is per-process
-// and resets on server restart, which is fine for a personal-use app.
-type CacheEntry = { at: number; ok: boolean; title?: string; error?: string };
+type CacheEntry = { at: number; ok: boolean; error?: string };
 let cache: CacheEntry | null = null;
 
 export async function GET(request: Request) {
@@ -26,24 +20,15 @@ export async function GET(request: Request) {
     }
   }
 
-  const cfg = getConfigFromRequest(request);
-  if (!cfg.googleServiceAccountEmail || !cfg.googlePrivateKey || !cfg.googleSpreadsheetId) {
-    cache = { at: Date.now(), ok: false, error: 'Missing credentials' };
+  if (!process.env.DATABASE_URL) {
+    cache = { at: Date.now(), ok: false, error: 'DATABASE_URL is not set' };
     return Response.json({ ...bodyFor(cache), cached: false });
   }
 
   try {
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: cfg.googleServiceAccountEmail,
-        private_key: cfg.googlePrivateKey.replace(/\\n/g, '\n'),
-      },
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-    const sheets = google.sheets({ version: 'v4', auth });
-    const res = await sheets.spreadsheets.get({ spreadsheetId: cfg.googleSpreadsheetId });
-    const title = res.data.properties?.title || 'Untitled';
-    cache = { at: Date.now(), ok: true, title };
+    const sql = neon(process.env.DATABASE_URL);
+    await sql`SELECT 1`;
+    cache = { at: Date.now(), ok: true };
     return Response.json({ ...bodyFor(cache), cached: false });
   } catch (err) {
     const message = (err as Error).message || 'Unknown error';
@@ -53,10 +38,5 @@ export async function GET(request: Request) {
 }
 
 function bodyFor(c: CacheEntry) {
-  return {
-    ok: c.ok,
-    spreadsheetTitle: c.title,
-    error: c.error,
-    checkedAt: c.at,
-  };
+  return { ok: c.ok, error: c.error, checkedAt: c.at };
 }

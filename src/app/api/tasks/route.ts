@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getTasks, addTask, updateTask, deleteTask, deleteTasksBatch } from '@/lib/sheets';
+import { getTasks, addTask, updateTask, deleteTask, deleteTasksBatch } from '@/lib/db';
 import type { Task } from '@/types';
 
 export async function GET() {

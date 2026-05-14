@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getExams, addExam, updateExam, deleteExam } from '@/lib/sheets';
+import { getExams, addExam, updateExam, deleteExam } from '@/lib/db';
 import type { Exam } from '@/types';
 
 export async function GET() {

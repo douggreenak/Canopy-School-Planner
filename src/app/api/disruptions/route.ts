@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getDisruptions, addDisruption, updateDisruption, deleteDisruption } from '@/lib/sheets';
+import { getDisruptions, addDisruption, updateDisruption, deleteDisruption } from '@/lib/db';
 import type { ScheduleDisruption } from '@/types';
 
 export async function GET() {

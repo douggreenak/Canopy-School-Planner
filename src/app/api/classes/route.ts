@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getClasses, addClass, updateClass, deleteClass } from '@/lib/sheets';
+import { getClasses, addClass, updateClass, deleteClass } from '@/lib/db';
 import type { SchoolClass } from '@/types';
 
 export async function GET() {

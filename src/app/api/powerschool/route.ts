@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { scrapePowerSchool, type ScrapedSchedule } from '@/lib/powerschool';
-import { syncClassesFromSource, syncHomeworkFromSource } from '@/lib/sheets';
+import { syncClassesFromSource, syncHomeworkFromSource } from '@/lib/db';
 import { getConfigFromRequest, writeConfigFile } from '@/lib/config';
 
 export async function POST(request: NextRequest) {
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     result.log.push(
       `Assignments: ${hwStats.added} added, ${hwStats.updated} updated, ${hwStats.removed} removed`,
     );
-    result.log.push(`Spreadsheet ID: ${cfg.googleSpreadsheetId ?? '(not set)'}`);
+
 
     // Mirror to server stdout so the same log is visible in the `next dev`
     // terminal. Useful when the browser is closed or when we want to tail a

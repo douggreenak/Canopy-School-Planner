@@ -1,13 +1,6 @@
-import { getSettings, setSetting, initializeSpreadsheet } from '@/lib/sheets';
-import { isConfiguredFromRequest } from '@/lib/config';
+import { getSettings, setSetting, initializeDatabase } from '@/lib/db';
 
-export async function GET(request: Request) {
-  // Check if sheets are configured at all
-  const { configured } = isConfiguredFromRequest(request);
-  if (!configured) {
-    return Response.json({});
-  }
-
+export async function GET() {
   try {
     const settings = await getSettings();
     return Response.json(settings);
@@ -25,7 +18,7 @@ export async function POST(request: Request) {
     return Response.json({ success: true });
   } catch (error) {
     console.error('POST /api/settings error:', error);
-    return Response.json({ error: 'Failed to save setting. Is Google Sheets connected?' }, { status: 500 });
+    return Response.json({ error: 'Failed to save setting.' }, { status: 500 });
   }
 }
 
@@ -33,7 +26,7 @@ export async function PUT(request: Request) {
   try {
     const { action } = await request.json();
     if (action === 'initialize') {
-      await initializeSpreadsheet();
+      await initializeDatabase();
       return Response.json({ success: true });
     }
     return Response.json({ error: 'Unknown action' }, { status: 400 });

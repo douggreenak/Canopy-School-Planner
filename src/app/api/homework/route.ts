@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getHomework, addHomework, updateHomework, deleteHomework } from '@/lib/sheets';
+import { getHomework, addHomework, updateHomework, deleteHomework } from '@/lib/db';
 import type { Homework } from '@/types';
 
 export async function GET() {
