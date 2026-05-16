@@ -38,13 +38,15 @@ export function nextMeetingDate(days: number[], from: Date = new Date()): string
 export function getWeekSchedule(
   weekStart: string,
   classes: SchoolClass[],
-  disruptions: ScheduleDisruption[]
+  disruptions: ScheduleDisruption[],
+  semesterStart?: string,
+  semesterEnd?: string,
 ): DaySchedule[] {
   const start = dayjs(weekStart).startOf('isoWeek');
   const days: DaySchedule[] = [];
   for (let i = 0; i < 7; i++) {
     const date = start.add(i, 'day').format('YYYY-MM-DD');
-    days.push(buildDaySchedule(date, classes, disruptions));
+    days.push(buildDaySchedule(date, classes, disruptions, semesterStart, semesterEnd));
   }
   return days;
 }
@@ -56,14 +58,16 @@ export function getMonthSchedules(
   year: number,
   month: number,
   classes: SchoolClass[],
-  disruptions: ScheduleDisruption[]
+  disruptions: ScheduleDisruption[],
+  semesterStart?: string,
+  semesterEnd?: string,
 ): DaySchedule[] {
   const start = dayjs().year(year).month(month).startOf('month');
   const end = start.endOf('month');
   const days: DaySchedule[] = [];
   let current = start;
   while (current.isBefore(end) || current.isSame(end, 'day')) {
-    days.push(buildDaySchedule(current.format('YYYY-MM-DD'), classes, disruptions));
+    days.push(buildDaySchedule(current.format('YYYY-MM-DD'), classes, disruptions, semesterStart, semesterEnd));
     current = current.add(1, 'day');
   }
   return days;

@@ -13,11 +13,13 @@ interface Props {
   classes: SchoolClass[];
   disruptions: ScheduleDisruption[];
   onDateClick: (date: string) => void;
+  semesterStart?: string;
+  semesterEnd?: string;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export default function YearView({ year, classes, disruptions, onDateClick }: Props) {
+export default function YearView({ year, classes, disruptions, onDateClick, semesterStart, semesterEnd }: Props) {
   const theme = useTheme();
 
   const disruptionDates = useMemo(() => {
@@ -57,7 +59,10 @@ export default function YearView({ year, classes, disruptions, onDateClick }: Pr
                 const disruption = disruptionDates.get(cell.date);
                 const isToday = cell.date === dayjs().format('YYYY-MM-DD');
                 const dayOfWeek = dayjs(cell.date).day();
-                const hasClasses = classes.some((c) => c.days.includes(dayOfWeek));
+                const inSemester =
+                  (!semesterStart || !dayjs(cell.date).isBefore(dayjs(semesterStart), 'day')) &&
+                  (!semesterEnd || !dayjs(cell.date).isAfter(dayjs(semesterEnd), 'day'));
+                const hasClasses = inSemester && classes.some((c) => c.days.includes(dayOfWeek));
 
                 let bg = 'transparent';
                 let color = theme.palette.text.primary;

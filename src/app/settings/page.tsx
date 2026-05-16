@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Card from '@mui/material/Card';
@@ -21,13 +20,12 @@ import InputAdornment from '@mui/material/InputAdornment';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
-import Link from '@mui/material/Link';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import Switch from '@mui/material/Switch';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import SchoolIcon from '@mui/icons-material/School';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -35,9 +33,15 @@ import SyncIcon from '@mui/icons-material/Sync';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import KeyIcon from '@mui/icons-material/Key';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import LightModeIcon from '@mui/icons-material/LightMode';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
+import PaletteIcon from '@mui/icons-material/Palette';
 import { useClasses } from '@/lib/hooks';
+import { useThemeMode } from '@/components/ThemeRegistry';
 import type { SchoolClass } from '@/types';
 
 export default function SettingsPage() {
@@ -49,7 +53,7 @@ export default function SettingsPage() {
 }
 
 function SettingsInner() {
-  const searchParams = useSearchParams();
+  const { mode: themeMode, setMode: setThemeMode } = useThemeMode();
   const { refetch: refetchClasses } = useClasses();
   const { data: importedClasses, loading: classesLoading, refetch: refetchClassesList } = useClasses();
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
@@ -59,7 +63,6 @@ function SettingsInner() {
   const [setupStatus, setSetupStatus] = useState<{
     configured: boolean;
     hasDatabase: boolean;
-    hasClassroomOAuth: boolean;
     hasPowerschool: boolean;
     powerschoolUrl: string;
     powerschoolUsername: string;
@@ -123,13 +126,11 @@ function SettingsInner() {
     setLunchTimes((prev) => ({ ...prev, [day]: { ...prev[day], [field]: value } }));
   };
 
-  // Google Classroom OAuth
-  const [classroomClientId, setClassroomClientId] = useState('');
-  const [classroomClientSecret, setClassroomClientSecret] = useState('');
-
   // Calendar
   const [calendarToken, setCalendarToken] = useState('');
   const [calendarUrl, setCalendarUrl] = useState('');
+
+  const [lathropMode, setLathropMode] = useState(false);
 
   // Schedule wizard
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -139,21 +140,6 @@ function SettingsInner() {
   useEffect(() => {
     setCalendarUrl(`${window.location.origin}/api/calendar?token=${calendarToken || 'your-token'}`);
   }, [calendarToken]);
-
-  // Handle Google Classroom callback results
-  useEffect(() => {
-    const classroomResult = searchParams.get('classroom');
-    if (classroomResult === 'success') {
-      const classes = searchParams.get('classes') || '0';
-      const assignments = searchParams.get('assignments') || '0';
-      setSnackbar({ open: true, message: `Google Classroom imported! ${classes} classes and ${assignments} assignments added.`, severity: 'success' });
-    } else if (classroomResult === 'denied') {
-      setSnackbar({ open: true, message: 'Google Classroom access was denied. Please try again and grant permissions.', severity: 'error' });
-    } else if (classroomResult === 'error') {
-      const msg = searchParams.get('msg') || 'Unknown error';
-      setSnackbar({ open: true, message: `Google Classroom error: ${msg}`, severity: 'error' });
-    }
-  }, [searchParams]);
 
   // Load setup status + saved settings
   useEffect(() => {
@@ -177,6 +163,7 @@ function SettingsInner() {
         if (s.powerschoolUrl) setPsUrl(s.powerschoolUrl);
         if (s.powerschoolUsername) setPsUser(s.powerschoolUsername);
         if (s.lunchTimes) setLunchTimes(typeof s.lunchTimes === 'string' ? JSON.parse(s.lunchTimes) : s.lunchTimes);
+        if (s.lathropMode) setLathropMode(s.lathropMode === true || s.lathropMode === 'true');
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -268,6 +255,64 @@ function SettingsInner() {
     setSyncing(null);
   };
 
+  const saveLathropMode = async (enabled: boolean) => {
+    setLathropMode(enabled);
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'lathropMode', value: enabled }),
+    }).catch(() => {});
+  };
+
+  const applyLathropSchedule = async (classes: SchoolClass[]) => {
+    if (!classes || classes.length === 0) return;
+    setSyncing('apply-default');
+    try {
+      type SlotKey = 'ext' | 1 | 2 | 3 | 4 | 5 | 6;
+      const weekTemplate: Record<number, Partial<Record<SlotKey, { start: string; end: string }>>> = {
+        1: { 1: { start: '07:30', end: '08:24' }, 2: { start: '08:31', end: '09:25' }, 3: { start: '09:32', end: '10:26' }, 4: { start: '11:04', end: '11:58' }, 5: { start: '12:05', end: '12:59' }, 6: { start: '13:06', end: '14:00' } },
+        2: { ext: { start: '07:30', end: '08:05' }, 1: { start: '08:13', end: '09:26' }, 2: { start: '09:34', end: '10:47' }, 4: { start: '11:26', end: '12:39' }, 5: { start: '12:47', end: '14:00' } },
+        3: { ext: { start: '07:30', end: '08:05' }, 2: { start: '08:13', end: '09:26' }, 3: { start: '09:34', end: '10:47' }, 5: { start: '11:26', end: '12:39' }, 6: { start: '12:47', end: '14:00' } },
+        4: { ext: { start: '07:30', end: '08:05' }, 1: { start: '08:13', end: '09:26' }, 3: { start: '09:34', end: '10:47' }, 4: { start: '11:26', end: '12:39' }, 6: { start: '12:47', end: '14:00' } },
+        5: { 1: { start: '07:30', end: '08:24' }, 2: { start: '08:31', end: '09:25' }, 3: { start: '09:32', end: '10:26' }, 4: { start: '11:04', end: '11:58' }, 5: { start: '12:05', end: '12:59' }, 6: { start: '13:06', end: '14:00' } },
+      };
+      const isExtension = (name: string) => /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(name || '');
+      const promises: Promise<Response>[] = [];
+      let skipped = 0;
+      for (const c of classes) {
+        const periodNum = parseInt(String(c.period ?? ''), 10);
+        let slot: SlotKey | null = null;
+        if (isExtension(c.name)) slot = 'ext';
+        else if (periodNum >= 1 && periodNum <= 6) slot = periodNum as SlotKey;
+        if (slot === null) { skipped++; continue; }
+        const days: number[] = [];
+        const dayTimes: Record<number, { startTime: string; endTime: string }> = {};
+        for (let d = 1; d <= 5; d++) {
+          const slotTime = weekTemplate[d]?.[slot];
+          if (slotTime) {
+            days.push(d);
+            dayTimes[d] = { startTime: slotTime.start, endTime: slotTime.end };
+          }
+        }
+        if (days.length === 0) { skipped++; continue; }
+        const firstDay = days[0];
+        const representative = dayTimes[firstDay];
+        const updated = { ...c, startTime: representative.startTime, endTime: representative.endTime, days: days.sort((a, b) => a - b), dayTimes } as SchoolClass;
+        promises.push(fetch('/api/classes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }));
+      }
+      await Promise.all(promises);
+      const msg = skipped > 0
+        ? `Lathrop bell schedule applied to ${promises.length} class${promises.length === 1 ? '' : 'es'}. ${skipped} skipped (no period 1-6 or Extension).`
+        : 'Lathrop bell schedule applied.';
+      setSnackbar({ open: true, message: msg, severity: 'success' });
+      refetchClassesList();
+      refetchClasses();
+    } catch (err) {
+      setSnackbar({ open: true, message: `Failed to apply schedule: ${(err as Error).message}`, severity: 'error' });
+    }
+    setSyncing(null);
+  };
+
   const syncPowerSchool = async () => {
     setSyncing('powerschool');
     setPsLog([]);
@@ -295,63 +340,32 @@ function SettingsInner() {
         const status = await fetch('/api/setup').then((r) => r.json());
         setSetupStatus(status);
         if (data.matrixByClassId && Object.keys(data.matrixByClassId).length > 0) {
-          if (confirm('PowerSchool suggested schedule matches were found. Run a one-time migration to link matching manual classes to their PowerSchool entries (recommended)?')) {
-            setSyncing('migrating');
-            try {
-              const resp = await fetch('/api/powerschool/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-              const j = await resp.json().catch(() => ({}));
-              if (resp.ok && j && j.success) {
-                const migratedCount = Number(j.migrated || 0);
-                setSnackbar({ open: true, message: migratedCount > 0 ? `Migration complete: ${migratedCount} classes linked.` : 'Migration complete: no manual classes needed linking.', severity: migratedCount > 0 ? 'success' : 'info' });
-                refetchClassesList();
-                refetchClasses();
-              } else {
-                setSnackbar({ open: true, message: (j && j.error) ? j.error : 'Migration failed', severity: 'error' });
-              }
-            } catch (err) {
-              setSnackbar({ open: true, message: `Migration error: ${(err as Error).message}`, severity: 'error' });
+          setSyncing('migrating');
+          try {
+            const resp = await fetch('/api/powerschool/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+            const j = await resp.json().catch(() => ({}));
+            if (resp.ok && j && j.success) {
+              const migratedCount = Number(j.migrated || 0);
+              setSnackbar({ open: true, message: migratedCount > 0 ? `Migration complete: ${migratedCount} classes linked.` : 'Migration complete: no manual classes needed linking.', severity: migratedCount > 0 ? 'success' : 'info' });
+              refetchClassesList();
+              refetchClasses();
+            } else {
+              setSnackbar({ open: true, message: (j && j.error) ? j.error : 'Migration failed', severity: 'error' });
             }
-            setSyncing(null);
+          } catch (err) {
+            setSnackbar({ open: true, message: `Migration error: ${(err as Error).message}`, severity: 'error' });
           }
+          setSyncing(null);
+        }
+        if (lathropMode) {
+          const freshClasses: SchoolClass[] = await fetch('/api/classes').then((r) => r.json()).catch(() => []);
+          await applyLathropSchedule(freshClasses);
         }
       } else {
         setSnackbar({ open: true, message: data.error || 'PowerSchool import failed', severity: 'error' });
       }
     } catch (e) {
       setSnackbar({ open: true, message: `Connection error: ${(e as Error).message}`, severity: 'error' });
-    }
-    setSyncing(null);
-  };
-
-  const saveClassroomOAuth = async () => {
-    setSyncing('classroom-save');
-    try {
-      await fetch('/api/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save-classroom-oauth', clientId: classroomClientId, clientSecret: classroomClientSecret }),
-      });
-      setSnackbar({ open: true, message: 'Classroom OAuth credentials saved!', severity: 'success' });
-      const status = await fetch('/api/setup').then((r) => r.json());
-      setSetupStatus(status);
-    } catch {
-      setSnackbar({ open: true, message: 'Failed to save', severity: 'error' });
-    }
-    setSyncing(null);
-  };
-
-  const connectClassroom = async () => {
-    setSyncing('classroom');
-    try {
-      const res = await fetch('/api/classroom');
-      const data = await res.json();
-      if (data.authUrl) {
-        window.location.href = data.authUrl;
-      } else if (data.needsSetup) {
-        setSnackbar({ open: true, message: data.error, severity: 'error' });
-      }
-    } catch {
-      setSnackbar({ open: true, message: 'Connection error', severity: 'error' });
     }
     setSyncing(null);
   };
@@ -422,6 +436,34 @@ function SettingsInner() {
             <Button size="small" onClick={() => refreshLiveHealth(true)}>Retry</Button>
           </Alert>
         )}
+
+        {/* ===== APPEARANCE ===== */}
+        <Card>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <PaletteIcon color="primary" /> Appearance
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Choose how the app looks. System follows your device's light/dark preference.
+            </Typography>
+            <ToggleButtonGroup
+              value={themeMode}
+              exclusive
+              onChange={(_, val) => { if (val) setThemeMode(val); }}
+              size="small"
+            >
+              <ToggleButton value="light" aria-label="Light mode">
+                <LightModeIcon sx={{ mr: 0.75, fontSize: 18 }} /> Light
+              </ToggleButton>
+              <ToggleButton value="dark" aria-label="Dark mode">
+                <DarkModeIcon sx={{ mr: 0.75, fontSize: 18 }} /> Dark
+              </ToggleButton>
+              <ToggleButton value="system" aria-label="System theme">
+                <SettingsBrightnessIcon sx={{ mr: 0.75, fontSize: 18 }} /> System
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </CardContent>
+        </Card>
 
         {/* ===== SCHOOL INFORMATION ===== */}
         <Card>
@@ -497,6 +539,26 @@ function SettingsInner() {
                 />
               </Grid>
               <Grid size={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={lathropMode}
+                      onChange={(e) => saveLathropMode(e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>Lathrop Mode</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Automatically apply the Lathrop HS bell schedule after every sync
+                      </Typography>
+                    </Box>
+                  }
+                  sx={{ mb: 1.5, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { mt: 0.25 } }}
+                />
+              </Grid>
+              <Grid size={12}>
                 <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
                   <Button
                     variant="contained"
@@ -567,61 +629,7 @@ function SettingsInner() {
               >
                 Open Schedule Wizard
               </Button>
-              <Button variant="outlined" sx={{ ml: 2 }} onClick={async () => {
-                if (!importedClasses || importedClasses.length === 0) return;
-                if (!confirm('Apply the Lathrop HS default bell schedule to all classes? This will update days and per-day times for each period.')) return;
-                setSyncing('apply-default');
-                try {
-                  // Slot keys: 'ext' = Extension (Tue/Wed/Thu 7:30-8:05), 1..6 = Periods 1-6.
-                  type SlotKey = 'ext' | 1 | 2 | 3 | 4 | 5 | 6;
-                  const weekTemplate: Record<number, Partial<Record<SlotKey, { start: string; end: string }>>> = {
-                    1: { 1: { start: '07:30', end: '08:24' }, 2: { start: '08:31', end: '09:25' }, 3: { start: '09:32', end: '10:26' }, 4: { start: '11:04', end: '11:58' }, 5: { start: '12:05', end: '12:59' }, 6: { start: '13:06', end: '14:00' } },
-                    2: { ext: { start: '07:30', end: '08:05' }, 1: { start: '08:13', end: '09:26' }, 2: { start: '09:34', end: '10:47' }, 4: { start: '11:26', end: '12:39' }, 5: { start: '12:47', end: '14:00' } },
-                    3: { ext: { start: '07:30', end: '08:05' }, 2: { start: '08:13', end: '09:26' }, 3: { start: '09:34', end: '10:47' }, 5: { start: '11:26', end: '12:39' }, 6: { start: '12:47', end: '14:00' } },
-                    4: { ext: { start: '07:30', end: '08:05' }, 1: { start: '08:13', end: '09:26' }, 3: { start: '09:34', end: '10:47' }, 4: { start: '11:26', end: '12:39' }, 6: { start: '12:47', end: '14:00' } },
-                    5: { 1: { start: '07:30', end: '08:24' }, 2: { start: '08:31', end: '09:25' }, 3: { start: '09:32', end: '10:26' }, 4: { start: '11:04', end: '11:58' }, 5: { start: '12:05', end: '12:59' }, 6: { start: '13:06', end: '14:00' } },
-                  };
-                  // Detect Extension period by name. Lathrop's Extension block is
-                  // typically labeled "Ext Seminar" / "Extension" / "Advisory" /
-                  // "Homeroom" in PowerSchool — none of which carry a numeric
-                  // period that maps cleanly to 1-6.
-                  const isExtension = (name: string) => /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(name || '');
-                  const promises: Promise<Response>[] = [];
-                  let skipped = 0;
-                  for (const c of importedClasses) {
-                    // parseInt is lenient — handles "1", "1A", " 2 " all correctly.
-                    const periodNum = parseInt(String(c.period ?? ''), 10);
-                    let slot: SlotKey | null = null;
-                    if (isExtension(c.name)) slot = 'ext';
-                    else if (periodNum >= 1 && periodNum <= 6) slot = periodNum as SlotKey;
-                    if (slot === null) { skipped++; continue; }
-                    const days: number[] = [];
-                    const dayTimes: Record<number, { startTime: string; endTime: string }> = {};
-                    for (let d = 1; d <= 5; d++) {
-                      const slotTime = weekTemplate[d]?.[slot];
-                      if (slotTime) {
-                        days.push(d);
-                        dayTimes[d] = { startTime: slotTime.start, endTime: slotTime.end };
-                      }
-                    }
-                    if (days.length === 0) { skipped++; continue; }
-                    const firstDay = days[0];
-                    const representative = dayTimes[firstDay];
-                    const updated = { ...c, startTime: representative.startTime, endTime: representative.endTime, days: days.sort((a, b) => a - b), dayTimes } as SchoolClass;
-                    promises.push(fetch('/api/classes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }));
-                  }
-                  await Promise.all(promises);
-                  const msg = skipped > 0
-                    ? `Lathrop HS bell schedule applied to ${promises.length} class${promises.length === 1 ? '' : 'es'}. ${skipped} class${skipped === 1 ? '' : 'es'} skipped (no recognizable period 1-6 or Extension) — edit them in the wizard.`
-                    : 'Lathrop HS bell schedule applied. Review and adjust any class times if needed.';
-                  setSnackbar({ open: true, message: msg, severity: 'success' });
-                  refetchClassesList();
-                  refetchClasses();
-                } catch (err) {
-                  setSnackbar({ open: true, message: `Failed to apply default schedule: ${(err as Error).message}`, severity: 'error' });
-                }
-                setSyncing(null);
-              }} disabled={classesLoading || !!syncing}>
+              <Button variant="outlined" sx={{ ml: 2 }} onClick={() => applyLathropSchedule(importedClasses || [])} disabled={classesLoading || !!syncing}>
                 Apply Default Bell Schedule
               </Button>
               <Button variant="text" sx={{ ml: 2 }} onClick={() => refetchClassesList()} disabled={classesLoading}>
@@ -850,80 +858,6 @@ function SettingsInner() {
                 )}
               </Card>
             </Collapse>
-          </CardContent>
-        </Card>
-
-        {/* ===== GOOGLE CLASSROOM ===== */}
-        <Card>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CloudSyncIcon color="primary" /> Google Classroom Import
-              <Chip label="Optional" size="small" variant="outlined" />
-            </Typography>
-            <Accordion sx={{ mb: 2 }}>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography variant="subtitle2">Setup Instructions (one-time)</Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Stack spacing={1}>
-                  <Typography variant="body2">
-                    1. Go to{' '}
-                    <Link href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" sx={{ fontWeight: 600 }}>
-                      Google Cloud Console → Credentials <OpenInNewIcon sx={{ fontSize: 14, verticalAlign: 'middle' }} />
-                    </Link>
-                  </Typography>
-                  <Typography variant="body2">
-                    2. Enable the <strong>&quot;Google Classroom API&quot;</strong> in{' '}
-                    <Link href="https://console.cloud.google.com/apis/library/classroom.googleapis.com" target="_blank" rel="noopener">
-                      API Library <OpenInNewIcon sx={{ fontSize: 14, verticalAlign: 'middle' }} />
-                    </Link>.
-                  </Typography>
-                  <Typography variant="body2">
-                    3. Click <strong>&quot;+ CREATE CREDENTIALS&quot; → &quot;OAuth client ID&quot;</strong>.
-                  </Typography>
-                  <Typography variant="body2">
-                    4. If prompted, configure the <strong>OAuth consent screen</strong> first (External, add your email as test user).
-                  </Typography>
-                  <Typography variant="body2">
-                    5. Choose <strong>&quot;Web application&quot;</strong>. Under <strong>&quot;Authorized redirect URIs&quot;</strong>, add:
-                  </Typography>
-                  <Alert severity="info" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                    {typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/classroom/callback
-                  </Alert>
-                  <Typography variant="body2">
-                    6. Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> and paste them below:
-                  </Typography>
-                </Stack>
-              </AccordionDetails>
-            </Accordion>
-            <Grid container spacing={2}>
-              <Grid size={12}>
-                <TextField fullWidth label="OAuth Client ID" value={classroomClientId} onChange={(e) => setClassroomClientId(e.target.value)} placeholder="...apps.googleusercontent.com" />
-              </Grid>
-              <Grid size={12}>
-                <TextField fullWidth label="OAuth Client Secret" type="password" value={classroomClientSecret} onChange={(e) => setClassroomClientSecret(e.target.value)} />
-              </Grid>
-              <Grid size={12}>
-                <Stack direction="row" spacing={2}>
-                  <Button
-                    variant="outlined"
-                    startIcon={syncing === 'classroom-save' ? <CircularProgress size={16} /> : <KeyIcon />}
-                    onClick={saveClassroomOAuth}
-                    disabled={!classroomClientId || !classroomClientSecret || !!syncing}
-                  >
-                    Save OAuth Credentials
-                  </Button>
-                  <Button
-                    variant="contained"
-                    startIcon={syncing === 'classroom' ? <CircularProgress size={16} color="inherit" /> : <CloudSyncIcon />}
-                    onClick={connectClassroom}
-                    disabled={!!syncing || (!setupStatus?.hasClassroomOAuth && !classroomClientId)}
-                  >
-                    Connect &amp; Import
-                  </Button>
-                </Stack>
-              </Grid>
-            </Grid>
           </CardContent>
         </Card>
 

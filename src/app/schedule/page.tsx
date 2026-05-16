@@ -1,17 +1,6 @@
 'use client';
-// ============================================================
-// Schedule page — calendar of classes (Day / Week / Year) plus a
-// Disruptions manager. Layout:
-//   - Outer tabs: Schedule | Disruptions(n)
-//   - Schedule tab:
-//       date navigation (prev / today / next, tab-aware)
-//       sub-tabs: Day / Week / Year
-//       disruption banner if applicable
-//       calendar view — click a class block to open ClassDetailDialog
-//   - Disruptions tab: list + add/edit/delete dialog
-// ============================================================
 import { useState, useMemo, useEffect, Suspense } from 'react';
-import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import Box from '@mui/material/Box';
@@ -21,11 +10,9 @@ import Tab from '@mui/material/Tab';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Paper from '@mui/material/Paper';
-import Fab from '@mui/material/Fab';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
-import LinearProgress from '@mui/material/LinearProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -40,6 +27,7 @@ import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Alert from '@mui/material/Alert';
+import Divider from '@mui/material/Divider';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -77,7 +65,6 @@ const DISRUPTION_TYPES: { value: ScheduleDisruption['type']; label: string; colo
   { value: 'custom', label: 'Custom', color: '#9aa0a6' },
 ];
 
-// Sub-tabs inside the "Schedule" outer tab.
 type ViewMode = 'day' | 'week' | 'year';
 const VIEW_MODE_INDEX: Record<ViewMode, number> = { day: 0, week: 1, year: 2 };
 const VIEW_MODES: ViewMode[] = ['day', 'week', 'year'];
@@ -91,34 +78,7 @@ export default function SchedulePage() {
 }
 
 function SchedulePageInner() {
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const pathname = usePathname();
-
-  // Outer tab — driven by ?tab=disruptions in the URL so the sidebar
-  // "Disruptions" link can deep-link to it. Falls back to "schedule".
-  const initialOuter = searchParams.get('tab') === 'disruptions' ? 1 : 0;
-  const [outerTab, setOuterTab] = useState(initialOuter);
-
-  // Keep outer tab in sync if the user navigates via the sidebar (which
-  // changes only the search string, not the pathname — the component does
-  // not unmount, so we have to react to searchParams changing).
-  useEffect(() => {
-    const next = searchParams.get('tab') === 'disruptions' ? 1 : 0;
-    setOuterTab(next);
-  }, [searchParams]);
-
-  // When the user clicks the inner tabs we update the URL so the active
-  // state survives refresh + so the sidebar's "Schedule" / "Disruptions"
-  // active state stays correct. Always pushes a new search string.
-  const switchOuterTab = (next: number) => {
-    setOuterTab(next);
-    const params = new URLSearchParams(searchParams.toString());
-    if (next === 1) params.set('tab', 'disruptions');
-    else params.delete('tab');
-    const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  };
 
   // Calendar state
   const [view, setView] = useState<ViewMode>('day');
@@ -128,8 +88,9 @@ function SchedulePageInner() {
   const [detailEntry, setDetailEntry] = useState<ScheduleEntry | null>(null);
   const [detailDate, setDetailDate] = useState<string>('');
 
-  // Disruption form state
   const [lunchTimes, setLunchTimes] = useState<Record<number, { startTime: string; endTime: string }>>(DEFAULT_LUNCH_TIMES);
+  const [semesterStart, setSemesterStart] = useState<string | undefined>(undefined);
+  const [semesterEnd, setSemesterEnd] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     fetch('/api/settings')
@@ -138,6 +99,8 @@ function SchedulePageInner() {
         if (s.lunchTimes) {
           setLunchTimes(typeof s.lunchTimes === 'string' ? JSON.parse(s.lunchTimes) : s.lunchTimes);
         }
+        if (s.semesterStart) setSemesterStart(s.semesterStart);
+        if (s.semesterEnd) setSemesterEnd(s.semesterEnd);
       })
       .catch(() => {});
   }, []);
@@ -151,8 +114,6 @@ function SchedulePageInner() {
   });
   const [autoTime, setAutoTime] = useState('13:00');
 
-  // Build the schedules the views need.
-  // Inject a synthetic "Lunch" class for display only in the Schedule view.
   const lunchClass = useMemo(() => {
     const dt = { ...DEFAULT_LUNCH_TIMES, ...lunchTimes };
     return {
@@ -172,29 +133,25 @@ function SchedulePageInner() {
 
   const classesForSchedule = useMemo(() => {
     const base = classes || [];
-    // Avoid duplicating if a real class happens to have the same id
     if (base.find((c) => c.id === '__lunch__')) return base;
     return [...base, lunchClass];
   }, [classes, lunchClass]);
 
   const daySchedule = useMemo(() => {
     if (!classesForSchedule || !disruptions) return null;
-    return buildDaySchedule(selectedDate.format('YYYY-MM-DD'), classesForSchedule, disruptions);
-  }, [classesForSchedule, disruptions, selectedDate]);
+    return buildDaySchedule(selectedDate.format('YYYY-MM-DD'), classesForSchedule, disruptions, semesterStart, semesterEnd);
+  }, [classesForSchedule, disruptions, selectedDate, semesterStart, semesterEnd]);
 
   const weekSchedule = useMemo(() => {
     if (!classesForSchedule || !disruptions) return null;
-    return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesForSchedule, disruptions);
-  }, [classesForSchedule, disruptions, selectedDate]);
+    return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesForSchedule, disruptions, semesterStart, semesterEnd);
+  }, [classesForSchedule, disruptions, selectedDate, semesterStart, semesterEnd]);
 
-  // For the detail dialog we need the disruption that applies to `detailDate`,
-  // not the currently-selected date — week-view clicks pick a different day.
   const detailDisruption = useMemo(() => {
     if (!detailDate || !disruptions) return undefined;
     return disruptions.find((d) => d.date === detailDate);
   }, [detailDate, disruptions]);
 
-  // Date navigation steps by the current sub-view.
   const navigateDate = (dir: number) => {
     if (view === 'day') setSelectedDate(selectedDate.add(dir, 'day'));
     else if (view === 'week') setSelectedDate(selectedDate.add(dir, 'week'));
@@ -206,7 +163,6 @@ function SchedulePageInner() {
     if (view === 'week') {
       const start = selectedDate.startOf('isoWeek');
       const end = start.add(6, 'day');
-      // "Apr 21 – 27, 2026" if same month, else "Apr 27 – May 3, 2026"
       return start.month() === end.month()
         ? `${start.format('MMM D')} – ${end.format('D, YYYY')}`
         : `${start.format('MMM D')} – ${end.format('MMM D, YYYY')}`;
@@ -248,7 +204,6 @@ function SchedulePageInner() {
     refetch();
   };
 
-  // Click handlers passed down to the views.
   const handleDayClick = (entry: ScheduleEntry) => {
     setDetailEntry(entry);
     setDetailDate(selectedDate.format('YYYY-MM-DD'));
@@ -272,169 +227,156 @@ function SchedulePageInner() {
         </Typography>
       </Box>
 
-      <Tabs value={outerTab} onChange={(_, v) => switchOuterTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Tab label="Schedule" />
-        <Tab label={`Disruptions (${disruptions?.length ?? 0})`} />
-      </Tabs>
+      {/* Date nav row */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+        <IconButton onClick={() => navigateDate(-1)} size="small" aria-label="Previous">
+          <ChevronLeftIcon />
+        </IconButton>
+        <Button
+          variant={isTodaySelected ? 'contained' : 'outlined'}
+          size="small"
+          startIcon={<TodayIcon />}
+          onClick={() => setSelectedDate(dayjs())}
+        >
+          Today
+        </Button>
+        <IconButton onClick={() => navigateDate(1)} size="small" aria-label="Next">
+          <ChevronRightIcon />
+        </IconButton>
+        <Typography variant="h6" sx={{ ml: 1, fontWeight: 500 }}>
+          {headerLabel}
+        </Typography>
+      </Box>
 
-      {/* ===== Schedule tab ===== */}
-      {outerTab === 0 && (
-        <Box>
-          {/* Date nav row */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-            <IconButton onClick={() => navigateDate(-1)} size="small" aria-label="Previous">
-              <ChevronLeftIcon />
-            </IconButton>
-            <Button
-              variant={isTodaySelected ? 'contained' : 'outlined'}
-              size="small"
-              startIcon={<TodayIcon />}
-              onClick={() => setSelectedDate(dayjs())}
-            >
-              Today
-            </Button>
-            <IconButton onClick={() => navigateDate(1)} size="small" aria-label="Next">
-              <ChevronRightIcon />
-            </IconButton>
-            <Typography variant="h6" sx={{ ml: 1, fontWeight: 500 }}>
-              {headerLabel}
-            </Typography>
-          </Box>
-
-          {/* Disruption banner — only for the day view, since week+year already
-              indicate disruptions visually. */}
-          {view === 'day' && todayDisruption && (
-            <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mb: 2, borderRadius: 2 }}>
-              <strong>{todayDisruption.label || DISRUPTION_TYPES.find((t) => t.value === todayDisruption.type)?.label}</strong>
-              {' — '}Schedule modified for this day.
-            </Alert>
-          )}
-
-          {/* View tabs + calendar */}
-          <Paper sx={{ borderRadius: 2 }}>
-            <Tabs
-              value={VIEW_MODE_INDEX[view]}
-              onChange={(_, v: number) => setView(VIEW_MODES[v])}
-              sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
-            >
-              <Tab label="Day" />
-              <Tab label="Week" />
-              <Tab label="Year" />
-            </Tabs>
-            <Box sx={{ p: 2 }}>
-            <>
-              {/* When the user has not added/imported any persistent classes,
-                  show a helpful call-to-action above the calendar while still
-                  rendering the calendar (which includes the synthetic Lunch).
-               */}
-              {(!classes || classes.length === 0) && (
-                <Box sx={{ textAlign: 'center', py: 2 }}>
-                  <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
-                    No classes imported — only Lunch is shown on the schedule
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Add classes from the Classes page or import them from PowerSchool to populate your full schedule.
-                  </Typography>
-                  <Stack direction="row" spacing={1} sx={{ justifyContent: 'center' }}>
-                    <Button variant="outlined" onClick={() => router.push('/classes')}>Add classes</Button>
-                    <Button variant="contained" onClick={() => router.push('/settings')}>Connect PowerSchool</Button>
-                  </Stack>
-                </Box>
-              )}
-                
-                  {view === 'day' && daySchedule && (
-                    <DayView
-                      schedule={daySchedule}
-                      date={selectedDate.format('YYYY-MM-DD')}
-                      onClassClick={handleDayClick}
-                    />
-                  )}
-                  {view === 'week' && weekSchedule && (
-                    <WeekView
-                      schedule={weekSchedule}
-                      weekStart={selectedDate.startOf('isoWeek').format('YYYY-MM-DD')}
-                      onClassClick={handleWeekClick}
-                    />
-                  )}
-                  {view === 'year' && disruptions && (
-                    <YearView
-                      year={selectedDate.year()}
-                      classes={classesForSchedule}
-                      disruptions={disruptions}
-                      onDateClick={(d) => { setSelectedDate(dayjs(d)); setView('day'); }}
-                    />
-                  )}
-                </>
-            </Box>
-          </Paper>
-        </Box>
+      {/* Disruption banner — day view only */}
+      {view === 'day' && todayDisruption && (
+        <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mb: 2, borderRadius: 2 }}>
+          <strong>{todayDisruption.label || DISRUPTION_TYPES.find((t) => t.value === todayDisruption.type)?.label}</strong>
+          {' — '}Schedule modified for this day.
+        </Alert>
       )}
 
-      {/* ===== Disruptions tab ===== */}
-      {outerTab === 1 && (
-        <Box>
-          {disruptions?.length === 0 && (
-            <Card>
-              <CardContent sx={{ textAlign: 'center', py: 6 }}>
-                <WarningAmberIcon sx={{ fontSize: 48, color: 'warning.main', mb: 1 }} />
-                <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>No schedule disruptions</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                  Add early-out days, late starts, no-school days, or custom schedule changes.
+      {/* Calendar */}
+      <Paper sx={{ borderRadius: 2 }}>
+        <Tabs
+          value={VIEW_MODE_INDEX[view]}
+          onChange={(_, v: number) => setView(VIEW_MODES[v])}
+          sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
+        >
+          <Tab label="Day" />
+          <Tab label="Week" />
+          <Tab label="Year" />
+        </Tabs>
+        <Box sx={{ p: 2 }}>
+          <>
+            {(!classes || classes.length === 0) && (
+              <Box sx={{ textAlign: 'center', py: 2 }}>
+                <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
+                  No classes imported — only Lunch is shown on the schedule
                 </Typography>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => openDialog()}>Add Disruption</Button>
-              </CardContent>
-            </Card>
-          )}
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Add classes from the Classes page or import them from PowerSchool to populate your full schedule.
+                </Typography>
+                <Stack direction="row" spacing={1} sx={{ justifyContent: 'center' }}>
+                  <Button variant="outlined" onClick={() => router.push('/classes')}>Add classes</Button>
+                  <Button variant="contained" onClick={() => router.push('/settings')}>Connect PowerSchool</Button>
+                </Stack>
+              </Box>
+            )}
 
-          <Stack spacing={1.5}>
-            {disruptions?.sort((a, b) => dayjs(a.date).diff(dayjs(b.date))).map((d) => {
-              const typeInfo = DISRUPTION_TYPES.find((t) => t.value === d.type);
-              const isPast = dayjs(d.date).isBefore(dayjs(), 'day');
-              return (
-                <Card key={d.id} sx={{ opacity: isPast ? 0.6 : 1 }}>
-                  <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                          <Chip size="small" label={typeInfo?.label} sx={{ backgroundColor: typeInfo?.color + '18', color: typeInfo?.color, fontWeight: 600, fontSize: '0.7rem' }} />
-                          <Typography variant="body1" sx={{ fontWeight: 600 }}>{d.label}</Typography>
-                        </Box>
-                        <Typography variant="body2" color="text.secondary">
-                          {dayjs(d.date).format('dddd, MMMM D, YYYY')}
-                        </Typography>
-                        {d.periodOverrides.length > 0 && d.type !== 'no_school' && (
-                          <Box sx={{ mt: 1, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                            {d.periodOverrides.map((o) => (
-                              <Chip
-                                key={o.period}
-                                size="small"
-                                variant="outlined"
-                                label={o.cancelled ? `P${o.period}: Cancelled` : `P${o.period}: ${o.startTime}–${o.endTime}`}
-                                color={o.cancelled ? 'error' : 'default'}
-                                sx={{ fontSize: '0.65rem' }}
-                              />
-                            ))}
-                          </Box>
-                        )}
-                      </Box>
-                      <Box>
-                        <IconButton size="small" onClick={() => openDialog(d)}><EditIcon fontSize="small" /></IconButton>
-                        <IconButton size="small" color="error" onClick={() => handleDelete(d.id)}><DeleteIcon fontSize="small" /></IconButton>
-                      </Box>
-                    </Box>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </Stack>
-
-          {disruptions && disruptions.length > 0 && (
-            <Fab color="primary" sx={{ position: 'fixed', bottom: 24, right: 24 }} onClick={() => openDialog()} aria-label="Add disruption">
-              <AddIcon />
-            </Fab>
-          )}
+            {view === 'day' && daySchedule && (
+              <DayView
+                schedule={daySchedule}
+                date={selectedDate.format('YYYY-MM-DD')}
+                onClassClick={handleDayClick}
+              />
+            )}
+            {view === 'week' && weekSchedule && (
+              <WeekView
+                schedule={weekSchedule}
+                weekStart={selectedDate.startOf('isoWeek').format('YYYY-MM-DD')}
+                onClassClick={handleWeekClick}
+              />
+            )}
+            {view === 'year' && disruptions && (
+              <YearView
+                year={selectedDate.year()}
+                classes={classesForSchedule}
+                disruptions={disruptions}
+                onDateClick={(d) => { setSelectedDate(dayjs(d)); setView('day'); }}
+                semesterStart={semesterStart}
+                semesterEnd={semesterEnd}
+              />
+            )}
+          </>
         </Box>
-      )}
+      </Paper>
+
+      {/* ===== Disruptions ===== */}
+      <Box sx={{ mt: 4 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WarningAmberIcon sx={{ color: 'warning.main' }} />
+            <Typography variant="h6" sx={{ fontWeight: 500 }}>
+              Disruptions
+            </Typography>
+            {disruptions && disruptions.length > 0 && (
+              <Chip size="small" label={disruptions.length} />
+            )}
+          </Box>
+          <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={() => openDialog()}>
+            Add
+          </Button>
+        </Box>
+
+        {disruptions?.length === 0 && (
+          <Typography variant="body2" color="text.secondary">
+            No disruptions yet. Add early-out days, late starts, no-school days, or custom changes.
+          </Typography>
+        )}
+
+        <Stack spacing={1}>
+          {disruptions?.slice().sort((a, b) => dayjs(a.date).diff(dayjs(b.date))).map((d) => {
+            const typeInfo = DISRUPTION_TYPES.find((t) => t.value === d.type);
+            const isPast = dayjs(d.date).isBefore(dayjs(), 'day');
+            return (
+              <Card key={d.id} variant="outlined" sx={{ opacity: isPast ? 0.6 : 1 }}>
+                <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                        <Chip size="small" label={typeInfo?.label} sx={{ backgroundColor: typeInfo?.color + '18', color: typeInfo?.color, fontWeight: 600, fontSize: '0.7rem' }} />
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{d.label}</Typography>
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        {dayjs(d.date).format('dddd, MMMM D, YYYY')}
+                      </Typography>
+                      {d.periodOverrides.length > 0 && d.type !== 'no_school' && (
+                        <Box sx={{ mt: 0.75, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {d.periodOverrides.map((o) => (
+                            <Chip
+                              key={o.period}
+                              size="small"
+                              variant="outlined"
+                              label={o.cancelled ? `P${o.period}: Cancelled` : `P${o.period}: ${o.startTime}–${o.endTime}`}
+                              color={o.cancelled ? 'error' : 'default'}
+                              sx={{ fontSize: '0.65rem' }}
+                            />
+                          ))}
+                        </Box>
+                      )}
+                    </Box>
+                    <Box sx={{ display: 'flex', flexShrink: 0 }}>
+                      <IconButton size="small" onClick={() => openDialog(d)}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" color="error" onClick={() => handleDelete(d.id)}><DeleteIcon fontSize="small" /></IconButton>
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </Stack>
+      </Box>
 
       {/* ===== Disruption add/edit dialog ===== */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>

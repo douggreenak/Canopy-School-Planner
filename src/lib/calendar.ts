@@ -8,16 +8,28 @@ import { parseMinutes } from './calendarMetrics';
 
 /**
  * Build the full day schedule for a given date, accounting for disruptions.
+ * If semesterStart/semesterEnd are provided, days outside that range return
+ * an empty class list so the schedule doesn't run forever.
  */
 export function buildDaySchedule(
   date: string,
   classes: SchoolClass[],
-  disruptions: ScheduleDisruption[]
+  disruptions: ScheduleDisruption[],
+  semesterStart?: string,
+  semesterEnd?: string,
 ): DaySchedule {
   const d = dayjs(date);
   const dayOfWeek = d.day(); // 0=Sun
 
   const disruption = disruptions.find((dis) => dis.date === date);
+
+  if (semesterStart && d.isBefore(dayjs(semesterStart), 'day')) {
+    return { date, classes: [], disruption };
+  }
+  if (semesterEnd && d.isAfter(dayjs(semesterEnd), 'day')) {
+    return { date, classes: [], disruption };
+  }
+
   const dayClasses = classes.filter((c) => c.days.includes(dayOfWeek));
 
   const entries: ScheduleEntry[] = dayClasses.map((classInfo) => {

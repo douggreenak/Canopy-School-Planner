@@ -17,26 +17,22 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
 import DashboardIcon from '@mui/icons-material/Dashboard';
-import CircleIcon from '@mui/icons-material/Circle';
 import SchoolIcon from '@mui/icons-material/School';
-import AssignmentIcon from '@mui/icons-material/Assignment';
 import QuizIcon from '@mui/icons-material/Quiz';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import GradingIcon from '@mui/icons-material/Grading';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import SettingsIcon from '@mui/icons-material/Settings';
-import WarningAmberIcon from '@mui/icons-material/WarningAmber';
-import LightModeIcon from '@mui/icons-material/LightMode';
-import DarkModeIcon from '@mui/icons-material/DarkMode';
-import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import { useThemeMode } from '@/components/ThemeRegistry';
+import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import LoadingOverlay from '@/components/LoadingOverlay';
 import SetupWizard from '@/components/SetupWizard';
 import LoginScreen from '@/components/LoginScreen';
 
 const DRAWER_WIDTH = 256;
+const COLLAPSED_WIDTH = 64;
+const COLLAPSE_KEY = 'sp-sidebar-collapsed';
 
 interface NavItem {
   label: string;
@@ -49,10 +45,8 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Classes', icon: <SchoolIcon />, path: '/classes' },
   { label: 'Schedule', icon: <CalendarMonthIcon />, path: '/schedule' },
   { label: 'Grades', icon: <GradingIcon />, path: '/grades' },
-  { label: 'Homework', icon: <AssignmentIcon />, path: '/homework' },
   { label: 'Exams', icon: <QuizIcon />, path: '/exams' },
   { label: 'Tasks', icon: <ChecklistIcon />, path: '/tasks' },
-  { label: 'Disruptions', icon: <WarningAmberIcon />, path: '/schedule?tab=disruptions' },
   { label: 'Settings', icon: <SettingsIcon />, path: '/settings' },
 ];
 
@@ -76,33 +70,53 @@ function isNavItemActive(item: NavItem, pathname: string, currentTab: string | n
 
 function NavListInner({
   onItemClick,
+  collapsed,
 }: {
   onItemClick: (path: string) => void;
+  collapsed: boolean;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentTab = searchParams.get('tab');
 
   return (
-    <List sx={{ px: 1, pt: 1 }}>
+    <List sx={{ px: collapsed ? 0.5 : 1, pt: 1 }}>
       {NAV_ITEMS.map((item) => {
         const isActive = isNavItemActive(item, pathname, currentTab);
-        return (
+        const btn = (
           <ListItemButton
             key={item.label}
             selected={isActive}
             onClick={() => onItemClick(item.path)}
-            sx={{ mb: 0.5 }}
+            sx={{
+              mb: 0.5,
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              px: collapsed ? 1 : 2,
+              minHeight: 44,
+            }}
           >
-            <ListItemIcon sx={{ minWidth: 40, color: isActive ? 'primary.main' : 'text.secondary' }}>
+            <ListItemIcon
+              sx={{
+                minWidth: collapsed ? 0 : 40,
+                color: isActive ? 'primary.main' : 'text.secondary',
+                justifyContent: 'center',
+              }}
+            >
               {item.icon}
             </ListItemIcon>
-            <ListItemText
-              primary={item.label}
-              slotProps={{ primary: { sx: { fontSize: '0.875rem', fontWeight: isActive ? 600 : 400 } } }}
-            />
+            {!collapsed && (
+              <ListItemText
+                primary={item.label}
+                slotProps={{ primary: { sx: { fontSize: '0.875rem', fontWeight: isActive ? 600 : 400 } } }}
+              />
+            )}
           </ListItemButton>
         );
+        return collapsed ? (
+          <Tooltip key={item.label} title={item.label} placement="right">
+            {btn}
+          </Tooltip>
+        ) : btn;
       })}
     </List>
   );
@@ -110,24 +124,39 @@ function NavListInner({
 
 function NavListFallback({
   onItemClick,
+  collapsed,
 }: {
   onItemClick: (path: string) => void;
+  collapsed: boolean;
 }) {
   return (
-    <List sx={{ px: 1, pt: 1 }}>
+    <List sx={{ px: collapsed ? 0.5 : 1, pt: 1 }}>
       {NAV_ITEMS.map((item) => (
         <ListItemButton
           key={item.label}
           onClick={() => onItemClick(item.path)}
-          sx={{ mb: 0.5 }}
+          sx={{
+            mb: 0.5,
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            px: collapsed ? 1 : 2,
+            minHeight: 44,
+          }}
         >
-          <ListItemIcon sx={{ minWidth: 40, color: 'text.secondary' }}>
+          <ListItemIcon
+            sx={{
+              minWidth: collapsed ? 0 : 40,
+              color: 'text.secondary',
+              justifyContent: 'center',
+            }}
+          >
             {item.icon}
           </ListItemIcon>
-          <ListItemText
-            primary={item.label}
-            slotProps={{ primary: { sx: { fontSize: '0.875rem' } } }}
-          />
+          {!collapsed && (
+            <ListItemText
+              primary={item.label}
+              slotProps={{ primary: { sx: { fontSize: '0.875rem' } } }}
+            />
+          )}
         </ListItemButton>
       ))}
     </List>
@@ -138,8 +167,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const router = useRouter();
-  const { mode, setMode } = useThemeMode();
+
+  // Restore collapse preference from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem(COLLAPSE_KEY);
+    if (stored === 'true') setCollapsed(true);
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(COLLAPSE_KEY, String(next));
+      return next;
+    });
+  };
 
   // Auth state — null = loading, false = logged out, object = logged in
   const [currentUser, setCurrentUser] = useState<{ id: string; username: string } | null | false>(null);
@@ -156,8 +199,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (isMobile) setMobileOpen(false);
   };
 
-  const [healthOk, setHealthOk] = useState<boolean | null>(null);
-  const [healthError, setHealthError] = useState<string | undefined>();
   const [wizardOpen, setWizardOpen] = useState(false);
 
   useEffect(() => {
@@ -168,27 +209,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!currentUser) return;
-    let cancelled = false;
     fetch('/api/setup/health')
       .then((r) => r.json())
       .then((data) => {
-        if (cancelled) return;
         if (!data.ok && data.error === 'Missing credentials') {
-          setHealthOk(null);
           if (typeof window !== 'undefined' && !localStorage.getItem('sp-wizard-dismissed')) {
             setWizardOpen(true);
           }
-        } else {
-          setHealthOk(!!data.ok);
-          setHealthError(data.error);
         }
       })
-      .catch(() => {
-        if (cancelled) return;
-        setHealthOk(false);
-        setHealthError('Network error');
-      });
-    return () => { cancelled = true; };
+      .catch(() => {});
   }, [currentUser]);
 
   const doLogout = async () => {
@@ -198,88 +228,110 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ action: 'logout' }),
     }).catch(() => {});
     setCurrentUser(false);
-    setHealthOk(null);
     router.push('/');
   };
 
-  const cycleTheme = () => {
-    const next = mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light';
-    setMode(next);
-  };
-
-  const themeIcon = mode === 'light' ? <LightModeIcon /> : mode === 'dark' ? <DarkModeIcon /> : <SettingsBrightnessIcon />;
-  const themeLabel = mode === 'light' ? 'Light mode' : mode === 'dark' ? 'Dark mode' : 'System theme';
-
-  const healthDot = healthOk === null ? null : (
-    <Tooltip
-      title={
-        healthOk
-          ? 'Google Sheet connected'
-          : `Google Sheet unreachable${healthError ? `: ${healthError}` : ''}. Click to open Settings.`
-      }
-    >
-      <IconButton
-        size="small"
-        onClick={() => router.push('/settings')}
-        sx={{ color: healthOk ? 'success.main' : 'error.main', p: 0.5 }}
-        aria-label={healthOk ? 'Google Sheet connected' : 'Google Sheet unreachable'}
-      >
-        <CircleIcon sx={{ fontSize: 10 }} />
-      </IconButton>
-    </Tooltip>
-  );
-
-  // Still loading auth state — show nothing to avoid flash
   if (currentUser === null) {
-    return (
-      <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }} />
-    );
+    return <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }} />;
   }
 
-  // Not logged in — show login screen
   if (currentUser === false) {
-    return (
-      <LoginScreen onLogin={(user) => setCurrentUser(user)} />
-    );
+    return <LoginScreen onLogin={(user) => setCurrentUser(user)} />;
   }
 
-  const drawer = (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Toolbar sx={{ gap: 1.5 }}>
-        <SchoolIcon sx={{ color: 'primary.main', fontSize: 28 }} />
-        <Typography variant="h6" noWrap sx={{ fontWeight: 500, color: 'primary.main', flex: 1 }}>
-          School Planner
-        </Typography>
-        {healthDot}
-        <Tooltip title={themeLabel}>
-          <IconButton size="small" onClick={cycleTheme} sx={{ color: 'text.secondary' }}>
-            {themeIcon}
-          </IconButton>
-        </Tooltip>
+  const drawerWidth = isMobile ? DRAWER_WIDTH : collapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH;
+
+  const drawerContent = (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Header — hamburger toggle (desktop) or branding (mobile) */}
+      <Toolbar
+        sx={{
+          gap: 1,
+          justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
+          px: collapsed && !isMobile ? 0.5 : 1,
+          minHeight: 64,
+        }}
+      >
+        {!isMobile ? (
+          /* Desktop: hamburger opens/closes the rail */
+          <>
+            <Tooltip title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} placement="right">
+              <IconButton onClick={toggleCollapsed} size="small" sx={{ color: 'text.secondary' }}>
+                {collapsed ? <MenuIcon /> : <MenuOpenIcon />}
+              </IconButton>
+            </Tooltip>
+            {!collapsed && (
+              <>
+                <SchoolIcon sx={{ color: 'primary.main', fontSize: 26, flexShrink: 0 }} />
+                <Typography variant="h6" noWrap sx={{ fontWeight: 500, color: 'primary.main', flex: 1 }}>
+                  School Planner
+                </Typography>
+              </>
+            )}
+          </>
+        ) : (
+          /* Mobile: just branding (hamburger is in the AppBar) */
+          <>
+            <SchoolIcon sx={{ color: 'primary.main', fontSize: 28, flexShrink: 0 }} />
+            <Typography variant="h6" noWrap sx={{ fontWeight: 500, color: 'primary.main', flex: 1 }}>
+              School Planner
+            </Typography>
+          </>
+        )}
       </Toolbar>
+
       <Divider />
+
+      {/* Nav items */}
       <Box sx={{ flex: 1, overflow: 'auto' }}>
-        <Suspense fallback={<NavListFallback onItemClick={handleNavClick} />}>
-          <NavListInner onItemClick={handleNavClick} />
+        <Suspense fallback={<NavListFallback onItemClick={handleNavClick} collapsed={collapsed && !isMobile} />}>
+          <NavListInner onItemClick={handleNavClick} collapsed={collapsed && !isMobile} />
         </Suspense>
       </Box>
+
       <Divider />
-      <List sx={{ px: 1, pb: 1 }}>
-        <ListItemButton disabled sx={{ borderRadius: 1, opacity: 0.7 }}>
-          <ListItemIcon sx={{ minWidth: 40, color: 'text.secondary' }}>
-            <AccountCircleIcon />
-          </ListItemIcon>
-          <ListItemText
-            primary={currentUser.username}
-            slotProps={{ primary: { sx: { fontSize: '0.875rem', fontWeight: 500 } } }}
-          />
-        </ListItemButton>
-        <ListItemButton onClick={doLogout} sx={{ borderRadius: 1 }}>
-          <ListItemIcon sx={{ minWidth: 40, color: 'text.secondary' }}>
-            <LogoutIcon />
-          </ListItemIcon>
-          <ListItemText primary="Sign Out" slotProps={{ primary: { sx: { fontSize: '0.875rem' } } }} />
-        </ListItemButton>
+
+      {/* Bottom: user + logout + collapse toggle */}
+      <List sx={{ px: collapsed && !isMobile ? 0.5 : 1, pb: 0.5 }}>
+        {/* Username row */}
+        {collapsed && !isMobile ? (
+          <Tooltip title={currentUser.username} placement="right">
+            <ListItemButton disabled sx={{ justifyContent: 'center', px: 1, minHeight: 44, opacity: 0.7 }}>
+              <ListItemIcon sx={{ minWidth: 0, justifyContent: 'center', color: 'text.secondary' }}>
+                <AccountCircleIcon />
+              </ListItemIcon>
+            </ListItemButton>
+          </Tooltip>
+        ) : (
+          <ListItemButton disabled sx={{ borderRadius: 1, opacity: 0.7 }}>
+            <ListItemIcon sx={{ minWidth: 40, color: 'text.secondary' }}>
+              <AccountCircleIcon />
+            </ListItemIcon>
+            <ListItemText
+              primary={currentUser.username}
+              slotProps={{ primary: { sx: { fontSize: '0.875rem', fontWeight: 500 } } }}
+            />
+          </ListItemButton>
+        )}
+
+        {/* Sign out */}
+        {collapsed && !isMobile ? (
+          <Tooltip title="Sign Out" placement="right">
+            <ListItemButton onClick={doLogout} sx={{ justifyContent: 'center', px: 1, minHeight: 44 }}>
+              <ListItemIcon sx={{ minWidth: 0, justifyContent: 'center', color: 'text.secondary' }}>
+                <LogoutIcon />
+              </ListItemIcon>
+            </ListItemButton>
+          </Tooltip>
+        ) : (
+          <ListItemButton onClick={doLogout} sx={{ borderRadius: 1 }}>
+            <ListItemIcon sx={{ minWidth: 40, color: 'text.secondary' }}>
+              <LogoutIcon />
+            </ListItemIcon>
+            <ListItemText primary="Sign Out" slotProps={{ primary: { sx: { fontSize: '0.875rem' } } }} />
+          </ListItemButton>
+        )}
+
       </List>
     </Box>
   );
@@ -289,6 +341,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <LoadingOverlay />
       <SetupWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
 
+      {/* Mobile top bar */}
       {isMobile && (
         <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
           <Toolbar>
@@ -299,17 +352,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <Typography variant="h6" noWrap sx={{ fontWeight: 500, flex: 1 }}>
               School Planner
             </Typography>
-            {healthDot}
-            <Tooltip title={themeLabel}>
-              <IconButton onClick={cycleTheme} sx={{ color: 'text.secondary' }}>
-                {themeIcon}
-              </IconButton>
-            </Tooltip>
           </Toolbar>
         </AppBar>
       )}
 
-      <Box component="nav" sx={{ width: { md: DRAWER_WIDTH }, flexShrink: { md: 0 } }}>
+      {/* Sidebar */}
+      <Box
+        component="nav"
+        sx={{
+          width: { md: drawerWidth },
+          flexShrink: { md: 0 },
+          transition: theme.transitions.create('width', {
+            easing: theme.transitions.easing.sharp,
+            duration: theme.transitions.duration.enteringScreen,
+          }),
+        }}
+      >
         {isMobile ? (
           <Drawer
             variant="temporary"
@@ -318,28 +376,43 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             ModalProps={{ keepMounted: true }}
             sx={{ '& .MuiDrawer-paper': { width: DRAWER_WIDTH } }}
           >
-            {drawer}
+            {drawerContent}
           </Drawer>
         ) : (
           <Drawer
             variant="permanent"
-            sx={{ '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box' } }}
             open
+            sx={{
+              '& .MuiDrawer-paper': {
+                width: drawerWidth,
+                boxSizing: 'border-box',
+                overflowX: 'hidden',
+                transition: theme.transitions.create('width', {
+                  easing: theme.transitions.easing.sharp,
+                  duration: theme.transitions.duration.enteringScreen,
+                }),
+              },
+            }}
           >
-            {drawer}
+            {drawerContent}
           </Drawer>
         )}
       </Box>
 
+      {/* Main content */}
       <Box
         component="main"
         sx={{
           flexGrow: 1,
           p: 3,
           mt: isMobile ? '64px' : 0,
-          width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          minWidth: 0,
           bgcolor: 'background.default',
           minHeight: '100vh',
+          transition: theme.transitions.create('margin', {
+            easing: theme.transitions.easing.sharp,
+            duration: theme.transitions.duration.enteringScreen,
+          }),
         }}
       >
         {children}

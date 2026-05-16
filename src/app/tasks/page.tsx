@@ -13,6 +13,7 @@ import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
+import DialogContentText from '@mui/material/DialogContentText';
 import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
 import Grid from '@mui/material/Grid';
@@ -25,43 +26,61 @@ import Tab from '@mui/material/Tab';
 import Stack from '@mui/material/Stack';
 import Alert from '@mui/material/Alert';
 import Snackbar from '@mui/material/Snackbar';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { alpha } from '@mui/material/styles';
-import DialogContentText from '@mui/material/DialogContentText';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import EditIcon from '@mui/icons-material/Edit';
 import AssignmentIcon from '@mui/icons-material/Assignment';
-import { useTasks, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import ChecklistIcon from '@mui/icons-material/Checklist';
+import { useHomework, useTasks, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import { nextMeetingDate } from '@/lib/schedule';
 import TaskDetailDialog from '@/components/TaskDetailDialog';
-import type { Task, SchoolClass } from '@/types';
+import type { Homework, Task, SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
 
 const CATEGORIES = ['General', 'Homework', 'Study', 'Project', 'Reading', 'Practice', 'Other'];
 
+type ItemKind = 'homework' | 'task';
+type ListItem = { kind: 'homework'; data: Homework } | { kind: 'task'; data: Task };
+
 export default function TasksPage() {
-  const { data: tasks, loading, refetch, mutate } = useTasks();
+  const { data: homework, refetch: refetchHw, mutate: mutateHw } = useHomework();
+  const { data: tasks, loading, refetch: refetchTasks, mutate: mutateTasks } = useTasks();
   const { data: classes } = useClasses();
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
-  // Detail dialog state — opens when the user clicks a task row.
-  const [detailTask, setDetailTask] = useState<Task | null>(null);
+  const [tab, setTab] = useState(0); // 0=upcoming, 1=done, 2=all
+
+  // Add/edit dialog
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Task | null>(null);
-  const [tab, setTab] = useState(0);
-  const [form, setForm] = useState<Task>({
+  const [addKind, setAddKind] = useState<ItemKind>('task');
+  const [editingHw, setEditingHw] = useState<Homework | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [hwForm, setHwForm] = useState<Homework>({
+    id: '', classId: '', title: '', description: '', dueDate: '',
+    completed: false, priority: 'medium', source: 'manual',
+  });
+  const [taskForm, setTaskForm] = useState<Task>({
     id: '', title: '', description: '', dueDate: '', completed: false, priority: 'medium', category: 'General',
   });
 
-  // O(1) class lookup by id, used to render the class chip on each task card.
+  // Task detail dialog
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
+
+  // Clear done confirmation
+  const [clearDoneOpen, setClearDoneOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
   const classMap = useMemo(() => {
     const m = new Map<string, SchoolClass>();
     (classes || []).forEach((c) => m.set(c.id, c));
     return m;
   }, [classes]);
 
-  // Sorted class list for the Quick Add row and the Class dropdown — by
-  // period when available, else by name.
   const sortedClasses = useMemo(() => {
     if (!classes) return [];
     return [...classes].sort((a, b) => {
@@ -70,140 +89,172 @@ export default function TasksPage() {
     });
   }, [classes]);
 
-  const filtered = useMemo(() => {
-    if (!tasks) return [];
-    let list = [...tasks];
-    if (tab === 0) list = list.filter((t) => !t.completed);
-    else if (tab === 1) list = list.filter((t) => t.completed);
-    return list.sort((a, b) => {
-      if (!a.dueDate) return 1;
-      if (!b.dueDate) return -1;
-      return dayjs(a.dueDate).diff(dayjs(b.dueDate));
-    });
-  }, [tasks, tab]);
+  // PowerSchool homework stays on Grades only
+  const manualHomework = useMemo(
+    () => (homework || []).filter((h) => h.source !== 'powerschool'),
+    [homework],
+  );
 
-  const openDialog = (task?: Task) => {
-    if (task) { setEditing(task); setForm(task); }
-    else {
-      setEditing(null);
-      setForm({
-        id: uuid(),
-        title: '',
-        description: '',
-        dueDate: dayjs().format('YYYY-MM-DD'),
-        completed: false,
-        priority: 'medium',
-        category: 'General',
-        classId: undefined,
-      });
-    }
+  const merged = useMemo((): ListItem[] => {
+    const hwItems: ListItem[] = manualHomework.map((d) => ({ kind: 'homework', data: d }));
+    const taskItems: ListItem[] = (tasks || []).map((d) => ({ kind: 'task', data: d }));
+    let list = [...hwItems, ...taskItems];
+    if (tab === 0) list = list.filter((item) => !item.data.completed);
+    else if (tab === 1) list = list.filter((item) => item.data.completed);
+    return list.sort((a, b) => {
+      const ad = a.data.dueDate, bd = b.data.dueDate;
+      if (!ad && !bd) return 0;
+      if (!ad) return 1;
+      if (!bd) return -1;
+      return dayjs(ad).diff(dayjs(bd));
+    });
+  }, [manualHomework, tasks, tab]);
+
+  const pendingCount = manualHomework.filter((h) => !h.completed).length + (tasks || []).filter((t) => !t.completed).length;
+  const doneCount = manualHomework.filter((h) => h.completed).length + (tasks || []).filter((t) => t.completed).length;
+
+  // ---- Dialog helpers ----
+
+  const openAdd = (kind?: ItemKind) => {
+    setEditingHw(null);
+    setEditingTask(null);
+    const k = kind ?? 'task';
+    setAddKind(k);
+    setHwForm({ id: uuid(), classId: sortedClasses[0]?.id ?? '', title: '', description: '', dueDate: dayjs().format('YYYY-MM-DD'), completed: false, priority: 'medium', source: 'manual' });
+    setTaskForm({ id: uuid(), title: '', description: '', dueDate: dayjs().format('YYYY-MM-DD'), completed: false, priority: 'medium', category: 'General', classId: undefined });
     setDialogOpen(true);
   };
 
+  const openEditHw = (hw: Homework) => {
+    setEditingHw(hw);
+    setEditingTask(null);
+    setAddKind('homework');
+    setHwForm(hw);
+    setDialogOpen(true);
+  };
+
+  const openEditTask = (task: Task) => {
+    setEditingTask(task);
+    setEditingHw(null);
+    setAddKind('task');
+    setTaskForm(task);
+    setDialogOpen(true);
+  };
+
+  // ---- Save ----
+
   const handleSave = async () => {
-    // Optimistic insert/update so the new task shows up instantly; if the
-    // server rejects we roll back and surface the error in the snackbar so
-    // the user actually sees what went wrong instead of nothing happening.
-    const snapshot = tasks;
-    const isEdit = !!editing;
-    const draft = form;
-    if (isEdit) {
-      mutate((prev) => (prev ? prev.map((t) => (t.id === draft.id ? draft : t)) : prev));
+    if (addKind === 'homework') {
+      const draft = hwForm;
+      const isEdit = !!editingHw;
+      const snapshot = homework;
+      if (isEdit) mutateHw((prev) => prev ? prev.map((h) => h.id === draft.id ? draft : h) : prev);
+      else mutateHw((prev) => prev ? [draft, ...prev] : [draft]);
+      setDialogOpen(false);
+      try {
+        if (isEdit) await apiPut('/api/homework', draft);
+        else await apiPost('/api/homework', draft);
+        refetchHw();
+      } catch (e) {
+        mutateHw(snapshot ?? null);
+        setErrorMsg(`Couldn't save: ${(e as Error).message}`);
+      }
     } else {
-      mutate((prev) => (prev ? [draft, ...prev] : [draft]));
-    }
-    setDialogOpen(false);
-    try {
-      if (isEdit) await apiPut('/api/tasks', draft);
-      else await apiPost('/api/tasks', draft);
-      refetch();
-    } catch (e) {
-      mutate(snapshot ?? null);
-      setErrorMsg(`Couldn't save task: ${(e as Error).message}`);
-    }
-  };
-
-  // Quick add: create a "Homework" task linked to the given class, due on the
-  // next date that class meets. Optimistic — the new task appears immediately
-  // and we surface a snackbar with the date so the user can sanity-check it.
-  const quickAddHomework = async (cls: SchoolClass) => {
-    const due = nextMeetingDate(cls.days || []) || dayjs().add(1, 'day').format('YYYY-MM-DD');
-    const task: Task = {
-      id: uuid(),
-      title: 'Homework',
-      description: '',
-      dueDate: due,
-      completed: false,
-      priority: 'medium',
-      category: 'Homework',
-      classId: cls.id,
-    };
-    // Insert at the top of the local cache for instant feedback.
-    mutate((prev) => (prev ? [task, ...prev] : [task]));
-    try {
-      await apiPost('/api/tasks', task);
-      refetch();
-      const dueLabel = dayjs(due).format('ddd, MMM D');
-      setStatusMsg(`Added "Homework" for ${cls.name} — due ${dueLabel}`);
-    } catch (e) {
-      // Roll back the optimistic insert.
-      mutate((prev) => (prev ? prev.filter((t) => t.id !== task.id) : prev));
-      setErrorMsg(`Couldn't add task: ${(e as Error).message}`);
+      const draft = taskForm;
+      const isEdit = !!editingTask;
+      const snapshot = tasks;
+      if (isEdit) mutateTasks((prev) => prev ? prev.map((t) => t.id === draft.id ? draft : t) : prev);
+      else mutateTasks((prev) => prev ? [draft, ...prev] : [draft]);
+      setDialogOpen(false);
+      try {
+        if (isEdit) await apiPut('/api/tasks', draft);
+        else await apiPost('/api/tasks', draft);
+        refetchTasks();
+      } catch (e) {
+        mutateTasks(snapshot ?? null);
+        setErrorMsg(`Couldn't save: ${(e as Error).message}`);
+      }
     }
   };
 
-  // Optimistic toggle — flip the checkbox in local state immediately so the
-  // UI feels instant, then send the PUT. If the PUT fails we revert and
-  // surface a snackbar; otherwise we still refetch in the background to stay
-  // in sync with anything else the server changed.
-  const toggleComplete = async (task: Task) => {
+  // ---- Toggle complete ----
+
+  const toggleHw = async (hw: Homework) => {
+    const next = !hw.completed;
+    mutateHw((prev) => prev ? prev.map((h) => h.id === hw.id ? { ...h, completed: next } : h) : prev);
+    try {
+      await apiPut('/api/homework', { ...hw, completed: next });
+      refetchHw();
+    } catch (e) {
+      mutateHw((prev) => prev ? prev.map((h) => h.id === hw.id ? { ...h, completed: !next } : h) : prev);
+      setErrorMsg(`Couldn't update: ${(e as Error).message}`);
+    }
+  };
+
+  const toggleTask = async (task: Task) => {
     const next = !task.completed;
-    mutate((prev) => (prev ? prev.map((t) => (t.id === task.id ? { ...t, completed: next } : t)) : prev));
+    mutateTasks((prev) => prev ? prev.map((t) => t.id === task.id ? { ...t, completed: next } : t) : prev);
     try {
       await apiPut('/api/tasks', { ...task, completed: next });
-      refetch();
+      refetchTasks();
     } catch (e) {
-      // Revert on failure
-      mutate((prev) => (prev ? prev.map((t) => (t.id === task.id ? { ...t, completed: !next } : t)) : prev));
-      setErrorMsg(`Couldn't update task: ${(e as Error).message}`);
+      mutateTasks((prev) => prev ? prev.map((t) => t.id === task.id ? { ...t, completed: !next } : t) : prev);
+      setErrorMsg(`Couldn't update: ${(e as Error).message}`);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    // Optimistic remove — same idea as toggle.
+  // ---- Delete ----
+
+  const deleteHw = async (id: string) => {
+    const snapshot = homework;
+    mutateHw((prev) => prev ? prev.filter((h) => h.id !== id) : prev);
+    try { await apiDelete(`/api/homework?id=${id}`); refetchHw(); }
+    catch (e) { mutateHw(snapshot ?? null); setErrorMsg(`Couldn't delete: ${(e as Error).message}`); }
+  };
+
+  const deleteTask = async (id: string) => {
     const snapshot = tasks;
-    mutate((prev) => (prev ? prev.filter((t) => t.id !== id) : prev));
+    mutateTasks((prev) => prev ? prev.filter((t) => t.id !== id) : prev);
+    try { await apiDelete(`/api/tasks?id=${id}`); refetchTasks(); }
+    catch (e) { mutateTasks(snapshot ?? null); setErrorMsg(`Couldn't delete: ${(e as Error).message}`); }
+  };
+
+  // ---- Quick add homework ----
+
+  const quickAddHomework = async (cls: SchoolClass) => {
+    const due = nextMeetingDate(cls.days || []) || dayjs().add(1, 'day').format('YYYY-MM-DD');
+    const task: Task = { id: uuid(), title: 'Homework', description: '', dueDate: due, completed: false, priority: 'medium', category: 'Homework', classId: cls.id };
+    mutateTasks((prev) => prev ? [task, ...prev] : [task]);
     try {
-      await apiDelete(`/api/tasks?id=${id}`);
-      refetch();
+      await apiPost('/api/tasks', task);
+      refetchTasks();
+      setStatusMsg(`Added "Homework" for ${cls.name} — due ${dayjs(due).format('ddd, MMM D')}`);
     } catch (e) {
-      mutate(snapshot ?? null);
-      setErrorMsg(`Couldn't delete task: ${(e as Error).message}`);
+      mutateTasks((prev) => prev ? prev.filter((t) => t.id !== task.id) : prev);
+      setErrorMsg(`Couldn't add: ${(e as Error).message}`);
     }
   };
 
-  // "Clear all done" — deletes every completed task in a single batch call.
-  // Wrapped in a confirmation dialog because it's irreversible and easy to
-  // mis-click. Optimistic: we filter out the completed rows from the cache
-  // immediately, then roll back if the server rejects.
-  const [clearDoneOpen, setClearDoneOpen] = useState(false);
-  const [clearing, setClearing] = useState(false);
+  // ---- Clear done ----
+
   const handleClearDone = async () => {
-    const snapshot = tasks;
-    const doneIds = (tasks || []).filter((t) => t.completed).map((t) => t.id);
-    if (doneIds.length === 0) {
-      setClearDoneOpen(false);
-      return;
-    }
+    const hwDoneIds = manualHomework.filter((h) => h.completed).map((h) => h.id);
+    const taskDoneIds = (tasks || []).filter((t) => t.completed).map((t) => t.id);
+    if (hwDoneIds.length === 0 && taskDoneIds.length === 0) { setClearDoneOpen(false); return; }
     setClearing(true);
-    mutate((prev) => (prev ? prev.filter((t) => !t.completed) : prev));
+    const hwSnapshot = homework, taskSnapshot = tasks;
+    mutateHw((prev) => prev ? prev.filter((h) => !h.completed) : prev);
+    mutateTasks((prev) => prev ? prev.filter((t) => !t.completed) : prev);
     try {
-      await apiDelete(`/api/tasks?ids=${encodeURIComponent(doneIds.join(','))}`);
-      refetch();
-      setStatusMsg(`Cleared ${doneIds.length} completed task${doneIds.length === 1 ? '' : 's'}`);
+      await Promise.all([
+        hwDoneIds.length > 0 ? apiDelete(`/api/homework?ids=${encodeURIComponent(hwDoneIds.join(','))}`) : Promise.resolve(),
+        taskDoneIds.length > 0 ? apiDelete(`/api/tasks?ids=${encodeURIComponent(taskDoneIds.join(','))}`) : Promise.resolve(),
+      ]);
+      refetchHw(); refetchTasks();
+      setStatusMsg(`Cleared ${hwDoneIds.length + taskDoneIds.length} completed items`);
     } catch (e) {
-      mutate(snapshot ?? null);
-      setErrorMsg(`Couldn't clear done tasks: ${(e as Error).message}`);
+      mutateHw(hwSnapshot ?? null); mutateTasks(taskSnapshot ?? null);
+      setErrorMsg(`Couldn't clear: ${(e as Error).message}`);
     } finally {
       setClearing(false);
       setClearDoneOpen(false);
@@ -214,18 +265,15 @@ export default function TasksPage() {
 
   return (
     <Box>
-      <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 2 }}>Tasks</Typography>
+      <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 2 }}>Homework & Tasks</Typography>
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label={`Pending (${tasks?.filter((t) => !t.completed).length ?? 0})`} />
-        <Tab label={`Done (${tasks?.filter((t) => t.completed).length ?? 0})`} />
+        <Tab label={`Upcoming (${pendingCount})`} />
+        <Tab label={`Done (${doneCount})`} />
         <Tab label="All" />
       </Tabs>
 
-      {/* ===== Quick add homework =====
-          One click per class → adds a task titled "Homework" with the due
-          date set to the next time that class meets. Hidden when there are
-          no classes (new users haven't imported PowerSchool yet). */}
+      {/* Quick add homework */}
       {sortedClasses.length > 0 && (
         <Card variant="outlined" sx={{ mb: 2 }}>
           <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
@@ -234,98 +282,91 @@ export default function TasksPage() {
               <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.5 }}>
                 Quick add homework
               </Typography>
-              <Typography variant="caption" color="text.disabled">
-                · due next class
-              </Typography>
+              <Typography variant="caption" color="text.disabled">· due next class</Typography>
             </Stack>
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-              {sortedClasses.map((c) => {
-                const due = nextMeetingDate(c.days || []);
-                const dueLabel = due ? dayjs(due).format('ddd MMM D') : 'tomorrow';
-                return (
-                  <Chip
-                    key={c.id}
-                    icon={<AddIcon />}
-                    label={c.name}
-                    onClick={() => quickAddHomework(c)}
-                    title={`Adds Homework for ${c.name}, due ${dueLabel}`}
-                    sx={{
-                      borderLeft: `4px solid ${c.color}`,
-                      backgroundColor: alpha(c.color, 0.1),
-                      borderRadius: 1,
-                      cursor: 'pointer',
-                      '&:hover': { backgroundColor: alpha(c.color, 0.2) },
-                    }}
-                  />
-                );
-              })}
+              {sortedClasses.map((c) => (
+                <Chip
+                  key={c.id}
+                  icon={<AddIcon />}
+                  label={c.name}
+                  onClick={() => quickAddHomework(c)}
+                  title={`Adds Homework for ${c.name}, due next class`}
+                  sx={{ borderLeft: `4px solid ${c.color}`, backgroundColor: alpha(c.color, 0.1), borderRadius: 1, cursor: 'pointer', '&:hover': { backgroundColor: alpha(c.color, 0.2) } }}
+                />
+              ))}
             </Stack>
           </CardContent>
         </Card>
       )}
 
-      {/* Done-tab toolbar: count + "Clear all done" button. Only renders when
-          we're on the Done tab AND there's something to clear, so it doesn't
-          dangle as dead UI elsewhere. */}
-      {tab === 1 && filtered.length > 0 && (
+      {tab === 1 && merged.length > 0 && (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-          <Typography variant="body2" color="text.secondary">
-            {filtered.length} completed {filtered.length === 1 ? 'task' : 'tasks'}
-          </Typography>
-          <Button
-            size="small"
-            color="error"
-            variant="outlined"
-            startIcon={<DeleteSweepIcon />}
-            onClick={() => setClearDoneOpen(true)}
-          >
+          <Typography variant="body2" color="text.secondary">{merged.length} completed</Typography>
+          <Button size="small" color="error" variant="outlined" startIcon={<DeleteSweepIcon />} onClick={() => setClearDoneOpen(true)}>
             Clear all done
           </Button>
         </Box>
       )}
 
-      {filtered.length === 0 && (
+      {merged.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 6 }}>
           <Typography variant="body1" color="text.secondary">
-            {tab === 0 ? 'No pending tasks!' : 'No tasks found.'}
+            {tab === 0 ? 'Nothing pending!' : tab === 1 ? 'Nothing completed yet.' : 'No items found.'}
           </Typography>
         </Box>
       )}
 
       <Stack spacing={1}>
-        {filtered.map((task) => {
+        {merged.map((item) => {
+          if (item.kind === 'homework') {
+            const hw = item.data;
+            const cls = classMap.get(hw.classId);
+            const overdue = !hw.completed && dayjs(hw.dueDate).isBefore(dayjs(), 'day');
+            return (
+              <Card key={`hw-${hw.id}`} sx={{ opacity: hw.completed ? 0.7 : 1 }}>
+                <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Checkbox
+                    checked={hw.completed}
+                    onChange={() => toggleHw(hw)}
+                    sx={{ color: cls?.color, '&.Mui-checked': { color: cls?.color } }}
+                  />
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: hw.completed ? 'line-through' : 'none' }}>
+                      {hw.title}
+                    </Typography>
+                    {hw.description && <Typography variant="body2" color="text.secondary" noWrap>{hw.description}</Typography>}
+                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <Chip size="small" label="HW" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
+                      {cls && (
+                        <Chip size="small" label={cls.name} sx={{ backgroundColor: cls.color + '18', color: cls.color, fontWeight: 500, fontSize: '0.7rem' }} />
+                      )}
+                      <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
+                        {overdue ? 'OVERDUE • ' : ''}Due {dayjs(hw.dueDate).format('MMM D, YYYY')}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Chip size="small" label={hw.priority} color={hw.priority === 'high' ? 'error' : hw.priority === 'medium' ? 'warning' : 'default'} sx={{ fontSize: '0.7rem' }} />
+                  <IconButton size="small" onClick={() => openEditHw(hw)}><EditIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" color="error" onClick={() => deleteHw(hw.id)}><DeleteIcon fontSize="small" /></IconButton>
+                </CardContent>
+              </Card>
+            );
+          }
+
+          // Task item
+          const task = item.data;
           const overdue = !task.completed && task.dueDate && dayjs(task.dueDate).isBefore(dayjs(), 'day');
+          const taskCls = task.classId ? classMap.get(task.classId) : undefined;
           return (
-            <Card key={task.id} sx={{ opacity: task.completed ? 0.7 : 1 }}>
+            <Card key={`task-${task.id}`} sx={{ opacity: task.completed ? 0.7 : 1 }}>
               <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                <Checkbox checked={task.completed} onChange={() => toggleComplete(task)} color="success" />
-                {/* Center pane is the click target for "open detail". The
-                    checkbox and delete IconButton are siblings (not children),
-                    so their clicks don't bubble up here. role+tabIndex+keydown
-                    keep keyboard users equivalent. */}
+                <Checkbox checked={task.completed} onChange={() => toggleTask(task)} color="success" />
                 <Box
-                  role="button"
-                  tabIndex={0}
+                  role="button" tabIndex={0}
                   onClick={() => setDetailTask(task)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setDetailTask(task);
-                    }
-                  }}
-                  sx={{
-                    flex: 1,
-                    minWidth: 0,
-                    cursor: 'pointer',
-                    borderRadius: 1,
-                    px: 0.5,
-                    py: 0.25,
-                    mx: -0.5,
-                    my: -0.25,
-                    transition: 'background-color 0.12s',
-                    '&:hover': { bgcolor: 'action.hover' },
-                    '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
-                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailTask(task); } }}
+                  sx={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, my: -0.25, transition: 'background-color 0.12s', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
                 >
                   <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: task.completed ? 'line-through' : 'none' }}>
                     {task.title}
@@ -333,19 +374,8 @@ export default function TasksPage() {
                   {task.description && <Typography variant="body2" color="text.secondary" noWrap>{task.description}</Typography>}
                   <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
                     <Chip size="small" label={task.category} variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                    {/* Linked-class chip — same color stripe pattern used in
-                        the Quick Add row + on the schedule page. */}
-                    {task.classId && classMap.get(task.classId) && (
-                      <Chip
-                        size="small"
-                        label={classMap.get(task.classId)!.name}
-                        variant="outlined"
-                        sx={{
-                          fontSize: '0.7rem',
-                          borderLeft: `3px solid ${classMap.get(task.classId)!.color}`,
-                          pl: 0.25,
-                        }}
-                      />
+                    {taskCls && (
+                      <Chip size="small" label={taskCls.name} variant="outlined" sx={{ fontSize: '0.7rem', borderLeft: `3px solid ${taskCls.color}`, pl: 0.25 }} />
                     )}
                     {task.dueDate && (
                       <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
@@ -355,140 +385,169 @@ export default function TasksPage() {
                   </Box>
                 </Box>
                 <Chip size="small" label={task.priority} color={task.priority === 'high' ? 'error' : task.priority === 'medium' ? 'warning' : 'default'} sx={{ fontSize: '0.7rem' }} />
-                <IconButton size="small" onClick={() => handleDelete(task.id)} color="error" aria-label="Delete task"><DeleteIcon fontSize="small" /></IconButton>
+                <IconButton size="small" color="error" onClick={() => deleteTask(task.id)} aria-label="Delete"><DeleteIcon fontSize="small" /></IconButton>
               </CardContent>
             </Card>
           );
         })}
       </Stack>
 
-      <Fab color="primary" sx={{ position: 'fixed', bottom: 24, right: 24 }} onClick={() => openDialog()}><AddIcon /></Fab>
+      <Fab color="primary" sx={{ position: 'fixed', bottom: 24, right: 24 }} onClick={() => openAdd()}>
+        <AddIcon />
+      </Fab>
 
+      {/* ===== Add / Edit dialog ===== */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{editing ? 'Edit Task' : 'Add Task'}</DialogTitle>
+        <DialogTitle>{(editingHw || editingTask) ? 'Edit' : 'Add'}</DialogTitle>
         <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 0.5 }}>
-            <Grid size={12}><TextField fullWidth label="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></Grid>
-            <Grid size={12}><TextField fullWidth label="Description" multiline rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Grid>
-            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Due Date" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} /></Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Priority</InputLabel>
-                <Select value={form.priority} label="Priority" onChange={(e) => setForm({ ...form, priority: e.target.value as Task['priority'] })}>
-                  <MenuItem value="low">Low</MenuItem>
-                  <MenuItem value="medium">Medium</MenuItem>
-                  <MenuItem value="high">High</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Category</InputLabel>
-                <Select value={form.category} label="Category" onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                  {CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-            {/* Optional class link — when set, the task shows a class chip
-                and is filterable by class on other pages. Displayed only when
-                the user has classes; otherwise the dropdown would be empty. */}
-            {sortedClasses.length > 0 && (
+          {/* Type toggle — only shown when adding, not editing */}
+          {!editingHw && !editingTask && (
+            <Box sx={{ mb: 2, mt: 0.5 }}>
+              <ToggleButtonGroup value={addKind} exclusive onChange={(_, v) => { if (v) setAddKind(v); }} size="small" fullWidth>
+                <ToggleButton value="homework">
+                  <AssignmentIcon sx={{ mr: 0.75, fontSize: 18 }} /> Homework
+                </ToggleButton>
+                <ToggleButton value="task">
+                  <ChecklistIcon sx={{ mr: 0.75, fontSize: 18 }} /> Task
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+          )}
+
+          {addKind === 'homework' ? (
+            <Grid container spacing={2}>
+              <Grid size={12}>
+                <TextField fullWidth label="Title" value={hwForm.title} onChange={(e) => setHwForm({ ...hwForm, title: e.target.value })} />
+              </Grid>
+              <Grid size={12}>
+                <TextField fullWidth label="Description" multiline rows={2} value={hwForm.description} onChange={(e) => setHwForm({ ...hwForm, description: e.target.value })} />
+              </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Class (optional)</InputLabel>
-                  <Select
-                    value={form.classId || ''}
-                    label="Class (optional)"
-                    onChange={(e) => setForm({ ...form, classId: e.target.value || undefined })}
-                  >
-                    <MenuItem value=""><em>None</em></MenuItem>
-                    {sortedClasses.map((c) => (
-                      <MenuItem key={c.id} value={c.id}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: c.color }} />
-                          {c.name}
-                        </Box>
-                      </MenuItem>
-                    ))}
+                  <InputLabel>Class</InputLabel>
+                  <Select value={hwForm.classId} label="Class" onChange={(e) => setHwForm({ ...hwForm, classId: e.target.value })}>
+                    {sortedClasses.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>
-            )}
-          </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField fullWidth label="Due Date" type="date" value={hwForm.dueDate} onChange={(e) => setHwForm({ ...hwForm, dueDate: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Priority</InputLabel>
+                  <Select value={hwForm.priority} label="Priority" onChange={(e) => setHwForm({ ...hwForm, priority: e.target.value as Homework['priority'] })}>
+                    <MenuItem value="low">Low</MenuItem>
+                    <MenuItem value="medium">Medium</MenuItem>
+                    <MenuItem value="high">High</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+          ) : (
+            <Grid container spacing={2}>
+              <Grid size={12}>
+                <TextField fullWidth label="Title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
+              </Grid>
+              <Grid size={12}>
+                <TextField fullWidth label="Description" multiline rows={2} value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField fullWidth label="Due Date" type="date" value={taskForm.dueDate} onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Priority</InputLabel>
+                  <Select value={taskForm.priority} label="Priority" onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value as Task['priority'] })}>
+                    <MenuItem value="low">Low</MenuItem>
+                    <MenuItem value="medium">Medium</MenuItem>
+                    <MenuItem value="high">High</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Category</InputLabel>
+                  <Select value={taskForm.category} label="Category" onChange={(e) => setTaskForm({ ...taskForm, category: e.target.value })}>
+                    {CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              {sortedClasses.length > 0 && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Class (optional)</InputLabel>
+                    <Select
+                      value={taskForm.classId || ''}
+                      label="Class (optional)"
+                      onChange={(e) => setTaskForm({ ...taskForm, classId: e.target.value || undefined })}
+                      renderValue={(val) => {
+                        if (!val) return <em>None</em>;
+                        const cls = sortedClasses.find((c) => c.id === val);
+                        return (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, overflow: 'hidden' }}>
+                            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: cls?.color, flexShrink: 0 }} />
+                            <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cls?.name}</Box>
+                          </Box>
+                        );
+                      }}
+                    >
+                      <MenuItem value=""><em>None</em></MenuItem>
+                      {sortedClasses.map((c) => (
+                        <MenuItem key={c.id} value={c.id}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: c.color, flexShrink: 0 }} />
+                            <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</Box>
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              )}
+            </Grid>
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave} disabled={!form.title}>
-            {editing ? 'Save' : 'Add'}
+          <Button variant="contained" onClick={handleSave} disabled={addKind === 'homework' ? !hwForm.title : !taskForm.title}>
+            {(editingHw || editingTask) ? 'Save' : 'Add'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* "Clear all done" confirmation. Lists the count up-front so the user
-          knows what they're agreeing to. Disabled state on the confirm button
-          while the batch delete is in flight prevents double-submits. */}
+      {/* Clear done confirmation */}
       <Dialog open={clearDoneOpen} onClose={() => !clearing && setClearDoneOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Clear all done tasks?</DialogTitle>
+        <DialogTitle>Clear all done?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            This will permanently delete{' '}
-            <strong>
-              {tasks?.filter((t) => t.completed).length ?? 0} completed{' '}
-              {(tasks?.filter((t) => t.completed).length ?? 0) === 1 ? 'task' : 'tasks'}
-            </strong>
-            . Pending tasks aren&apos;t affected. This can&apos;t be undone.
+            Permanently delete <strong>{doneCount} completed {doneCount === 1 ? 'item' : 'items'}</strong>. This can't be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setClearDoneOpen(false)} disabled={clearing}>Cancel</Button>
-          <Button
-            onClick={handleClearDone}
-            variant="contained"
-            color="error"
-            startIcon={<DeleteSweepIcon />}
-            disabled={clearing}
-          >
+          <Button onClick={handleClearDone} variant="contained" color="error" startIcon={<DeleteSweepIcon />} disabled={clearing}>
             {clearing ? 'Clearing…' : 'Delete all done'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Read-only detail view, opened by clicking a task row. The Edit
-          button delegates to the existing add/edit dialog (openDialog), so
-          there's a single edit form to maintain. */}
+      {/* Task detail dialog */}
       <TaskDetailDialog
         open={!!detailTask}
         task={detailTask}
         linkedClass={detailTask?.classId ? classMap.get(detailTask.classId) || null : null}
         onClose={() => setDetailTask(null)}
-        onToggleComplete={toggleComplete}
-        onEdit={(t) => openDialog(t)}
-        onDelete={handleDelete}
+        onToggleComplete={toggleTask}
+        onEdit={(t) => openEditTask(t)}
+        onDelete={deleteTask}
       />
 
-      <Snackbar
-        open={!!errorMsg}
-        autoHideDuration={5000}
-        onClose={() => setErrorMsg(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert severity="error" variant="filled" onClose={() => setErrorMsg(null)}>
-          {errorMsg}
-        </Alert>
+      <Snackbar open={!!errorMsg} autoHideDuration={5000} onClose={() => setErrorMsg(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity="error" variant="filled" onClose={() => setErrorMsg(null)}>{errorMsg}</Alert>
       </Snackbar>
-
-      {/* Success/info snackbar — used by quick-add to confirm what was just
-          created and when it's due. Lower-stakes than errors so we use the
-          info-style alert. */}
-      <Snackbar
-        open={!!statusMsg}
-        autoHideDuration={4000}
-        onClose={() => setStatusMsg(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert severity="success" variant="filled" onClose={() => setStatusMsg(null)}>
-          {statusMsg}
-        </Alert>
+      <Snackbar open={!!statusMsg} autoHideDuration={4000} onClose={() => setStatusMsg(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity="success" variant="filled" onClose={() => setStatusMsg(null)}>{statusMsg}</Alert>
       </Snackbar>
     </Box>
   );
