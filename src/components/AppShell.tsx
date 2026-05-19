@@ -80,7 +80,7 @@ function NavListInner({
   const currentTab = searchParams.get('tab');
 
   return (
-    <List sx={{ px: collapsed ? 0.5 : 1, pt: 1 }}>
+    <List sx={{ pl: 0, pr: collapsed ? 0.5 : 1, pt: 1 }}>
       {NAV_ITEMS.map((item) => {
         const isActive = isNavItemActive(item, pathname, currentTab);
         const btn = (
@@ -91,7 +91,8 @@ function NavListInner({
             sx={{
               mb: 0.5,
               justifyContent: collapsed ? 'center' : 'flex-start',
-              px: collapsed ? 1 : 2,
+              pl: collapsed ? 0 : 1.5,
+              pr: collapsed ? 1 : 2,
               minHeight: 44,
             }}
           >
@@ -130,7 +131,7 @@ function NavListFallback({
   collapsed: boolean;
 }) {
   return (
-    <List sx={{ px: collapsed ? 0.5 : 1, pt: 1 }}>
+    <List sx={{ pl: 0, pr: collapsed ? 0.5 : 1, pt: 1 }}>
       {NAV_ITEMS.map((item) => (
         <ListItemButton
           key={item.label}
@@ -138,7 +139,8 @@ function NavListFallback({
           sx={{
             mb: 0.5,
             justifyContent: collapsed ? 'center' : 'flex-start',
-            px: collapsed ? 1 : 2,
+            pl: collapsed ? 0 : 1.5,
+            pr: collapsed ? 1 : 2,
             minHeight: 44,
           }}
         >
