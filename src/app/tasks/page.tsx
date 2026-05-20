@@ -41,7 +41,7 @@ import TaskDetailDialog from '@/components/TaskDetailDialog';
 import type { Homework, Task, SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
 
-const CATEGORIES = ['General', 'Homework', 'Study', 'Project', 'Reading', 'Practice', 'Other'];
+const CATEGORIES = ['General', 'Ask', 'Homework', 'Study', 'Project', 'Reading', 'Practice', 'Other'];
 
 type ItemKind = 'homework' | 'task';
 type ListItem = { kind: 'homework'; data: Homework } | { kind: 'task'; data: Task };

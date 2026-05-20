@@ -14,6 +14,7 @@ import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
 import Paper from '@mui/material/Paper';
 import Alert from '@mui/material/Alert';
+import AlertTitle from '@mui/material/AlertTitle';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
@@ -77,6 +78,11 @@ export default function Dashboard() {
     return tasks.filter((t) => !t.completed).slice(0, 5);
   }, [tasks]);
 
+  const askTasks = useMemo(() => {
+    if (!tasks) return [];
+    return tasks.filter((t) => !t.completed && t.category === 'Ask');
+  }, [tasks]);
+
   const completedToday = useMemo(() => {
     if (!tasks) return { hw: 0, hwTotal: 0, tasks: 0, tasksTotal: 0 };
     const todayStr = dayjs().format('YYYY-MM-DD');
@@ -102,6 +108,16 @@ export default function Dashboard() {
 
   return (
     <Box>
+      {/* Ask banner */}
+      {askTasks.length > 0 && (
+        <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
+          <AlertTitle sx={{ fontWeight: 600 }}>
+            {askTasks.length === 1 ? 'You have something to ask' : `You have ${askTasks.length} things to ask`}
+          </AlertTitle>
+          {askTasks.map((t) => t.title).join(' · ')}
+        </Alert>
+      )}
+
       {/* Header */}
       <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
         <Box>
