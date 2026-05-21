@@ -381,6 +381,13 @@ export async function deleteHomework(id: string, userId: string): Promise<void> 
   await sql`DELETE FROM homework WHERE id = ${id} AND user_id = ${userId}`;
 }
 
+export async function deleteHomeworkBatch(ids: string[], userId: string): Promise<number> {
+  if (ids.length === 0) return 0;
+  const sql = getDb();
+  const result = await sql`DELETE FROM homework WHERE id = ANY(${ids}) AND user_id = ${userId}`;
+  return result.length ?? ids.length;
+}
+
 // ---- Exams ----
 
 export async function getExams(userId: string): Promise<Exam[]> {
@@ -597,7 +604,9 @@ export async function syncClassesFromSource(
       }
     }
 
-    const toDelete = all.filter((c) => !keptIds.has(c.id)).map((c) => c.id);
+    // Only delete classes that came from this source and are no longer in the incoming set.
+    // Manual classes (source !== 'powerschool') must never be deleted here.
+    const toDelete = fromSource.filter((c) => !keptIds.has(c.id)).map((c) => c.id);
     if (toDelete.length > 0) {
       await sql`DELETE FROM classes WHERE id = ANY(${toDelete}) AND user_id = ${userId}`;
     }

@@ -54,8 +54,9 @@ export default function SettingsPage() {
 
 function SettingsInner() {
   const { mode: themeMode, setMode: setThemeMode } = useThemeMode();
-  const { refetch: refetchClasses } = useClasses();
-  const { data: importedClasses, loading: classesLoading, refetch: refetchClassesList } = useClasses();
+  const { data: importedClasses, loading: classesLoading, refetch: refetchClasses } = useClasses();
+  const refetchClassesList = refetchClasses; // alias — same hook instance
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
   const [syncing, setSyncing] = useState<string | null>(null);
 
@@ -138,11 +139,17 @@ function SettingsInner() {
   const [editableClass, setEditableClass] = useState<SchoolClass | null>(null);
 
   useEffect(() => {
-    setCalendarUrl(`${window.location.origin}/api/calendar?token=${calendarToken || 'your-token'}`);
-  }, [calendarToken]);
+    const uid = currentUserId || 'your-user-id';
+    setCalendarUrl(`${window.location.origin}/api/calendar?userId=${uid}&token=${calendarToken || 'your-token'}`);
+  }, [calendarToken, currentUserId]);
 
   // Load setup status + saved settings
   useEffect(() => {
+    fetch('/api/auth')
+      .then((r) => r.json())
+      .then((data) => { if (data.user?.id) setCurrentUserId(data.user.id); })
+      .catch(() => {});
+
     fetch('/api/setup')
       .then((r) => r.json())
       .then((data) => {

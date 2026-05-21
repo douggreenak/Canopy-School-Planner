@@ -36,7 +36,7 @@ function formatTime(t: string | undefined): string {
   const [hStr, mStr] = t.split(':');
   const h = parseInt(hStr, 10);
   const m = parseInt(mStr, 10);
-  if (Number.isNaN(h)) return t;
+  if (Number.isNaN(h) || Number.isNaN(m)) return t;
   const period = h >= 12 ? 'PM' : 'AM';
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;

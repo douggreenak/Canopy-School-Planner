@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getHomework, addHomework, updateHomework, deleteHomework } from '@/lib/db';
+import { getHomework, addHomework, updateHomework, deleteHomework, deleteHomeworkBatch } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 import type { Homework } from '@/types';
 
@@ -50,6 +50,16 @@ export async function DELETE(request: NextRequest) {
     const userId = await getSessionUserId(request);
     if (!userId) return unauth();
     const { searchParams } = new URL(request.url);
+
+    // Batch delete: ?ids=id1,id2,id3
+    const ids = searchParams.get('ids');
+    if (ids) {
+      const idList = ids.split(',').map((s) => s.trim()).filter(Boolean);
+      const deleted = await deleteHomeworkBatch(idList, userId);
+      return Response.json({ success: true, deleted });
+    }
+
+    // Single delete: ?id=...
     const id = searchParams.get('id');
     if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
     await deleteHomework(id, userId);

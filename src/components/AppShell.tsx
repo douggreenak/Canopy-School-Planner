@@ -214,10 +214,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     fetch('/api/setup/health')
       .then((r) => r.json())
       .then((data) => {
-        if (!data.ok && data.error === 'Missing credentials') {
-          if (typeof window !== 'undefined' && !localStorage.getItem('sp-wizard-dismissed')) {
-            setWizardOpen(true);
-          }
+        if (!data.ok && !localStorage.getItem('sp-wizard-dismissed')) {
+          setWizardOpen(true);
         }
       })
       .catch(() => {});
