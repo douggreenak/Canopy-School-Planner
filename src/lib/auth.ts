@@ -35,10 +35,19 @@ export async function createSession(userId: string): Promise<{ token: string; co
 }
 
 export async function getSessionUserId(request: Request): Promise<string | null> {
+  // 1. Try Authorization: Bearer <token> (used by native apps)
+  const authHeader = request.headers.get('authorization') ?? '';
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const bearerToken = bearerMatch?.[1];
+
+  // 2. Fall back to HttpOnly cookie (used by the web app)
   const cookieHeader = request.headers.get('cookie') ?? '';
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]*)`));
-  const token = match?.[1];
+  const cookieMatch = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]*)`));
+  const cookieToken = cookieMatch?.[1];
+
+  const token = bearerToken || cookieToken;
   if (!token) return null;
+
   const session = await getDbSession(token);
   if (!session) return null;
   if (session.expiresAt < new Date()) {

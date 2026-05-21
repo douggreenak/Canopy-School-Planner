@@ -7,8 +7,6 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
 import Paper from '@mui/material/Paper';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -29,8 +27,6 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
 import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -43,6 +39,7 @@ import DayView from '@/components/DayView';
 import WeekView from '@/components/WeekView';
 import YearView from '@/components/YearView';
 import ClassDetailDialog from '@/components/ClassDetailDialog';
+import DisruptionCalendar, { DISRUPTION_TYPES } from '@/components/DisruptionCalendar';
 import { buildDaySchedule } from '@/lib/calendar';
 import type { ScheduleDisruption, PeriodOverride, ScheduleEntry } from '@/types';
 import { v4 as uuid } from 'uuid';
@@ -57,13 +54,6 @@ const DEFAULT_LUNCH_TIMES: Record<number, { startTime: string; endTime: string }
   5: { startTime: '10:26', endTime: '10:57' },
 };
 
-const DISRUPTION_TYPES: { value: ScheduleDisruption['type']; label: string; color: string }[] = [
-  { value: 'early_out', label: 'Early Out', color: '#f9ab00' },
-  { value: 'late_start', label: 'Late Start', color: '#1a73e8' },
-  { value: 'no_school', label: 'No School', color: '#d93025' },
-  { value: 'assembly', label: 'Assembly', color: '#7BAAF7' },
-  { value: 'custom', label: 'Custom', color: '#9aa0a6' },
-];
 
 type ViewMode = 'day' | 'week' | 'year';
 const VIEW_MODE_INDEX: Record<ViewMode, number> = { day: 0, week: 1, year: 2 };
@@ -177,6 +167,19 @@ function SchedulePageInner() {
       setForm({ id: uuid(), date: dayjs().format('YYYY-MM-DD'), type: 'early_out', label: '', periodOverrides: [] });
     }
     setDialogOpen(true);
+  };
+
+  const openDialogForDate = (date: string) => {
+    setEditing(null);
+    setForm({ id: uuid(), date, type: 'early_out', label: '', periodOverrides: [] });
+    setDialogOpen(true);
+  };
+
+  const handleMove = async (id: string, newDate: string) => {
+    const dis = disruptions?.find((d) => d.id === id);
+    if (!dis) return;
+    await apiPut('/api/disruptions', { ...dis, date: newDate });
+    refetch();
   };
 
   const handleAutoGenerate = () => {
@@ -312,14 +315,12 @@ function SchedulePageInner() {
         </Box>
       </Paper>
 
-      {/* ===== Disruptions ===== */}
-      <Box sx={{ mt: 4 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+      {/* ===== Disruptions calendar ===== */}
+      <Paper sx={{ borderRadius: 2, mt: 4, p: 2.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <WarningAmberIcon sx={{ color: 'warning.main' }} />
-            <Typography variant="h6" sx={{ fontWeight: 500 }}>
-              Disruptions
-            </Typography>
+            <Typography variant="h6" sx={{ fontWeight: 500 }}>Disruptions</Typography>
             {disruptions && disruptions.length > 0 && (
               <Chip size="small" label={disruptions.length} />
             )}
@@ -328,55 +329,13 @@ function SchedulePageInner() {
             Add
           </Button>
         </Box>
-
-        {disruptions?.length === 0 && (
-          <Typography variant="body2" color="text.secondary">
-            No disruptions yet. Add early-out days, late starts, no-school days, or custom changes.
-          </Typography>
-        )}
-
-        <Stack spacing={1}>
-          {disruptions?.slice().sort((a, b) => dayjs(a.date).diff(dayjs(b.date))).map((d) => {
-            const typeInfo = DISRUPTION_TYPES.find((t) => t.value === d.type);
-            const isPast = dayjs(d.date).isBefore(dayjs(), 'day');
-            return (
-              <Card key={d.id} variant="outlined" sx={{ opacity: isPast ? 0.6 : 1 }}>
-                <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                        <Chip size="small" label={typeInfo?.label} sx={{ backgroundColor: typeInfo?.color + '18', color: typeInfo?.color, fontWeight: 600, fontSize: '0.7rem' }} />
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{d.label}</Typography>
-                      </Box>
-                      <Typography variant="caption" color="text.secondary">
-                        {dayjs(d.date).format('dddd, MMMM D, YYYY')}
-                      </Typography>
-                      {d.periodOverrides.length > 0 && d.type !== 'no_school' && (
-                        <Box sx={{ mt: 0.75, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                          {d.periodOverrides.map((o) => (
-                            <Chip
-                              key={o.period}
-                              size="small"
-                              variant="outlined"
-                              label={o.cancelled ? `P${o.period}: Cancelled` : `P${o.period}: ${o.startTime}–${o.endTime}`}
-                              color={o.cancelled ? 'error' : 'default'}
-                              sx={{ fontSize: '0.65rem' }}
-                            />
-                          ))}
-                        </Box>
-                      )}
-                    </Box>
-                    <Box sx={{ display: 'flex', flexShrink: 0 }}>
-                      <IconButton size="small" onClick={() => openDialog(d)}><EditIcon fontSize="small" /></IconButton>
-                      <IconButton size="small" color="error" onClick={() => handleDelete(d.id)}><DeleteIcon fontSize="small" /></IconButton>
-                    </Box>
-                  </Box>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </Stack>
-      </Box>
+        <DisruptionCalendar
+          disruptions={disruptions ?? []}
+          onAdd={openDialogForDate}
+          onEdit={openDialog}
+          onMove={handleMove}
+        />
+      </Paper>
 
       {/* ===== Disruption add/edit dialog ===== */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>

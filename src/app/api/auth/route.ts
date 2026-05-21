@@ -61,9 +61,9 @@ export async function POST(request: NextRequest) {
       const id = uuid();
       const passwordHash = await hashPassword(password);
       await createUser(id, username.trim(), passwordHash);
-      const { cookie } = await createSession(id);
+      const { token, cookie } = await createSession(id);
       return new Response(
-        JSON.stringify({ success: true, user: { id, username: username.trim().toLowerCase() } }),
+        JSON.stringify({ success: true, token, user: { id, username: username.trim().toLowerCase() } }),
         { headers: { 'Content-Type': 'application/json', 'Set-Cookie': cookie } },
       );
     }
@@ -81,9 +81,9 @@ export async function POST(request: NextRequest) {
       if (!valid) {
         return Response.json({ error: 'Invalid username or password.' }, { status: 401 });
       }
-      const { cookie } = await createSession(user.id);
+      const { token, cookie } = await createSession(user.id);
       return new Response(
-        JSON.stringify({ success: true, user: { id: user.id, username: user.username } }),
+        JSON.stringify({ success: true, token, user: { id: user.id, username: user.username } }),
         { headers: { 'Content-Type': 'application/json', 'Set-Cookie': cookie } },
       );
     }
