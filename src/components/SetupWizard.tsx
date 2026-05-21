@@ -23,6 +23,7 @@ import SchoolIcon from '@mui/icons-material/School';
 import SyncIcon from '@mui/icons-material/Sync';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import StorageIcon from '@mui/icons-material/Storage';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
 import Visibility from '@mui/icons-material/Visibility';
@@ -222,6 +223,9 @@ export default function SetupWizard({ open, onClose }: Props) {
               </Stack>
 
               <Stack direction="row" spacing={1.5}>
+                <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy}>
+                  Back
+                </Button>
                 <Button
                   variant="contained"
                   size="large"
@@ -310,6 +314,9 @@ export default function SetupWizard({ open, onClose }: Props) {
               )}
 
               <Stack direction="row" spacing={1.5}>
+                <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy}>
+                  Back
+                </Button>
                 <Button
                   variant="contained"
                   size="large"
@@ -356,12 +363,17 @@ export default function SetupWizard({ open, onClose }: Props) {
               )}
 
               <Typography variant="body2" color="text.secondary">
-                Head to the <strong>Dashboard</strong> to see your schedule, or visit <strong>Settings</strong> to configure Google Classroom or the iCal calendar feed.
+                Head to the <strong>Dashboard</strong> to see your schedule, or visit <strong>Settings</strong> to configure the iCal calendar feed and PowerSchool sync.
               </Typography>
 
-              <Button variant="contained" size="large" fullWidth endIcon={<ArrowForwardIcon />} onClick={handleClose}>
-                Go to Dashboard
-              </Button>
+              <Stack direction="row" spacing={1.5} sx={{ width: '100%' }}>
+                <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(2)}>
+                  Back
+                </Button>
+                <Button variant="contained" size="large" sx={{ flex: 1 }} endIcon={<ArrowForwardIcon />} onClick={handleClose}>
+                  Go to Dashboard
+                </Button>
+              </Stack>
             </Stack>
           )}
         </Box>

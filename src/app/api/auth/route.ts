@@ -4,6 +4,7 @@ import {
   createUser,
   getUserByUsername,
   getUserById,
+  deleteUserAndAllData,
   initializeDatabase,
 } from '@/lib/db';
 import {
@@ -89,6 +90,15 @@ export async function POST(request: NextRequest) {
 
     if (action === 'logout') {
       await deleteSession(request);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { 'Content-Type': 'application/json', 'Set-Cookie': clearSessionCookie() },
+      });
+    }
+
+    if (action === 'deleteAccount') {
+      const userId = await getSessionUserId(request);
+      if (!userId) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      await deleteUserAndAllData(userId);
       return new Response(JSON.stringify({ success: true }), {
         headers: { 'Content-Type': 'application/json', 'Set-Cookie': clearSessionCookie() },
       });

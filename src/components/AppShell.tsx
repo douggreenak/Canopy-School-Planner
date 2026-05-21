@@ -229,7 +229,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   if (currentUser === null)  return <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }} />;
-  if (currentUser === false) return <LoginScreen onLogin={(user) => setCurrentUser(user)} />;
+  if (currentUser === false) return (
+    <LoginScreen
+      onLogin={(user, isNew) => {
+        setCurrentUser(user);
+        if (isNew) setWizardOpen(true);
+      }}
+    />
+  );
 
   const drawerWidth = isMobile ? DRAWER_WIDTH : collapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH;
 

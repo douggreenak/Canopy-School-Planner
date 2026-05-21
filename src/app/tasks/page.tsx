@@ -26,6 +26,7 @@ import Tab from '@mui/material/Tab';
 import Stack from '@mui/material/Stack';
 import Alert from '@mui/material/Alert';
 import Snackbar from '@mui/material/Snackbar';
+import LinearProgress from '@mui/material/LinearProgress';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { alpha } from '@mui/material/styles';
@@ -261,7 +262,7 @@ export default function TasksPage() {
     }
   };
 
-  if (loading) return null;
+  if (loading) return <Box sx={{ pt: 2 }}><LinearProgress sx={{ borderRadius: 1 }} /></Box>;
 
   return (
     <Box>
@@ -270,11 +271,11 @@ export default function TasksPage() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label={`Upcoming (${pendingCount})`} />
         <Tab label={`Done (${doneCount})`} />
-        <Tab label="All" />
+        <Tab label={`All (${pendingCount + doneCount})`} />
       </Tabs>
 
-      {/* Quick add homework */}
-      {sortedClasses.length > 0 && (
+      {/* Quick add homework — hide on Done tab */}
+      {sortedClasses.length > 0 && tab !== 1 && (
         <Card variant="outlined" sx={{ mb: 2 }}>
           <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
@@ -385,6 +386,7 @@ export default function TasksPage() {
                   </Box>
                 </Box>
                 <Chip size="small" label={task.priority} color={task.priority === 'high' ? 'error' : task.priority === 'medium' ? 'warning' : 'default'} sx={{ fontSize: '0.7rem' }} />
+                <IconButton size="small" onClick={() => openEditTask(task)} aria-label="Edit"><EditIcon fontSize="small" /></IconButton>
                 <IconButton size="small" color="error" onClick={() => deleteTask(task.id)} aria-label="Delete"><DeleteIcon fontSize="small" /></IconButton>
               </CardContent>
             </Card>
@@ -398,7 +400,9 @@ export default function TasksPage() {
 
       {/* ===== Add / Edit dialog ===== */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{(editingHw || editingTask) ? 'Edit' : 'Add'}</DialogTitle>
+        <DialogTitle>
+          {editingHw ? 'Edit Homework' : editingTask ? 'Edit Task' : addKind === 'homework' ? 'Add Homework' : 'Add Task'}
+        </DialogTitle>
         <DialogContent>
           {/* Type toggle — only shown when adding, not editing */}
           {!editingHw && !editingTask && (

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import Box from '@mui/material/Box';
@@ -15,6 +15,7 @@ import Stack from '@mui/material/Stack';
 import Paper from '@mui/material/Paper';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
+import LinearProgress from '@mui/material/LinearProgress';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
@@ -40,15 +41,56 @@ export default function Dashboard() {
   const { data: tasks } = useTasks();
   const { data: disruptions } = useDisruptions();
 
+  const DEFAULT_LUNCH_TIMES: Record<number, { startTime: string; endTime: string }> = {
+    1: { startTime: '10:26', endTime: '10:57' },
+    2: { startTime: '10:50', endTime: '11:20' },
+    3: { startTime: '10:50', endTime: '11:20' },
+    4: { startTime: '10:50', endTime: '11:20' },
+    5: { startTime: '10:26', endTime: '10:57' },
+  };
+
+  const [lunchTimes, setLunchTimes] = useState<Record<number, { startTime: string; endTime: string }>>(DEFAULT_LUNCH_TIMES);
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((s) => {
+        if (s.lunchTimes) {
+          setLunchTimes(typeof s.lunchTimes === 'string' ? JSON.parse(s.lunchTimes) : s.lunchTimes);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const classesWithLunch = useMemo(() => {
+    const base = classes || [];
+    if (base.find((c) => c.id === '__lunch__')) return base;
+    const dt = { ...DEFAULT_LUNCH_TIMES, ...lunchTimes };
+    const lunchClass = {
+      id: '__lunch__',
+      name: 'Lunch',
+      teacher: '',
+      room: '',
+      color: '#9E9E9E',
+      period: 0,
+      startTime: dt[1]?.startTime || '10:26',
+      endTime: dt[1]?.endTime || '10:57',
+      days: [1, 2, 3, 4, 5],
+      semester: '',
+      dayTimes: dt,
+    } as any;
+    return [...base, lunchClass];
+  }, [classes, lunchTimes]);
+
   const todaySchedule = useMemo(() => {
-    if (!classes || !disruptions) return null;
-    return buildDaySchedule(selectedDate.format('YYYY-MM-DD'), classes, disruptions);
-  }, [classes, disruptions, selectedDate]);
+    if (!classesWithLunch || !disruptions) return null;
+    return buildDaySchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions);
+  }, [classesWithLunch, disruptions, selectedDate]);
 
   const weekSchedule = useMemo(() => {
-    if (!classes || !disruptions) return null;
-    return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classes, disruptions);
-  }, [classes, disruptions, selectedDate]);
+    if (!classesWithLunch || !disruptions) return null;
+    return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions);
+  }, [classesWithLunch, disruptions, selectedDate]);
 
   // PowerSchool assignments belong on the Grades tab only — don't show them
   // in the Dashboard's "Upcoming Homework" card or summary counts. They're
@@ -75,7 +117,15 @@ export default function Dashboard() {
 
   const pendingTasks = useMemo(() => {
     if (!tasks) return [];
-    return tasks.filter((t) => !t.completed).slice(0, 5);
+    return tasks
+      .filter((t) => !t.completed)
+      .sort((a, b) => {
+        if (!a.dueDate && !b.dueDate) return 0;
+        if (!a.dueDate) return 1;
+        if (!b.dueDate) return -1;
+        return dayjs(a.dueDate).diff(dayjs(b.dueDate));
+      })
+      .slice(0, 5);
   }, [tasks]);
 
   const askTasks = useMemo(() => {
@@ -98,7 +148,7 @@ export default function Dashboard() {
     };
   }, [manualHomework, tasks]);
 
-  if (classesLoading) return null;
+  if (classesLoading) return <LinearProgress sx={{ borderRadius: 1 }} />;
 
   const navigateDate = (dir: number) => {
     if (tab === 0) setSelectedDate(selectedDate.add(dir, 'day'));
@@ -144,7 +194,8 @@ export default function Dashboard() {
       {/* Disruption Alert */}
       {todaySchedule?.disruption && (
         <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mb: 2, borderRadius: 2 }}>
-          <strong>{todaySchedule.disruption.label}</strong> — Schedule has been modified for today.
+          <Box component="span" sx={{ fontWeight: 600 }}>{todaySchedule.disruption.label}</Box>
+          {' — Schedule has been modified for today.'}
         </Alert>
       )}
 
@@ -152,10 +203,10 @@ export default function Dashboard() {
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid size={{ xs: 6, md: 3 }}>
           <Card>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
               <TodayIcon sx={{ color: 'primary.main', fontSize: 32, mb: 0.5 }} />
               <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                {todaySchedule?.classes.filter((c) => !c.cancelled).length ?? 0}
+                {todaySchedule?.classes.filter((c) => !c.cancelled && c.classInfo.id !== '__lunch__').length ?? 0}
               </Typography>
               <Typography variant="caption" color="text.secondary">Classes Today</Typography>
             </CardContent>
@@ -163,7 +214,7 @@ export default function Dashboard() {
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <Card>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
               <AssignmentIcon sx={{ color: 'error.main', fontSize: 32, mb: 0.5 }} />
               <Typography variant="h4" sx={{ fontWeight: 600 }}>
                 {upcomingHomework.length}
@@ -174,7 +225,7 @@ export default function Dashboard() {
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <Card>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
               <QuizIcon sx={{ color: 'warning.main', fontSize: 32, mb: 0.5 }} />
               <Typography variant="h4" sx={{ fontWeight: 600 }}>
                 {upcomingExams.length}
@@ -185,7 +236,7 @@ export default function Dashboard() {
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <Card>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
               <CheckCircleIcon sx={{ color: 'success.main', fontSize: 32, mb: 0.5 }} />
               <Typography variant="h4" sx={{ fontWeight: 600 }}>
                 {completedToday.hw + completedToday.tasks}
@@ -217,10 +268,10 @@ export default function Dashboard() {
           {tab === 1 && weekSchedule && (
             <WeekView schedule={weekSchedule} weekStart={selectedDate.startOf('isoWeek').format('YYYY-MM-DD')} />
           )}
-          {tab === 2 && classes && disruptions && (
+          {tab === 2 && classesWithLunch && disruptions && (
             <YearView
               year={selectedDate.year()}
-              classes={classes}
+              classes={classesWithLunch}
               disruptions={disruptions}
               onDateClick={(d) => { setSelectedDate(dayjs(d)); setTab(0); }}
             />

@@ -16,7 +16,7 @@ import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 
 interface Props {
-  onLogin: (user: { id: string; username: string }) => void;
+  onLogin: (user: { id: string; username: string }, isNew?: boolean) => void;
 }
 
 export default function LoginScreen({ onLogin }: Props) {
@@ -44,7 +44,7 @@ export default function LoginScreen({ onLogin }: Props) {
       if (!res.ok || !data.success) {
         setError(data.error || 'Something went wrong.');
       } else {
-        onLogin(data.user);
+        onLogin(data.user, mode === 'register');
       }
     } catch {
       setError('Network error. Please try again.');
@@ -143,7 +143,7 @@ export default function LoginScreen({ onLogin }: Props) {
             <Button
               variant="text"
               size="small"
-              onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}
+              onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); setUsername(''); setPassword(''); }}
               disabled={busy}
             >
               {mode === 'login' ? 'Create Account' : 'Sign In'}

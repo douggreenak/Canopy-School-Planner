@@ -2,12 +2,15 @@
 import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
+import Typography from '@mui/material/Typography';
 
 // A global loading overlay that appears when client-side fetches are in-flight.
 // It monkey-patches window.fetch once and keeps a counter of active requests.
 // A short show-delay avoids flicker for very short requests.
 export default function LoadingOverlay() {
   const [visible, setVisible] = useState(false);
+  const [showHint, setShowHint] = useState(false);
+  const hintTimer = useRef<number | null>(null);
   const inFlight = useRef(0);
   const showTimer = useRef<number | null>(null);
 
@@ -76,6 +79,15 @@ export default function LoadingOverlay() {
     };
   }, []);
 
+  useEffect(() => {
+    if (visible) {
+      hintTimer.current = window.setTimeout(() => setShowHint(true), 4000);
+    } else {
+      if (hintTimer.current) { window.clearTimeout(hintTimer.current); hintTimer.current = null; }
+      setShowHint(false);
+    }
+  }, [visible]);
+
   if (!visible) return null;
 
   return (
@@ -92,8 +104,13 @@ export default function LoadingOverlay() {
       }}
       aria-hidden={false}
     >
-      <Box sx={{ p: 4, borderRadius: 2, backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <Box sx={{ p: 4, borderRadius: 2, backdropFilter: 'blur(4px)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
         <CircularProgress size={96} thickness={4} />
+        {showHint && (
+          <Typography variant="body2" sx={{ color: 'white', opacity: 0.85 }}>
+            This might take a minute…
+          </Typography>
+        )}
       </Box>
     </Box>
   );

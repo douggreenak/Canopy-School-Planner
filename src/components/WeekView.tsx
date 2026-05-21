@@ -27,9 +27,20 @@ const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 7); // 7 AM through 7 PM
 
 function formatHour(h: number): string {
-  if (h === 12) return '12p';
-  if (h < 12) return `${h}a`;
-  return `${h - 12}p`;
+  if (h === 0) return '12 AM';
+  if (h === 12) return '12 PM';
+  if (h < 12) return `${h} AM`;
+  return `${h - 12} PM`;
+}
+
+function formatTime(t: string): string {
+  if (!t) return '';
+  const [hStr, mStr] = t.split(':');
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return t;
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')}`;
 }
 
 function NowIndicator() {
@@ -61,11 +72,13 @@ function NowIndicator() {
   );
 }
 
+import { type Theme } from '@mui/material/styles';
+
 interface ClassBlockProps {
   entry: ScheduleEntry;
   top: number;
   height: number;
-  theme: any;
+  theme: Theme;
   date: string;
   onClassClick?: (entry: ScheduleEntry, date: string) => void;
   debug: boolean;
@@ -145,7 +158,7 @@ const ClassBlock = memo(({ entry, top, height, theme, date, onClassClick, debug 
           color="text.secondary"
           sx={{ fontSize: '0.6rem', display: 'block', lineHeight: 1.15 }}
         >
-          {entry.startTime}
+          {formatTime(entry.startTime)}
         </Typography>
       )}
       {debug && (
@@ -232,6 +245,31 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
             height: TOTAL_HEIGHT,
           }}
         >
+          {/* Hour grid lines overlay — spans all day columns */}
+          <Box sx={{ position: 'absolute', top: 0, left: TIME_GUTTER, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 0 }}>
+            {HOURS.map((hour) => (
+              <Box key={`gl-${hour}`} sx={{
+                position: 'absolute',
+                top: hourTop(hour),
+                left: 0,
+                right: 0,
+                borderTop: '1px solid',
+                borderColor: 'divider',
+              }} />
+            ))}
+            {HOURS.map((hour) => (
+              <Box key={`hl-${hour}`} sx={{
+                position: 'absolute',
+                top: halfHourTop(hour),
+                left: 0,
+                right: 0,
+                borderTop: '1px dashed',
+                borderColor: 'divider',
+                opacity: 0.4,
+              }} />
+            ))}
+          </Box>
+
           {/* Hour-label gutter */}
           <Box sx={{ position: 'relative' }}>
             {HOURS.map((hour) => {
@@ -292,20 +330,26 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
         </Box>
 
         {/* Disruption indicators */}
-        <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-          {schedule.map((day, i) =>
-            day.disruption ? (
-              <Chip
-                key={i}
-                size="small"
-                label={`${DAY_LABELS[i]}: ${day.disruption.label}`}
-                color="warning"
-                variant="outlined"
-                sx={{ fontSize: '0.7rem' }}
-              />
-            ) : null
-          )}
-        </Box>
+        {schedule.some((d) => d.disruption) && (
+          <Box sx={{ mt: 1.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 500 }}>
+              Schedule disruptions this week
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {schedule.map((day, i) =>
+                day.disruption ? (
+                  <Chip
+                    key={i}
+                    size="small"
+                    label={`${DAY_LABELS[i]}: ${day.disruption.label}`}
+                    color="warning"
+                    variant="outlined"
+                  />
+                ) : null
+              )}
+            </Box>
+          </Box>
+        )}
       </Box>
     </Box>
   );

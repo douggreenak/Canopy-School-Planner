@@ -20,6 +20,7 @@ import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
+import LinearProgress from '@mui/material/LinearProgress';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -103,7 +104,7 @@ export default function ExamsPage() {
   const getClassName = (classId: string) => classes?.find((c) => c.id === classId)?.name ?? 'Unknown';
   const getClassColor = (classId: string) => classes?.find((c) => c.id === classId)?.color ?? '';
 
-  if (loading) return null;
+  if (loading) return <Box sx={{ pt: 2 }}><LinearProgress sx={{ borderRadius: 1 }} /></Box>;
 
   const renderExamCard = (exam: Exam) => {
     const isPast = dayjs(exam.date).isBefore(dayjs(), 'day');
@@ -162,13 +163,13 @@ export default function ExamsPage() {
   };
 
   return (
-    <Box>
+    <Box sx={{ pb: 10 }}>
       <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 3 }}>Exams</Typography>
 
       {upcoming.length === 0 && past.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 8 }}>
-          <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>No exams scheduled</Typography>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => openDialog()}>Add Exam</Button>
+          <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>No exams scheduled</Typography>
+          <Typography variant="body2" color="text.disabled">Tap + to add your first exam.</Typography>
         </Box>
       )}
 
@@ -203,7 +204,7 @@ export default function ExamsPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth size="small" label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} /></Grid>
             <Grid size={12}><TextField fullWidth label="Notes" multiline rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Grid>
           </Grid>
         </DialogContent>

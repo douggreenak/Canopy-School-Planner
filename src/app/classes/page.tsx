@@ -15,6 +15,12 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
 import AddIcon from '@mui/icons-material/Add';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import EditIcon from '@mui/icons-material/Edit';
@@ -35,6 +41,7 @@ export default function ClassesPage() {
   const [editing, setEditing] = useState<SchoolClass | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; cls: SchoolClass } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<SchoolClass | null>(null);
 
   const handleSave = async (cls: SchoolClass) => {
     if (editing) {
@@ -67,7 +74,7 @@ export default function ClassesPage() {
     }
   };
 
-  if (loading) return <LinearProgress />;
+  if (loading) return <Box sx={{ pt: 2 }}><LinearProgress sx={{ borderRadius: 1 }} /></Box>;
 
   return (
     <Box>
@@ -90,7 +97,7 @@ export default function ClassesPage() {
         </Box>
       )}
 
-      <Grid container spacing={2}>
+      <Grid container spacing={2} sx={{ pb: classes && classes.length > 0 ? 10 : 0 }}>
         {classes?.map((cls) => (
           <Grid key={cls.id} size={{ xs: 12, sm: 6, md: 4 }}>
             <Card sx={{ position: 'relative' }}>
@@ -117,7 +124,7 @@ export default function ClassesPage() {
                 </Box>
                 <Box sx={{ mt: 1.5, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                   {cls.days.sort().map((d) => (
-                    <Chip key={d} label={DAY_NAMES[d]} size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                    <Chip key={d} label={DAY_NAMES[d]} size="small" variant="outlined" />
                   ))}
                 </Box>
                 <Chip label={cls.semester} size="small" sx={{ mt: 1, backgroundColor: cls.color + '18', color: cls.color, fontWeight: 500 }} />
@@ -148,7 +155,7 @@ export default function ClassesPage() {
           <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Edit</ListItemText>
         </MenuItem>
-        <MenuItem onClick={() => handleDelete(menuAnchor!.cls.id)} sx={{ color: 'error.main' }}>
+        <MenuItem onClick={() => { setConfirmDelete(menuAnchor!.cls); setMenuAnchor(null); }} sx={{ color: 'error.main' }}>
           <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
           <ListItemText>Delete</ListItemText>
         </MenuItem>
@@ -160,6 +167,22 @@ export default function ClassesPage() {
         onSave={handleSave}
         initial={editing}
       />
+
+      {/* Delete confirmation */}
+      <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete class?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Remove <strong>{confirmDelete?.name}</strong> permanently? This can&apos;t be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirmDelete(null)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={() => { handleDelete(confirmDelete!.id); setConfirmDelete(null); }}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={!!deleteError}

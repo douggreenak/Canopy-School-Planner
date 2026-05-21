@@ -258,6 +258,19 @@ export async function getUserById(id: string): Promise<{ id: string; username: s
   return { id: row.id as string, username: row.username as string };
 }
 
+/** Permanently delete a user and every row they own across all tables. */
+export async function deleteUserAndAllData(userId: string): Promise<void> {
+  const sql = getDb();
+  await sql`DELETE FROM settings    WHERE user_id = ${userId}`;
+  await sql`DELETE FROM disruptions WHERE user_id = ${userId}`;
+  await sql`DELETE FROM homework    WHERE user_id = ${userId}`;
+  await sql`DELETE FROM exams       WHERE user_id = ${userId}`;
+  await sql`DELETE FROM tasks       WHERE user_id = ${userId}`;
+  await sql`DELETE FROM classes     WHERE user_id = ${userId}`;
+  await sql`DELETE FROM sessions    WHERE user_id = ${userId}`;
+  await sql`DELETE FROM users       WHERE id      = ${userId}`;
+}
+
 // ---- Sessions ----
 
 export async function createDbSession(id: string, userId: string, expiresAt: Date): Promise<void> {

@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import type { DaySchedule, ScheduleEntry } from '@/types';
 
 // 7 AM through 7 PM = 13 hour labels, 12 hour intervals.
+import { type Theme } from '@mui/material/styles';
 import { PX_PER_HOUR, DAY_START_MIN, DAY_END_MIN, TOTAL_HEIGHT, TIME_GUTTER, MIN_BLOCK_HEIGHT, hourTop, halfHourTop, minutesToPixels, heightForMinutes, topForMinutes, parseMinutes } from '@/lib/calendarMetrics';
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 7);
 
@@ -66,7 +67,7 @@ interface ClassBlockProps {
   entry: ScheduleEntry;
   top: number;
   height: number;
-  theme: any;
+  theme: Theme;
   onClassClick?: (entry: ScheduleEntry) => void;
   debug: boolean;
 }
@@ -192,8 +193,8 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
 
   if (schedule.classes.length === 0) {
     return (
-      <Box sx={{ textAlign: 'center', py: 6 }}>
-        <Typography variant="h6" color="text.secondary">
+      <Box sx={{ textAlign: 'center', py: 8 }}>
+        <Typography variant="body1" color="text.secondary">
           No classes scheduled for {dayjs(date).format('dddd, MMMM D')}
         </Typography>
       </Box>
@@ -219,10 +220,32 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
                   transform: 'translateY(-50%)',
                   fontSize: '0.7rem',
                   userSelect: 'none',
+                  zIndex: 1,
                 }}
               >
                 {formatHour(hour)}
               </Typography>
+              {/* Hour grid line */}
+              <Box sx={{
+                position: 'absolute',
+                top,
+                left: TIME_GUTTER,
+                right: 0,
+                borderTop: '1px solid',
+                borderColor: 'divider',
+                pointerEvents: 'none',
+              }} />
+              {/* Half-hour line */}
+              <Box sx={{
+                position: 'absolute',
+                top: halfHourTop(hour),
+                left: TIME_GUTTER,
+                right: 0,
+                borderTop: '1px dashed',
+                borderColor: 'divider',
+                opacity: 0.45,
+                pointerEvents: 'none',
+              }} />
             </Box>
           );
         })}

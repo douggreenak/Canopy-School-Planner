@@ -25,6 +25,12 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import Switch from '@mui/material/Switch';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogActions from '@mui/material/DialogActions';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import SchoolIcon from '@mui/icons-material/School';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
@@ -133,6 +139,33 @@ function SettingsInner() {
   const [calendarUrl, setCalendarUrl] = useState('');
 
   const [lathropMode, setLathropMode] = useState(false);
+
+  // Delete account
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  const handleDeleteAccount = async () => {
+    setDeletingAccount(true);
+    setDeleteAccountError('');
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deleteAccount' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDeleteAccountError(data.error || 'Failed to delete account.');
+      } else {
+        // Session cookie cleared server-side — reload to show login screen
+        window.location.href = '/';
+      }
+    } catch {
+      setDeleteAccountError('Network error. Please try again.');
+    }
+    setDeletingAccount(false);
+  };
 
   // Schedule wizard
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -942,7 +975,50 @@ function SettingsInner() {
           </CardContent>
         </Card>
 
+        {/* ===== DANGER ZONE ===== */}
+        <Card sx={{ borderColor: 'error.main', borderWidth: 1, borderStyle: 'solid' }}>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1, color: 'error.main' }}>
+              <DeleteForeverIcon color="error" /> Danger Zone
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Permanently delete your account and all associated data — classes, grades, homework, tasks, and settings. This cannot be undone.
+            </Typography>
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteForeverIcon />}
+              onClick={() => setDeleteAccountOpen(true)}
+            >
+              Delete My Account
+            </Button>
+          </CardContent>
+        </Card>
+
       </Stack>
+
+      {/* Delete account confirmation dialog */}
+      <Dialog open={deleteAccountOpen} onClose={() => { setDeleteAccountOpen(false); setDeleteAccountError(''); }} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ color: 'error.main' }}>Delete account?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This will permanently erase your account and every piece of data stored in Canopy — classes, grades, homework, tasks, and settings. This cannot be undone.
+          </DialogContentText>
+          {deleteAccountError && <Alert severity="error" sx={{ mt: 2 }}>{deleteAccountError}</Alert>}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => { setDeleteAccountOpen(false); setDeleteAccountError(''); }}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            disabled={deletingAccount}
+            startIcon={deletingAccount ? <CircularProgress size={16} color="inherit" /> : <DeleteForeverIcon />}
+            onClick={handleDeleteAccount}
+          >
+            Delete Forever
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={snackbar.open}
