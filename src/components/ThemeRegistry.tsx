@@ -4,48 +4,73 @@ import { ThemeProvider, useMediaQuery } from '@mui/material';
 import CssBaseline from '@mui/material/CssBaseline';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { getTheme, type ThemeMode } from '@/lib/theme';
+import { getTheme, DEFAULT_ACCENT, type ThemeMode } from '@/lib/theme';
 
 // ---- Context ----
 
 interface ThemeModeCtx {
-  mode: ThemeMode;      // 'light' | 'dark' | 'system'
+  mode: ThemeMode;
   resolved: 'light' | 'dark';
   setMode: (m: ThemeMode) => void;
+  accentColor: string;
+  setAccentColor: (c: string) => void;
 }
 
 const ThemeModeContext = createContext<ThemeModeCtx>({
   mode: 'system',
   resolved: 'light',
   setMode: () => {},
+  accentColor: DEFAULT_ACCENT,
+  setAccentColor: () => {},
 });
 
 export function useThemeMode() {
   return useContext(ThemeModeContext);
 }
 
-// ---- Provider ----
+// ---- Storage keys ----
+const MODE_KEY   = 'canopy-theme';
+const ACCENT_KEY = 'canopy-accent';
 
-const STORAGE_KEY = 'school-planner-theme';
+// ---- Provider ----
 
 export default function ThemeRegistry({ children }: { children: React.ReactNode }) {
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
   const [mode, setModeState] = useState<ThemeMode>('system');
+  const [accentColor, setAccentState] = useState<string>(DEFAULT_ACCENT);
   const [mounted, setMounted] = useState(false);
 
-  // Read from localStorage on mount
+  // Read both prefs from localStorage on mount
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) as ThemeMode | null;
-    if (stored === 'light' || stored === 'dark' || stored === 'system') {
-      setModeState(stored);
+    const storedMode = localStorage.getItem(MODE_KEY) as ThemeMode | null;
+    if (storedMode === 'light' || storedMode === 'dark' || storedMode === 'system') {
+      setModeState(storedMode);
     }
+    const storedAccent = localStorage.getItem(ACCENT_KEY);
+    if (storedAccent) setAccentState(storedAccent);
     setMounted(true);
+  }, []);
+
+  // Also sync from DB on mount (cross-device)
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((s) => {
+        if (s.themeMode && !localStorage.getItem(MODE_KEY)) {
+          setModeState(s.themeMode);
+          localStorage.setItem(MODE_KEY, s.themeMode);
+        }
+        if (s.accentColor && !localStorage.getItem(ACCENT_KEY)) {
+          setAccentState(s.accentColor);
+          localStorage.setItem(ACCENT_KEY, s.accentColor);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const setMode = useCallback((m: ThemeMode) => {
     setModeState(m);
-    localStorage.setItem(STORAGE_KEY, m);
-    // Also persist to Google Sheets (fire-and-forget)
+    localStorage.setItem(MODE_KEY, m);
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -53,30 +78,29 @@ export default function ThemeRegistry({ children }: { children: React.ReactNode 
     }).catch(() => {});
   }, []);
 
-  // Also load from Sheets on mount (for cross-device sync)
-  useEffect(() => {
-    fetch('/api/settings')
-      .then((r) => r.json())
-      .then((s) => {
-        if (s.themeMode && !localStorage.getItem(STORAGE_KEY)) {
-          setModeState(s.themeMode);
-          localStorage.setItem(STORAGE_KEY, s.themeMode);
-        }
-      })
-      .catch(() => {});
+  const setAccentColor = useCallback((c: string) => {
+    setAccentState(c);
+    localStorage.setItem(ACCENT_KEY, c);
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'accentColor', value: c }),
+    }).catch(() => {});
   }, []);
 
   const resolved: 'light' | 'dark' = mode === 'system' ? (prefersDark ? 'dark' : 'light') : mode;
-  const theme = useMemo(() => getTheme(resolved), [resolved]);
+  const theme = useMemo(() => getTheme(resolved, accentColor), [resolved, accentColor]);
 
-  const ctx = useMemo(() => ({ mode, resolved, setMode }), [mode, resolved, setMode]);
+  const ctx = useMemo(
+    () => ({ mode, resolved, setMode, accentColor, setAccentColor }),
+    [mode, resolved, setMode, accentColor, setAccentColor],
+  );
 
   return (
     <ThemeModeContext.Provider value={ctx}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <LocalizationProvider dateAdapter={AdapterDayjs}>
-          {/* Prevent flash — hide until we read localStorage */}
           <div style={{ visibility: mounted ? 'visible' : 'hidden' }}>
             {children}
           </div>

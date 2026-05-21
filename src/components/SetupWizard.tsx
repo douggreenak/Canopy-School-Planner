@@ -155,7 +155,7 @@ export default function SetupWizard({ open, onClose }: Props) {
           {step === 0 && (
             <Stack spacing={2.5}>
               <Box>
-                <Typography variant="h6" gutterBottom>Welcome to School Planner!</Typography>
+                <Typography variant="h6" gutterBottom>Welcome to Canopy!</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                   Your data is stored in a Neon PostgreSQL database — no spreadsheet setup needed. This wizard helps you add your school info and optionally import your schedule from PowerSchool.
                 </Typography>

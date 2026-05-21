@@ -42,6 +42,7 @@ import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import PaletteIcon from '@mui/icons-material/Palette';
 import { useClasses } from '@/lib/hooks';
 import { useThemeMode } from '@/components/ThemeRegistry';
+import { ACCENT_PRESETS } from '@/lib/theme';
 import type { SchoolClass } from '@/types';
 
 export default function SettingsPage() {
@@ -53,7 +54,7 @@ export default function SettingsPage() {
 }
 
 function SettingsInner() {
-  const { mode: themeMode, setMode: setThemeMode } = useThemeMode();
+  const { mode: themeMode, setMode: setThemeMode, accentColor, setAccentColor } = useThemeMode();
   const { data: importedClasses, loading: classesLoading, refetch: refetchClasses } = useClasses();
   const refetchClassesList = refetchClasses; // alias — same hook instance
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -450,14 +451,17 @@ function SettingsInner() {
             <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
               <PaletteIcon color="primary" /> Appearance
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Choose how the app looks. System follows your device's light/dark preference.
+
+            {/* Light / Dark / System */}
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Theme mode — System follows your device preference.
             </Typography>
             <ToggleButtonGroup
               value={themeMode}
               exclusive
               onChange={(_, val) => { if (val) setThemeMode(val); }}
               size="small"
+              sx={{ mb: 3 }}
             >
               <ToggleButton value="light" aria-label="Light mode">
                 <LightModeIcon sx={{ mr: 0.75, fontSize: 18 }} /> Light
@@ -469,6 +473,37 @@ function SettingsInner() {
                 <SettingsBrightnessIcon sx={{ mr: 0.75, fontSize: 18 }} /> System
               </ToggleButton>
             </ToggleButtonGroup>
+
+            {/* Accent color */}
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              Accent color — used for buttons, icons, and highlights throughout the app.
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.25 }}>
+              {ACCENT_PRESETS.map((preset) => {
+                const selected = accentColor === preset.color;
+                return (
+                  <Tooltip key={preset.color} title={preset.name} arrow>
+                    <Box
+                      onClick={() => setAccentColor(preset.color)}
+                      sx={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: '50%',
+                        bgcolor: preset.color,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: selected ? '2.5px solid white' : '2.5px solid transparent',
+                        outline: selected ? `2.5px solid ${preset.color}` : '2.5px solid transparent',
+                        transition: 'transform 0.15s, outline 0.15s',
+                        '&:hover': { transform: 'scale(1.18)' },
+                      }}
+                    />
+                  </Tooltip>
+                );
+              })}
+            </Box>
           </CardContent>
         </Card>
 

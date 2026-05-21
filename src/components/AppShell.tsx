@@ -14,25 +14,26 @@ import ListItemText from '@mui/material/ListItemText';
 import Divider from '@mui/material/Divider';
 import Tooltip from '@mui/material/Tooltip';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { useTheme } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
-import DashboardIcon from '@mui/icons-material/Dashboard';
-import SchoolIcon from '@mui/icons-material/School';
-import QuizIcon from '@mui/icons-material/Quiz';
-import ChecklistIcon from '@mui/icons-material/Checklist';
-import GradingIcon from '@mui/icons-material/Grading';
+import MenuOpenIcon from '@mui/icons-material/MenuOpen';
+import ParkIcon from '@mui/icons-material/Park';
+import LandscapeIcon from '@mui/icons-material/Landscape';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import SettingsIcon from '@mui/icons-material/Settings';
+import GradeIcon from '@mui/icons-material/Grade';
+import QuizIcon from '@mui/icons-material/Quiz';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
+import TuneIcon from '@mui/icons-material/Tune';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import LoadingOverlay from '@/components/LoadingOverlay';
 import SetupWizard from '@/components/SetupWizard';
 import LoginScreen from '@/components/LoginScreen';
 
-const DRAWER_WIDTH = 256;
+const DRAWER_WIDTH   = 256;
 const COLLAPSED_WIDTH = 64;
-const COLLAPSE_KEY = 'sp-sidebar-collapsed';
+const COLLAPSE_KEY   = 'canopy-sidebar-collapsed';
 
 interface NavItem {
   label: string;
@@ -41,13 +42,13 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', icon: <DashboardIcon />, path: '/' },
-  { label: 'Classes', icon: <SchoolIcon />, path: '/classes' },
-  { label: 'Schedule', icon: <CalendarMonthIcon />, path: '/schedule' },
-  { label: 'Grades', icon: <GradingIcon />, path: '/grades' },
-  { label: 'Exams', icon: <QuizIcon />, path: '/exams' },
-  { label: 'Tasks', icon: <ChecklistIcon />, path: '/tasks' },
-  { label: 'Settings', icon: <SettingsIcon />, path: '/settings' },
+  { label: 'Dashboard', icon: <LandscapeIcon />,     path: '/' },
+  { label: 'Classes',   icon: <MenuBookIcon />,       path: '/classes' },
+  { label: 'Schedule',  icon: <CalendarMonthIcon />, path: '/schedule' },
+  { label: 'Grades',    icon: <GradeIcon />,          path: '/grades' },
+  { label: 'Exams',     icon: <QuizIcon />,           path: '/exams' },
+  { label: 'Tasks',     icon: <TaskAltIcon />,        path: '/tasks' },
+  { label: 'Settings',  icon: <TuneIcon />,           path: '/settings' },
 ];
 
 function isNavItemActive(item: NavItem, pathname: string, currentTab: string | null): boolean {
@@ -75,12 +76,12 @@ function NavListInner({
   onItemClick: (path: string) => void;
   collapsed: boolean;
 }) {
-  const pathname = usePathname();
+  const pathname    = usePathname();
   const searchParams = useSearchParams();
-  const currentTab = searchParams.get('tab');
+  const currentTab  = searchParams.get('tab');
 
   return (
-    <List sx={{ pl: 0, pr: collapsed ? 0.5 : 1, pt: 1 }}>
+    <List sx={{ px: collapsed ? 0.5 : 1, pt: 1 }}>
       {NAV_ITEMS.map((item) => {
         const isActive = isNavItemActive(item, pathname, currentTab);
         const btn = (
@@ -91,8 +92,7 @@ function NavListInner({
             sx={{
               mb: 0.5,
               justifyContent: collapsed ? 'center' : 'flex-start',
-              pl: collapsed ? 0 : 1.5,
-              pr: collapsed ? 1 : 2,
+              px: collapsed ? 1 : 2,
               minHeight: 44,
             }}
           >
@@ -131,7 +131,7 @@ function NavListFallback({
   collapsed: boolean;
 }) {
   return (
-    <List sx={{ pl: 0, pr: collapsed ? 0.5 : 1, pt: 1 }}>
+    <List sx={{ px: collapsed ? 0.5 : 1, pt: 1 }}>
       {NAV_ITEMS.map((item) => (
         <ListItemButton
           key={item.label}
@@ -139,8 +139,7 @@ function NavListFallback({
           sx={{
             mb: 0.5,
             justifyContent: collapsed ? 'center' : 'flex-start',
-            pl: collapsed ? 0 : 1.5,
-            pr: collapsed ? 1 : 2,
+            px: collapsed ? 1 : 2,
             minHeight: 44,
           }}
         >
@@ -166,13 +165,12 @@ function NavListFallback({
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const theme = useTheme();
+  const theme   = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const router = useRouter();
+  const [collapsed, setCollapsed]   = useState(false);
+  const router  = useRouter();
 
-  // Restore collapse preference from localStorage
   useEffect(() => {
     const stored = localStorage.getItem(COLLAPSE_KEY);
     if (stored === 'true') setCollapsed(true);
@@ -186,7 +184,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     });
   };
 
-  // Auth state — null = loading, false = logged out, object = logged in
   const [currentUser, setCurrentUser] = useState<{ id: string; username: string } | null | false>(null);
 
   useEffect(() => {
@@ -231,29 +228,28 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     router.push('/');
   };
 
-  if (currentUser === null) {
-    return <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }} />;
-  }
-
-  if (currentUser === false) {
-    return <LoginScreen onLogin={(user) => setCurrentUser(user)} />;
-  }
+  if (currentUser === null)  return <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }} />;
+  if (currentUser === false) return <LoginScreen onLogin={(user) => setCurrentUser(user)} />;
 
   const drawerWidth = isMobile ? DRAWER_WIDTH : collapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH;
 
+  // Sidebar header brand area — subtle tint using primary color
+  const headerBg = alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.06 : 0.12);
+
   const drawerContent = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Header — hamburger toggle (desktop) or branding (mobile) */}
+      {/* Header */}
       <Toolbar
         sx={{
           gap: 1,
           justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
-          px: collapsed && !isMobile ? 0.5 : 1,
+          px: collapsed && !isMobile ? 0.5 : 1.5,
           minHeight: 64,
+          background: headerBg,
+          transition: 'background 0.3s',
         }}
       >
         {!isMobile ? (
-          /* Desktop: hamburger opens/closes the rail */
           <>
             <Tooltip title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} placement="right">
               <IconButton onClick={toggleCollapsed} size="small" sx={{ color: 'text.secondary' }}>
@@ -262,19 +258,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </Tooltip>
             {!collapsed && (
               <>
-                <SchoolIcon sx={{ color: 'primary.main', fontSize: 26, flexShrink: 0 }} />
-                <Typography variant="h6" noWrap sx={{ fontWeight: 500, color: 'primary.main', flex: 1 }}>
-                  School Planner
+                <ParkIcon sx={{ color: 'primary.main', fontSize: 26, flexShrink: 0 }} />
+                <Typography variant="h6" noWrap sx={{ fontWeight: 600, color: 'primary.main', flex: 1, letterSpacing: '-0.3px' }}>
+                  Canopy
                 </Typography>
               </>
             )}
           </>
         ) : (
-          /* Mobile: just branding (hamburger is in the AppBar) */
           <>
-            <SchoolIcon sx={{ color: 'primary.main', fontSize: 28, flexShrink: 0 }} />
-            <Typography variant="h6" noWrap sx={{ fontWeight: 500, color: 'primary.main', flex: 1 }}>
-              School Planner
+            <ParkIcon sx={{ color: 'primary.main', fontSize: 28, flexShrink: 0 }} />
+            <Typography variant="h6" noWrap sx={{ fontWeight: 600, color: 'primary.main', flex: 1, letterSpacing: '-0.3px' }}>
+              Canopy
             </Typography>
           </>
         )}
@@ -291,9 +286,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       <Divider />
 
-      {/* Bottom: user + logout + collapse toggle */}
+      {/* Bottom: user + logout */}
       <List sx={{ px: collapsed && !isMobile ? 0.5 : 1, pb: 0.5 }}>
-        {/* Username row */}
         {collapsed && !isMobile ? (
           <Tooltip title={currentUser.username} placement="right">
             <ListItemButton disabled sx={{ justifyContent: 'center', px: 1, minHeight: 44, opacity: 0.7 }}>
@@ -314,7 +308,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </ListItemButton>
         )}
 
-        {/* Sign out */}
         {collapsed && !isMobile ? (
           <Tooltip title="Sign Out" placement="right">
             <ListItemButton onClick={doLogout} sx={{ justifyContent: 'center', px: 1, minHeight: 44 }}>
@@ -331,7 +324,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <ListItemText primary="Sign Out" slotProps={{ primary: { sx: { fontSize: '0.875rem' } } }} />
           </ListItemButton>
         )}
-
       </List>
     </Box>
   );
@@ -348,9 +340,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <IconButton edge="start" onClick={() => setMobileOpen(!mobileOpen)} sx={{ mr: 1 }}>
               <MenuIcon />
             </IconButton>
-            <SchoolIcon sx={{ color: 'primary.main', mr: 1 }} />
-            <Typography variant="h6" noWrap sx={{ fontWeight: 500, flex: 1 }}>
-              School Planner
+            <ParkIcon sx={{ color: 'primary.main', mr: 1 }} />
+            <Typography variant="h6" noWrap sx={{ fontWeight: 600, flex: 1, color: 'primary.main', letterSpacing: '-0.3px' }}>
+              Canopy
             </Typography>
           </Toolbar>
         </AppBar>

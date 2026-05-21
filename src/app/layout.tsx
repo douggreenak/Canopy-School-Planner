@@ -4,8 +4,8 @@ import ThemeRegistry from '@/components/ThemeRegistry';
 import AppShell from '@/components/AppShell';
 
 export const metadata: Metadata = {
-  title: 'School Planner',
-  description: 'Smart school schedule planner with Google Sheets, PowerSchool & Classroom integration',
+  title: 'Canopy',
+  description: 'Your personal school planner — classes, schedule, grades, homework, and tasks in one place.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -11,7 +11,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
 import Divider from '@mui/material/Divider';
-import SchoolIcon from '@mui/icons-material/School';
+import ParkIcon from '@mui/icons-material/Park';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 
@@ -70,9 +70,9 @@ export default function LoginScreen({ onLogin }: Props) {
       <Paper elevation={3} sx={{ width: '100%', maxWidth: 400, p: 4, borderRadius: 3 }}>
         <Stack spacing={3} sx={{ alignItems: 'center' }}>
           <Stack direction="row" sx={{ alignItems: 'center' }} spacing={1.5}>
-            <SchoolIcon sx={{ color: 'primary.main', fontSize: 36 }} />
-            <Typography variant="h5" sx={{ fontWeight: 600, color: 'primary.main' }}>
-              School Planner
+            <ParkIcon sx={{ color: 'primary.main', fontSize: 36 }} />
+            <Typography variant="h5" sx={{ fontWeight: 700, color: 'primary.main', letterSpacing: '-0.3px' }}>
+              Canopy
             </Typography>
           </Stack>
 
