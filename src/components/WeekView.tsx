@@ -6,7 +6,7 @@
 // starting hour cell, so a 90-minute class showed as a tiny block in one
 // row instead of spanning two.
 // ============================================================
-import { useEffect, useState, useMemo, memo } from 'react';
+import { useEffect, useState, useMemo, memo, useRef } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
@@ -172,10 +172,23 @@ const ClassBlock = memo(({ entry, top, height, theme, date, onClassClick, debug 
 
 ClassBlock.displayName = 'ClassBlock';
 
+// The body section shows this many px before requiring vertical scroll.
+// 550 px ≈ 8.6 hours, covering a typical 7 AM–3:30 PM school day.
+const BODY_MAX_HEIGHT = 550;
+
 export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
   const theme = useTheme();
   const debug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debugSchedule') === '1';
   const start = dayjs(weekStart);
+
+  // Scroll the body back to 7 AM whenever the week changes (prevents the
+  // calendar from showing afternoon on navigation or scroll-restore events).
+  const scrollBodyRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (scrollBodyRef.current) {
+      scrollBodyRef.current.scrollTop = 0;
+    }
+  }, [weekStart]);
 
   const memoizedSchedules = useMemo(() => {
     return schedule.map((day) => ({
@@ -236,97 +249,109 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
           })}
         </Box>
 
-        {/* ===== Body: time gutter on the left, 7 day columns on the right ===== */}
+        {/* ===== Body: bounded scroll container so the grid never shoves afternoon
+              into view on load; header row above stays pinned ===== */}
         <Box
+          ref={scrollBodyRef}
           sx={{
-            display: 'grid',
-            gridTemplateColumns: `${TIME_GUTTER}px repeat(7, 1fr)`,
-            position: 'relative',
-            height: TOTAL_HEIGHT,
+            overflowY: 'auto',
+            maxHeight: BODY_MAX_HEIGHT,
+            // Stop touch-scroll from bubbling to the page once the grid's own
+            // scroll reaches its limits (prevents iOS "rubber-band" page scroll).
+            overscrollBehavior: 'contain',
           }}
         >
-          {/* Hour grid lines overlay — spans all day columns */}
-          <Box sx={{ position: 'absolute', top: 0, left: TIME_GUTTER, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 0 }}>
-            {HOURS.map((hour) => (
-              <Box key={`gl-${hour}`} sx={{
-                position: 'absolute',
-                top: hourTop(hour),
-                left: 0,
-                right: 0,
-                borderTop: '1px solid',
-                borderColor: 'divider',
-              }} />
-            ))}
-            {HOURS.map((hour) => (
-              <Box key={`hl-${hour}`} sx={{
-                position: 'absolute',
-                top: halfHourTop(hour),
-                left: 0,
-                right: 0,
-                borderTop: '1px dashed',
-                borderColor: 'divider',
-                opacity: 0.4,
-              }} />
-            ))}
-          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: `${TIME_GUTTER}px repeat(7, 1fr)`,
+              position: 'relative',
+              height: TOTAL_HEIGHT,
+            }}
+          >
+            {/* Hour grid lines overlay — spans all day columns */}
+            <Box sx={{ position: 'absolute', top: 0, left: TIME_GUTTER, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 0 }}>
+              {HOURS.map((hour) => (
+                <Box key={`gl-${hour}`} sx={{
+                  position: 'absolute',
+                  top: hourTop(hour),
+                  left: 0,
+                  right: 0,
+                  borderTop: '1px solid',
+                  borderColor: 'divider',
+                }} />
+              ))}
+              {HOURS.map((hour) => (
+                <Box key={`hl-${hour}`} sx={{
+                  position: 'absolute',
+                  top: halfHourTop(hour),
+                  left: 0,
+                  right: 0,
+                  borderTop: '1px dashed',
+                  borderColor: 'divider',
+                  opacity: 0.4,
+                }} />
+              ))}
+            </Box>
 
-          {/* Hour-label gutter */}
-          <Box sx={{ position: 'relative' }}>
-            {HOURS.map((hour) => {
-               const top = hourTop(hour);
+            {/* Hour-label gutter */}
+            <Box sx={{ position: 'relative' }}>
+              {HOURS.map((hour) => {
+                 const top = hourTop(hour);
+                return (
+                  <Typography
+                    key={hour}
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{
+                      position: 'absolute',
+                      top,
+                      right: 6,
+                      transform: 'translateY(-50%)',
+                      fontSize: '0.65rem',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {formatHour(hour)}
+                  </Typography>
+                );
+              })}
+            </Box>
+
+            {/* Day columns */}
+            {memoizedSchedules.map((day, dayIdx) => {
+              const d = start.add(dayIdx, 'day');
+              const isToday = d.isSame(dayjs(), 'day');
               return (
-                <Typography
-                  key={hour}
-                  variant="caption"
-                  color="text.secondary"
+                <Box
+                  key={dayIdx}
                   sx={{
-                    position: 'absolute',
-                    top,
-                    right: 6,
-                    transform: 'translateY(-50%)',
-                    fontSize: '0.65rem',
-                    userSelect: 'none',
+                    position: 'relative',
+                    borderLeft: 1,
+                    borderColor: 'divider',
+                    bgcolor: isToday ? alpha(theme.palette.primary.main, 0.04) : 'transparent',
                   }}
                 >
-                  {formatHour(hour)}
-                </Typography>
+                  {/* Class blocks */}
+                  {day.classes.map(({ entry, top, height }) => (
+                    <ClassBlock
+                      key={entry.classInfo.id}
+                      entry={entry}
+                      top={top}
+                      height={height}
+                      theme={theme}
+                      date={day.date}
+                      onClassClick={onClassClick}
+                      debug={debug}
+                    />
+                  ))}
+
+                  {/* Now indicator — only on the today column */}
+                  {isToday && <NowIndicator />}
+                </Box>
               );
             })}
           </Box>
-
-          {/* Day columns */}
-          {memoizedSchedules.map((day, dayIdx) => {
-            const d = start.add(dayIdx, 'day');
-            const isToday = d.isSame(dayjs(), 'day');
-            return (
-              <Box
-                key={dayIdx}
-                sx={{
-                  position: 'relative',
-                  borderLeft: 1,
-                  borderColor: 'divider',
-                  bgcolor: isToday ? alpha(theme.palette.primary.main, 0.04) : 'transparent',
-                }}
-              >
-                {/* Class blocks */}
-                {day.classes.map(({ entry, top, height }) => (
-                  <ClassBlock
-                    key={entry.classInfo.id}
-                    entry={entry}
-                    top={top}
-                    height={height}
-                    theme={theme}
-                    date={day.date}
-                    onClassClick={onClassClick}
-                    debug={debug}
-                  />
-                ))}
-
-                {/* Now indicator — only on the today column */}
-                {isToday && <NowIndicator />}
-              </Box>
-            );
-          })}
         </Box>
 
         {/* Disruption indicators */}

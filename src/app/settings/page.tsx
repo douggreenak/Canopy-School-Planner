@@ -173,8 +173,11 @@ function SettingsInner() {
   const [editableClass, setEditableClass] = useState<SchoolClass | null>(null);
 
   useEffect(() => {
-    const uid = currentUserId || 'your-user-id';
-    setCalendarUrl(`${window.location.origin}/api/calendar?userId=${uid}&token=${calendarToken || 'your-token'}`);
+    if (currentUserId && calendarToken) {
+      setCalendarUrl(`${window.location.origin}/api/calendar?userId=${currentUserId}&token=${calendarToken}`);
+    } else {
+      setCalendarUrl('');
+    }
   }, [calendarToken, currentUserId]);
 
   // Load setup status + saved settings
