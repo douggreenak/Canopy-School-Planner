@@ -66,7 +66,7 @@ function NowIndicator() {
         zIndex: 2,
       }}
     >
-      <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'error.main', flexShrink: 0, ml: -0.5 }} />
+      <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'error.main', flexShrink: 0, ml: -0.5, animation: 'nowPulse 2s ease-in-out infinite' }} />
       <Box sx={{ flex: 1, height: 0, borderTop: '2px solid', borderColor: 'error.main' }} />
     </Box>
   );

@@ -57,7 +57,7 @@ function NowIndicator() {
         zIndex: 2,
       }}
     >
-      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: 'error.main', flexShrink: 0 }} />
+      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: 'error.main', flexShrink: 0, animation: 'nowPulse 2s ease-in-out infinite' }} />
       <Box sx={{ flex: 1, height: 0, borderTop: '2px solid', borderColor: 'error.main' }} />
     </Box>
   );
@@ -70,9 +70,10 @@ interface ClassBlockProps {
   theme: Theme;
   onClassClick?: (entry: ScheduleEntry) => void;
   debug: boolean;
+  index: number;
 }
 
-const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug }: ClassBlockProps) => {
+const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug, index }: ClassBlockProps) => {
   const showTime = height >= 48;
   const showTeacher = height >= 56;
   const clickable = !!onClassClick;
@@ -100,6 +101,7 @@ const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug }: Cla
         height,
         left: TIME_GUTTER + 4,
         right: 8,
+        animation: `fadeInUp 0.22s cubic-bezier(0.0, 0, 0.2, 1) ${index * 45}ms both`,
         backgroundColor: entry.cancelled
           ? theme.palette.action.disabledBackground
           : alpha(entry.classInfo.color, 0.16),
@@ -250,7 +252,7 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
           );
         })}
 
-      {memoizedClasses.map(({ entry, top, height }) => (
+      {memoizedClasses.map(({ entry, top, height }, i) => (
         <ClassBlock
           key={entry.classInfo.id}
           entry={entry}
@@ -259,6 +261,7 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
           theme={theme}
           onClassClick={onClassClick}
           debug={debug}
+          index={i}
         />
       ))}
 

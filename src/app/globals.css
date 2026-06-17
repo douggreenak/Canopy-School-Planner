@@ -4,7 +4,33 @@ body {
   font-family: "Google Sans", "Roboto", "Arial", sans-serif;
 }
 
-/* Google-style scrollbar */
+/* ─── Animations ────────────────────────────────────────────── */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes popIn {
+  0%   { transform: scale(0.75); opacity: 0; }
+  60%  { transform: scale(1.08); }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+/* Pulsing ring — used on the "now" indicator dot in schedule views */
+@keyframes nowPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(211, 47, 47, 0.50); }
+  70%  { box-shadow: 0 0 0 7px rgba(211, 47, 47, 0);    }
+  100% { box-shadow: 0 0 0 0   rgba(211, 47, 47, 0);    }
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

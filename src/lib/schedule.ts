@@ -74,8 +74,9 @@ export function getMonthSchedules(
 }
 
 /**
- * Generate common early-out disruption overrides.
- * Compresses a normal schedule so all periods end proportionally earlier.
+ * Generate early-out disruption overrides.
+ * Scales each period's position proportionally within the compressed day so
+ * passing-period gaps shrink proportionally instead of being eliminated.
  * Pass dayOfWeek (0=Sun…6=Sat) so per-day time overrides are respected.
  */
 export function generateEarlyOutOverrides(
@@ -88,62 +89,42 @@ export function generateEarlyOutOverrides(
   const eEnd = (c: SchoolClass) =>
     (dayOfWeek !== undefined && c.dayTimes?.[dayOfWeek]?.endTime) || c.endTime;
 
-  const sorted = [...classes].sort((a, b) => eStart(a).localeCompare(eStart(b)));
+  // Sort numerically — localeCompare on "7:30" vs "10:26" gives wrong order
+  // because '7' > '1' in ASCII, so single-digit hours sort after double-digit ones.
+  const sorted = [...classes].sort((a, b) => timeToMinutes(eStart(a)) - timeToMinutes(eStart(b)));
   if (sorted.length === 0) return [];
 
   const firstStart = timeToMinutes(eStart(sorted[0]));
-  const lastEnd = timeToMinutes(eEnd(sorted[sorted.length - 1]));
-  const earlyEnd = timeToMinutes(earlyEndTime);
+  const lastEnd    = timeToMinutes(eEnd(sorted[sorted.length - 1]));
+  const earlyEnd   = timeToMinutes(earlyEndTime);
 
-  const normalDuration = lastEnd - firstStart;
-  const newDuration = earlyEnd - firstStart;
-  const ratio = newDuration / normalDuration;
+  // Nothing to do if the early-end is outside the school day.
+  if (earlyEnd <= firstStart || earlyEnd >= lastEnd) return [];
 
-  // Compute each class's ideal (floating) new duration, then allocate
-  // integer minutes using the Largest Remainder method so the rounded
-  // durations sum exactly to newDuration. This avoids 1-minute rounding
-  // gaps between adjacent periods that were visible on the calendar.
-  const originalDurations = sorted.map((c) => timeToMinutes(eEnd(c)) - timeToMinutes(eStart(c)));
-  const idealDurations = originalDurations.map((d) => d * ratio);
-  const floored = idealDurations.map((d) => Math.floor(d));
-  const remainders = idealDurations.map((d, i) => ({ i, rem: d - floored[i] }));
-  const floorSum = floored.reduce((a, b) => a + b, 0);
-  let remaining = newDuration - floorSum;
-  // If for any reason remaining is negative (shouldn't happen), clamp to 0.
-  if (remaining < 0) remaining = 0;
+  // Proportional scaling: shift every period's start and end by the same ratio
+  // so the gaps between periods shrink proportionally rather than disappearing.
+  //
+  // newPosition = firstStart + (origPosition - firstStart) * ratio
+  //
+  // The previous Largest-Remainder approach distributed the compressed break
+  // time as extra class time, packing periods back-to-back with no gaps.
+  const ratio = (earlyEnd - firstStart) / (lastEnd - firstStart);
 
-  // Sort by fractional remainder descending to distribute the leftover minutes.
-  remainders.sort((a, b) => b.rem - a.rem);
-  const addOne = new Array(sorted.length).fill(0);
-  for (let k = 0; k < remaining && k < remainders.length; k++) {
-    addOne[remainders[k].i] = 1;
-  }
+  const overrides = sorted.map((c) => {
+    const origStart = timeToMinutes(eStart(c));
+    const origEnd   = timeToMinutes(eEnd(c));
+    const newStart  = Math.round(firstStart + (origStart - firstStart) * ratio);
+    const newEnd    = Math.round(firstStart + (origEnd   - firstStart) * ratio);
+    return {
+      period: c.period,
+      startTime: minutesToTime(newStart),
+      endTime:   minutesToTime(Math.max(newStart + 1, newEnd)),
+      cancelled: false,
+    };
+  });
 
-  // Build the overrides by walking the sorted classes and assigning
-  // consecutive minute ranges so there are no gaps between them. The
-  // final class's end time is implicitly constrained to firstStart+newDuration
-  // by construction.
-  const overrides: { period: number; startTime: string; endTime: string; cancelled: boolean }[] = [];
-  let cursor = firstStart;
-  for (let idx = 0; idx < sorted.length; idx++) {
-    const assigned = Math.max(1, floored[idx] + addOne[idx]); // ensure at least 1 minute
-    const start = cursor;
-    const end = cursor + assigned;
-    overrides.push({ period: sorted[idx].period, startTime: minutesToTime(start), endTime: minutesToTime(end), cancelled: false });
-    cursor = end;
-  }
-
-  // If rounding left us short (due to clamping to 1), ensure the last
-  // class ends exactly at earlyEnd to avoid tiny gaps/overlaps.
-  if (overrides.length > 0) {
-    const last = overrides[overrides.length - 1];
-    last.endTime = minutesToTime(earlyEnd);
-    // Also ensure the penultimate end equals last start, adjust if necessary
-    for (let i = overrides.length - 2; i >= 0; i--) {
-      const nextStart = timeToMinutes(overrides[i + 1].startTime);
-      overrides[i].endTime = minutesToTime(nextStart);
-    }
-  }
+  // Pin the last period to end exactly at earlyEnd (absorbs rounding error).
+  overrides[overrides.length - 1].endTime = minutesToTime(earlyEnd);
 
   return overrides;
 }
@@ -162,7 +143,7 @@ export function generateLateStartOverrides(
   const eEnd = (c: SchoolClass) =>
     (dayOfWeek !== undefined && c.dayTimes?.[dayOfWeek]?.endTime) || c.endTime;
 
-  const sorted = [...classes].sort((a, b) => eStart(a).localeCompare(eStart(b)));
+  const sorted = [...classes].sort((a, b) => timeToMinutes(eStart(a)) - timeToMinutes(eStart(b)));
   if (sorted.length === 0) return [];
 
   const originalFirstStart = timeToMinutes(eStart(sorted[0]));

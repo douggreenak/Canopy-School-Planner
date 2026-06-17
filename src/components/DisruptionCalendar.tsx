@@ -168,41 +168,35 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
               {dayDisruptions.map((dis) => {
                 const info = typeInfo(dis.type);
                 return (
-                  <Tooltip
+                  <Chip
                     key={dis.id}
-                    title={`${info.label}${dis.label ? `: ${dis.label}` : ''} — click to edit, drag to move`}
-                    arrow
-                    disableInteractive
-                  >
-                    <Chip
-                      draggable
-                      label={dis.label || info.label}
-                      size="small"
-                      onDragStart={(e) => {
-                        e.stopPropagation();
-                        setDragId(dis.id);
-                        e.dataTransfer.effectAllowed = 'move';
-                      }}
-                      onDragEnd={() => { setDragId(null); setDragOver(null); }}
-                      onClick={(e) => { e.stopPropagation(); onEdit(dis); }}
-                      sx={{
-                        fontSize: '0.62rem',
-                        height: 20,
-                        width: '100%',
-                        cursor: 'grab',
-                        bgcolor: alpha(info.color, 0.15),
-                        color: info.color,
-                        border: `1px solid ${alpha(info.color, 0.35)}`,
-                        fontWeight: 600,
-                        '& .MuiChip-label': { px: 0.75, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-                        '&:active': { cursor: 'grabbing' },
-                        '&:hover': { bgcolor: alpha(info.color, 0.28) },
-                        pointerEvents: 'auto',
-                        opacity: dragId === dis.id ? 0.4 : 1,
-                        transition: 'opacity 0.1s, background-color 0.12s',
-                      }}
-                    />
-                  </Tooltip>
+                    draggable
+                    label={dis.label || info.label}
+                    size="small"
+                    onDragStart={(e) => {
+                      e.stopPropagation();
+                      setDragId(dis.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragEnd={() => { setDragId(null); setDragOver(null); }}
+                    onClick={(e) => { e.stopPropagation(); onEdit(dis); }}
+                    sx={{
+                      fontSize: '0.62rem',
+                      height: 20,
+                      width: '100%',
+                      cursor: 'grab',
+                      bgcolor: alpha(info.color, 0.15),
+                      color: info.color,
+                      border: `1px solid ${alpha(info.color, 0.35)}`,
+                      fontWeight: 600,
+                      '& .MuiChip-label': { px: 0.75, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                      '&:active': { cursor: 'grabbing' },
+                      '&:hover': { bgcolor: alpha(info.color, 0.28) },
+                      pointerEvents: 'auto',
+                      opacity: dragId === dis.id ? 0.4 : 1,
+                      transition: 'opacity 0.1s, background-color 0.12s',
+                    }}
+                  />
                 );
               })}
 

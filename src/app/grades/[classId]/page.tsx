@@ -33,7 +33,6 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
-import Tooltip from '@mui/material/Tooltip';
 import Divider from '@mui/material/Divider';
 import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -710,15 +709,9 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
           exclusive
           onChange={(_, v) => v && setSortMode(v)}
         >
-          <Tooltip title="Most recent first, grouped by week">
-            <ToggleButton value="due-desc">Recent</ToggleButton>
-          </Tooltip>
-          <Tooltip title="Oldest first">
-            <ToggleButton value="due-asc">Oldest</ToggleButton>
-          </Tooltip>
-          <Tooltip title="Group by assignment category">
-            <ToggleButton value="category">Category</ToggleButton>
-          </Tooltip>
+          <ToggleButton value="due-desc">Recent</ToggleButton>
+          <ToggleButton value="due-asc">Oldest</ToggleButton>
+          <ToggleButton value="category">Category</ToggleButton>
         </ToggleButtonGroup>
       </Box>
 
@@ -867,11 +860,9 @@ function BucketGroup({
                     {h.category}
                   </Box>
                 )}
-                <Tooltip title={fullDueLabel(h.dueDate)}>
-                  <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.68rem' }}>
-                    {relativeDueLabel(h.dueDate)}
-                  </Typography>
-                </Tooltip>
+                <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.68rem' }}>
+                  {relativeDueLabel(h.dueDate)}
+                </Typography>
                 {h.flags && (
                   <Chip
                     label={h.flags}

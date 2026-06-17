@@ -34,7 +34,6 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Divider from '@mui/material/Divider';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import Tooltip from '@mui/material/Tooltip';
 import { alpha, useTheme } from '@mui/material/styles';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
@@ -451,16 +450,14 @@ export default function GradesPage() {
                     {psClasses.map((c) => (
                       <Box key={c.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: c.color, flexShrink: 0 }} />
-                        <Tooltip title={c.name}>
-                          <Typography
-                            variant="body2"
-                            sx={{ width: 160, flexShrink: 0, cursor: 'pointer' }}
-                            noWrap
-                            onClick={() => router.push(`/grades/${c.id}`)}
-                          >
-                            {c.name}
-                          </Typography>
-                        </Tooltip>
+                        <Typography
+                          variant="body2"
+                          sx={{ width: 160, flexShrink: 0, cursor: 'pointer' }}
+                          noWrap
+                          onClick={() => router.push(`/grades/${c.id}`)}
+                        >
+                          {c.name}
+                        </Typography>
                         {c.gradePercent != null ? (
                           <>
                             <LinearProgress

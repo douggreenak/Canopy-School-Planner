@@ -92,10 +92,12 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
             borderRadius: 20,
             padding: '8px 24px',
             fontSize: '0.875rem',
+            transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+            '&:active': { transform: 'scale(0.96)' },
           },
           contained: {
             boxShadow: 'none',
-            '&:hover': { boxShadow: '0 1px 3px rgba(0,0,0,0.2)' },
+            '&:hover': { boxShadow: '0 2px 8px rgba(0,0,0,0.18)' },
           },
         },
       },
@@ -105,22 +107,37 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
             borderRadius: 14,
             border: `1px solid ${theme.palette.divider}`,
             boxShadow: 'none',
+            transition: 'box-shadow 0.2s ease',
             '&:hover': {
+              // Two-layer shadow: tight edge + wide ambient gives depth/elevation
+              // without any transform, so text stays perfectly crisp.
               boxShadow: isLight
-                ? '0 1px 8px rgba(0,0,0,0.08)'
-                : '0 1px 8px rgba(0,0,0,0.4)',
+                ? '0 1px 4px rgba(0,0,0,0.06), 0 10px 32px rgba(0,0,0,0.14)'
+                : '0 1px 4px rgba(0,0,0,0.28), 0 10px 32px rgba(0,0,0,0.58)',
             },
           }),
         },
       },
       MuiChip: {
         styleOverrides: {
-          root: { borderRadius: 16, fontWeight: 500 },
+          root: {
+            borderRadius: 16,
+            fontWeight: 500,
+            transition: 'background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease',
+          },
         },
       },
       MuiFab: {
         styleOverrides: {
-          root: { boxShadow: '0 2px 8px rgba(0,0,0,0.15)' },
+          root: {
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            transition: 'box-shadow 0.2s ease, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1)',
+            '&:hover': {
+              boxShadow: '0 6px 18px rgba(0,0,0,0.22)',
+              transform: 'scale(1.10)',
+            },
+            '&:active': { transform: 'scale(0.95)' },
+          },
         },
       },
       MuiAppBar: {
@@ -147,6 +164,7 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
           root: ({ theme }) => ({
             borderRadius: '0 24px 24px 0',
             marginRight: 12,
+            transition: 'background-color 0.18s ease, color 0.18s ease',
             '&.Mui-selected': {
               backgroundColor: alpha(theme.palette.primary.main, isLight ? 0.10 : 0.18),
               color: theme.palette.primary.main,

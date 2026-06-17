@@ -435,29 +435,25 @@ function SettingsInner() {
     if (liveHealth.ok === null) return null;
     if (liveHealth.ok) {
       return (
-        <Tooltip title="Click to re-check connection">
-          <Chip
-            size="small"
-            color="success"
-            icon={<CheckCircleIcon />}
-            label="Database connected"
-            onClick={() => refreshLiveHealth(true)}
-            clickable
-          />
-        </Tooltip>
-      );
-    }
-    return (
-      <Tooltip title={liveHealth.error ? `Error: ${liveHealth.error}. Click to retry.` : 'Click to retry'}>
         <Chip
           size="small"
-          color="error"
-          icon={<ErrorIcon />}
-          label="Database error"
+          color="success"
+          icon={<CheckCircleIcon />}
+          label="Database connected"
           onClick={() => refreshLiveHealth(true)}
           clickable
         />
-      </Tooltip>
+      );
+    }
+    return (
+      <Chip
+        size="small"
+        color="error"
+        icon={<ErrorIcon />}
+        label={liveHealth.error ? `Database error: ${liveHealth.error}` : 'Database error'}
+        onClick={() => refreshLiveHealth(true)}
+        clickable
+      />
     );
   })();
 

@@ -166,6 +166,18 @@ function NavListFallback({
   );
 }
 
+function PageEnter({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  return (
+    <Box
+      key={pathname}
+      sx={{ animation: 'fadeInUp 0.22s cubic-bezier(0.0, 0, 0.2, 1) both', willChange: 'transform, opacity' }}
+    >
+      {children}
+    </Box>
+  );
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const theme   = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -421,7 +433,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           }),
         }}
       >
-        {children}
+        <PageEnter>{children}</PageEnter>
       </Box>
     </Box>
   );
