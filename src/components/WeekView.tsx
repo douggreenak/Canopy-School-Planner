@@ -366,7 +366,7 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
                   <Chip
                     key={i}
                     size="small"
-                    label={`${DAY_LABELS[i]}: ${day.disruption.label}`}
+                    label={`${DAY_LABELS[i]}: ${day.disruption.label || day.disruption.type.replace(/_/g, ' ')}`}
                     color="warning"
                     variant="outlined"
                   />

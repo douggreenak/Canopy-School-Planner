@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
+import { v4 as uuid } from 'uuid';
 import { scrapePowerSchool, type ScrapedSchedule } from '@/lib/powerschool';
-import { syncClassesFromSource, syncHomeworkFromSource } from '@/lib/db';
+import { syncClassesFromSource, syncHomeworkFromSource, addSyncLogEntries, addGradeHistoryEntry } from '@/lib/db';
 import { getConfigFromRequest, writeConfigFile } from '@/lib/config';
 import { getSessionUserId } from '@/lib/auth';
 
@@ -45,7 +46,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const classStats = await syncClassesFromSource('powerschool', result.classes, userId);
+    const syncId = uuid();
+    const classStats = await syncClassesFromSource('powerschool', result.classes, userId, syncId);
     result.log.push(
       `Classes: ${classStats.added} added, ${classStats.updated} updated, ${classStats.removed} removed`,
     );
@@ -63,10 +65,22 @@ export async function POST(request: NextRequest) {
       classId: classStats.idMap.get(a.classId) ?? a.classId,
     }));
 
-    const hwStats = await syncHomeworkFromSource('powerschool', remappedAssignments, userId);
+    const hwStats = await syncHomeworkFromSource('powerschool', remappedAssignments, userId, syncId);
     result.log.push(
       `Assignments: ${hwStats.added} added, ${hwStats.updated} updated, ${hwStats.removed} removed`,
     );
+
+    // Persist sync log entries and grade history snapshots
+    const allLogEntries = [...classStats.logEntries, ...hwStats.logEntries];
+    if (allLogEntries.length > 0) {
+      await addSyncLogEntries(userId, allLogEntries);
+    }
+    for (const cls of result.classes) {
+      const persistedId = classStats.idMap.get(cls.id) ?? cls.id;
+      if (cls.gradePercent !== undefined || cls.grade) {
+        await addGradeHistoryEntry(userId, persistedId, cls.gradePercent, cls.grade, cls.semester);
+      }
+    }
 
     console.log('=== PowerSchool sync ===');
     for (const line of result.log) console.log(`[ps] ${line}`);

@@ -46,7 +46,12 @@ export function buildDaySchedule(
         };
       }
       if (disruption.type === 'no_school') {
-        return { classInfo, startTime: classInfo.startTime, endTime: classInfo.endTime, cancelled: true };
+        return {
+          classInfo,
+          startTime: classInfo.dayTimes?.[dayOfWeek]?.startTime || classInfo.startTime,
+          endTime: classInfo.dayTimes?.[dayOfWeek]?.endTime || classInfo.endTime,
+          cancelled: true,
+        };
       }
     }
     // Use per-day override times if present, otherwise class-level times.

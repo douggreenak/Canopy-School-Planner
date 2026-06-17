@@ -78,8 +78,11 @@ export default function ClassesPage() {
 
   return (
     <Box>
-      <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 3 }}>
+      <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 0.5 }}>
         Classes
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Your class roster — used for schedule, grades, and task organization.
       </Typography>
 
       {(!classes || classes.length === 0) && (
@@ -88,19 +91,23 @@ export default function ClassesPage() {
             No classes yet
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Add your first class to get started, or import from PowerSchool.
+            Add classes manually, or connect PowerSchool in Settings to import them automatically.
           </Typography>
-          <Fab variant="extended" color="primary" onClick={() => { setEditing(null); setDialogOpen(true); }}>
-            <AddIcon sx={{ mr: 1 }} /> Add Class
-          </Fab>
-          {/* Lunch is provided in the schedule view as a synthetic class. */}
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Fab variant="extended" color="primary" onClick={() => { setEditing(null); setDialogOpen(true); }}>
+              <AddIcon sx={{ mr: 1 }} /> Add Class
+            </Fab>
+            <Button variant="outlined" href="/settings">
+              Connect PowerSchool
+            </Button>
+          </Box>
         </Box>
       )}
 
       <Grid container spacing={2} sx={{ pb: classes && classes.length > 0 ? 10 : 0 }}>
         {classes?.map((cls) => (
-          <Grid key={cls.id} size={{ xs: 12, sm: 6, md: 4 }}>
-            <Card sx={{ position: 'relative' }}>
+          <Grid key={cls.id} size={{ xs: 12, sm: 6, md: 4 }} sx={{ display: 'flex' }}>
+            <Card sx={{ position: 'relative', width: '100%', display: 'flex', flexDirection: 'column' }}>
               <Box sx={{ height: 6, backgroundColor: cls.color, borderRadius: '12px 12px 0 0' }} />
               <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>

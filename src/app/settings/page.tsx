@@ -468,7 +468,7 @@ function SettingsInner() {
         {healthChip}
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Your data is stored in a Neon PostgreSQL database — it syncs across every device automatically.
+        Configure your school, appearance, and PowerSchool integration. Your data syncs across every device automatically.
       </Typography>
 
       <Stack spacing={3}>
@@ -644,7 +644,7 @@ function SettingsInner() {
                     onClick={syncPowerSchool}
                     disabled={!!syncing || (!setupStatus?.hasPowerschool && (!psUrl || !psUser || !psPass))}
                   >
-                    {setupStatus?.hasPowerschool ? 'Sync Now' : 'Import from PowerSchool'}
+                    {syncing === 'powerschool' ? 'Syncing…' : setupStatus?.hasPowerschool ? 'Sync Now' : 'Import from PowerSchool'}
                   </Button>
                   <Button
                     variant="outlined"
@@ -668,7 +668,7 @@ function SettingsInner() {
                       <Typography variant="body2">Import Log ({psLog.length} entries)</Typography>
                     </AccordionSummary>
                     <AccordionDetails>
-                      <Box sx={{ fontFamily: 'monospace', fontSize: '0.75rem', maxHeight: 200, overflow: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
+                      <Box sx={{ fontSize: '0.75rem', maxHeight: 200, overflow: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
                         {psLog.map((line, i) => <div key={i}>{line}</div>)}
                       </Box>
                     </AccordionDetails>
@@ -724,7 +724,10 @@ function SettingsInner() {
 
                 {wizardIndex === 0 && (
                   <Box sx={{ mt: 2 }}>
-                    <Typography variant="body2" sx={{ mb: 1 }}>Pick a class to edit its schedule:</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      This wizard helps you set each class&apos;s meeting days and times — used for the schedule view, the "next class" reminder, and the calendar feed. Pick a class below to get started.
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>Pick a class to edit its schedule:</Typography>
                     {classesLoading && <CircularProgress />}
                     {!classesLoading && importedClasses && (
                       <Stack spacing={1}>
@@ -965,13 +968,21 @@ function SettingsInner() {
               </Grid>
               <Grid size={12}>
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <TextField fullWidth label="Calendar Subscription URL" value={calendarUrl} slotProps={{ input: { readOnly: true } }} />
-                  <Button variant="contained" startIcon={<ContentCopyIcon />} onClick={copyCalendarUrl}>Copy</Button>
+                  <TextField
+                    fullWidth
+                    label="Calendar Subscription URL"
+                    value={calendarUrl}
+                    placeholder={calendarToken ? 'Saving settings will generate the URL…' : 'Generate a token above first'}
+                    slotProps={{ input: { readOnly: true } }}
+                  />
+                  <Button variant="contained" startIcon={<ContentCopyIcon />} onClick={copyCalendarUrl} disabled={!calendarUrl}>
+                    Copy
+                  </Button>
                 </Box>
               </Grid>
               <Grid size={12}>
                 <Typography variant="caption" color="text.secondary">
-                  Remember to click &quot;Save School Info&quot; above after generating a token so it persists.
+                  Generate a token, then save your settings using &quot;Save School Info&quot; — the subscription URL will appear here.
                 </Typography>
               </Grid>
             </Grid>

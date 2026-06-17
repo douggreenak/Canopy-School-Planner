@@ -22,6 +22,11 @@ export interface SchoolClass {
   sourceId?: string;    // stable external ID (e.g. PowerSchool `frn`)
   grade?: string;        // letter grade, e.g. "A-", "B+"
   gradePercent?: number; // 0-100
+  // Assignment category weights, e.g. { "Tests": 40, "Homework": 20 }.
+  // 'manual' means the user has edited these via the UI — once set, sync
+  // never overwrites them again (see syncClassesFromSource in db.ts).
+  categoryWeights?: Record<string, number>;
+  weightSource?: 'scraped' | 'manual';
 }
 
 export interface Homework {
@@ -53,6 +58,34 @@ export interface Exam {
   endTime: string;
   location: string;
   notes: string;
+  // Manual-only: how much this exam counts toward the class grade (0-100).
+  // No reliable way to scrape a single exam's weight from PowerSchool.
+  weightPercent?: number;
+}
+
+// One row per class captured on every PowerSchool sync — powers grade
+// velocity alerts and cross-semester GPA projection.
+export interface GradeHistoryEntry {
+  id: string;
+  classId: string;
+  gradePercent?: number;
+  letter?: string;
+  semester: string;
+  capturedAt: string;
+}
+
+// One row per detected change on a sync (added/removed/score changed/etc.)
+// — powers the PowerSchool change log and category-weight transparency.
+export interface SyncLogEntry {
+  id: string;
+  syncId: string;
+  occurredAt: string;
+  entityType: 'class' | 'homework';
+  entityId: string;
+  classId?: string;
+  label: string;
+  changeType: 'added' | 'removed' | 'score_changed' | 'grade_changed' | 'flag_changed';
+  detail: string;
 }
 
 export interface Task {

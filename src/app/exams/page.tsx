@@ -27,8 +27,34 @@ import EditIcon from '@mui/icons-material/Edit';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import RoomIcon from '@mui/icons-material/Room';
 import { useExams, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { letterFromPercent } from '@/lib/grades';
 import type { Exam, SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
+
+// Grade cutoffs in descending order — used to find the next letter boundary below current.
+const GRADE_CUTOFFS: { cutoff: number; letter: string }[] = [
+  { cutoff: 97, letter: 'A+' }, { cutoff: 93, letter: 'A' }, { cutoff: 90, letter: 'A-' },
+  { cutoff: 87, letter: 'B+' }, { cutoff: 83, letter: 'B' }, { cutoff: 80, letter: 'B-' },
+  { cutoff: 77, letter: 'C+' }, { cutoff: 73, letter: 'C' }, { cutoff: 70, letter: 'C-' },
+  { cutoff: 67, letter: 'D+' }, { cutoff: 63, letter: 'D' }, { cutoff: 60, letter: 'D-' },
+  { cutoff: 0, letter: 'F' },
+];
+
+function examStakesText(gradePercent: number, weightPercent: number): string | null {
+  if (weightPercent <= 0 || weightPercent > 100) return null;
+  const w = weightPercent / 100;
+  const currentLetter = letterFromPercent(gradePercent);
+  // Find the cutoff for the current letter, then the one below it
+  const currentIdx = GRADE_CUTOFFS.findIndex((g) => gradePercent >= g.cutoff);
+  if (currentIdx < 0) return null;
+  const dropEntry = GRADE_CUTOFFS[currentIdx + 1];
+  if (!dropEntry) return null; // already at lowest (F)
+  // Score threshold below which the grade drops: G*(1-w) + S*w < dropEntry.cutoff → S < threshold
+  const threshold = (GRADE_CUTOFFS[currentIdx].cutoff - gradePercent * (1 - w)) / w;
+  if (threshold <= 0 || threshold > 100) return null;
+  const dropLetter = dropEntry.letter;
+  return `Worth ${weightPercent}% of your grade — score below ${Math.ceil(threshold)}% and your ${currentLetter} becomes a ${dropLetter}.`;
+}
 
 // Format "HH:mm" → "9:30 AM" for display. Exam times come straight from the
 // linked class now, so we want them readable rather than 24-hour.
@@ -101,8 +127,8 @@ export default function ExamsPage() {
     refetch();
   };
 
-  const getClassName = (classId: string) => classes?.find((c) => c.id === classId)?.name ?? 'Unknown';
-  const getClassColor = (classId: string) => classes?.find((c) => c.id === classId)?.color ?? '';
+  const getClassName = (classId: string) => classMap.get(classId)?.name ?? 'Unknown';
+  const getClassColor = (classId: string) => classMap.get(classId)?.color ?? '';
 
   if (loading) return <Box sx={{ pt: 2 }}><LinearProgress sx={{ borderRadius: 1 }} /></Box>;
 
@@ -151,6 +177,19 @@ export default function ExamsPage() {
                   {exam.notes}
                 </Typography>
               )}
+              {/* Exam stakes framing — only shown when weight is set + class has a live grade */}
+              {exam.weightPercent && cls?.gradePercent != null && (() => {
+                const stakes = examStakesText(cls.gradePercent, exam.weightPercent!);
+                return stakes ? (
+                  <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'warning.main', fontWeight: 500 }}>
+                    {stakes}
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'text.secondary' }}>
+                    Worth {exam.weightPercent}% of your grade.
+                  </Typography>
+                );
+              })()}
             </Box>
             <Box>
               <IconButton size="small" onClick={() => openDialog(exam)}><EditIcon fontSize="small" /></IconButton>
@@ -164,12 +203,20 @@ export default function ExamsPage() {
 
   return (
     <Box sx={{ pb: 10 }}>
-      <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 3 }}>Exams</Typography>
+      <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 0.5 }}>Exams</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Upcoming tests and exams — click a card to see how the score would affect your grade.
+      </Typography>
 
       {upcoming.length === 0 && past.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>No exams scheduled</Typography>
-          <Typography variant="body2" color="text.disabled">Tap + to add your first exam.</Typography>
+          <Typography variant="body2" color="text.disabled" sx={{ mb: 2 }}>
+            Add upcoming exams to track dates and see how they affect your grade.
+          </Typography>
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={() => openDialog()}>
+            Add Exam
+          </Button>
         </Box>
       )}
 
@@ -205,6 +252,19 @@ export default function ExamsPage() {
               </FormControl>
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth size="small" label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Weight % of grade (optional)"
+                type="number"
+                placeholder="e.g. 20"
+                value={form.weightPercent ?? ''}
+                onChange={(e) => setForm({ ...form, weightPercent: e.target.value ? parseFloat(e.target.value) : undefined })}
+                slotProps={{ htmlInput: { min: 0, max: 100, step: 1 } }}
+                helperText="Enables stakes framing on the card"
+              />
+            </Grid>
             <Grid size={12}><TextField fullWidth label="Notes" multiline rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Grid>
           </Grid>
         </DialogContent>

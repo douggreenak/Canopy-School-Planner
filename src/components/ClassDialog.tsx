@@ -7,12 +7,12 @@ import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
 import Grid from '@mui/material/Grid';
-import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
-import Select from '@mui/material/Select';
-import MenuItem from '@mui/material/MenuItem';
 import Chip from '@mui/material/Chip';
 import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Divider from '@mui/material/Divider';
+import IconButton from '@mui/material/IconButton';
 import type { SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
 
@@ -52,12 +52,30 @@ const empty: SchoolClass = {
   semester: 'Spring 2026',
 };
 
+type WeightRow = { category: string; weight: string };
+
+function weightsToRows(w?: Record<string, number>): WeightRow[] {
+  if (!w || Object.keys(w).length === 0) return [];
+  return Object.entries(w).map(([category, weight]) => ({ category, weight: String(weight) }));
+}
+
+function rowsToWeights(rows: WeightRow[]): Record<string, number> | undefined {
+  const valid = rows.filter((r) => r.category.trim() && r.weight !== '');
+  if (valid.length === 0) return undefined;
+  return Object.fromEntries(valid.map((r) => [r.category.trim(), parseFloat(r.weight) || 0]));
+}
+
 export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
   const [form, setForm] = useState<SchoolClass>(empty);
+  const [weightRows, setWeightRows] = useState<WeightRow[]>([]);
+  const [showWeights, setShowWeights] = useState(false);
 
   useEffect(() => {
-    if (initial) setForm(initial);
-    else setForm({ ...empty, id: uuid() });
+    const base = initial ?? { ...empty, id: uuid() };
+    setForm(base);
+    const rows = weightsToRows(base.categoryWeights);
+    setWeightRows(rows);
+    setShowWeights(rows.length > 0);
   }, [initial, open]);
 
   const update = (field: keyof SchoolClass, value: unknown) => {
@@ -69,6 +87,45 @@ export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
       ...prev,
       days: prev.days.includes(day) ? prev.days.filter((d) => d !== day) : [...prev.days, day],
     }));
+  };
+
+  const updateWeightRow = (index: number, field: keyof WeightRow, value: string) => {
+    setWeightRows((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+    // Any manual edit marks weights as manual-override
+    setForm((prev) => ({ ...prev, weightSource: 'manual' }));
+  };
+
+  const addWeightRow = () => {
+    setWeightRows((prev) => [...prev, { category: '', weight: '' }]);
+    setForm((prev) => ({ ...prev, weightSource: 'manual' }));
+  };
+
+  const removeWeightRow = (index: number) => {
+    setWeightRows((prev) => prev.filter((_, i) => i !== index));
+    setForm((prev) => ({ ...prev, weightSource: 'manual' }));
+  };
+
+  const resetWeights = () => {
+    setWeightRows([]);
+    setForm((prev) => ({ ...prev, categoryWeights: undefined, weightSource: undefined }));
+  };
+
+  const weightTotal = weightRows.reduce((sum, r) => sum + (parseFloat(r.weight) || 0), 0);
+
+  const handleSave = () => {
+    const weights = rowsToWeights(weightRows);
+    const saved: SchoolClass = {
+      ...form,
+      categoryWeights: weights,
+      weightSource: weights
+        ? (form.weightSource === 'manual' ? 'manual' : (form.weightSource ?? 'manual'))
+        : undefined,
+    };
+    onSave(saved);
   };
 
   return (
@@ -134,11 +191,83 @@ export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
               ))}
             </Box>
           </Grid>
+
+          {/* Grade Weights */}
+          <Grid size={12}>
+            <Divider sx={{ mt: 1 }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1.5 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Grade Weights
+                {form.weightSource === 'manual' && (
+                  <Box component="span" sx={{ ml: 1, fontSize: '0.75rem', color: 'text.secondary', fontWeight: 400 }}>
+                    (manual override)
+                  </Box>
+                )}
+              </Typography>
+              <Button size="small" onClick={() => setShowWeights((v) => !v)} sx={{ textTransform: 'none' }}>
+                {showWeights ? 'Hide' : 'Set up'}
+              </Button>
+            </Box>
+            {!showWeights && (
+              <Typography variant="caption" color="text.secondary">
+                Optional — enables what-if calculator, grade transparency, and missing-work impact.
+              </Typography>
+            )}
+          </Grid>
+
+          {showWeights && (
+            <>
+              {weightRows.map((row, i) => (
+                <Grid size={12} key={i}>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <TextField
+                      size="small"
+                      label="Category"
+                      placeholder="e.g. Tests"
+                      value={row.category}
+                      onChange={(e) => updateWeightRow(i, 'category', e.target.value)}
+                      sx={{ flex: 2 }}
+                    />
+                    <TextField
+                      size="small"
+                      label="%"
+                      type="number"
+                      value={row.weight}
+                      onChange={(e) => updateWeightRow(i, 'weight', e.target.value)}
+                      slotProps={{ htmlInput: { min: 0, max: 100, step: 1 } }}
+                      sx={{ flex: 1 }}
+                    />
+                    <IconButton size="small" onClick={() => removeWeightRow(i)} aria-label="Remove">
+                      ✕
+                    </IconButton>
+                  </Box>
+                </Grid>
+              ))}
+              <Grid size={12}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Button size="small" variant="outlined" onClick={addWeightRow} sx={{ textTransform: 'none' }}>
+                    + Add Category
+                  </Button>
+                  {weightRows.length > 0 && (
+                    <Typography variant="caption" color={Math.abs(weightTotal - 100) > 0.5 ? 'error' : 'text.secondary'}>
+                      Total: {weightTotal.toFixed(0)}%
+                      {Math.abs(weightTotal - 100) > 0.5 ? ' — should sum to 100%' : ''}
+                    </Typography>
+                  )}
+                  {form.weightSource === 'manual' && (
+                    <Button size="small" onClick={resetWeights} sx={{ textTransform: 'none', ml: 'auto' }}>
+                      Reset to auto-detected
+                    </Button>
+                  )}
+                </Box>
+              </Grid>
+            </>
+          )}
         </Grid>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={() => onSave(form)} disabled={!form.name}>
+        <Button variant="contained" onClick={handleSave} disabled={!form.name}>
           {initial ? 'Save' : 'Add Class'}
         </Button>
       </DialogActions>

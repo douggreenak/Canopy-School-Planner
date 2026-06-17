@@ -3,7 +3,7 @@
 // Client-side data fetching hooks
 // ============================================================
 import { useState, useEffect, useCallback } from 'react';
-import type { SchoolClass, Homework, Exam, Task, ScheduleDisruption } from '@/types';
+import type { SchoolClass, Homework, Exam, Task, ScheduleDisruption, GradeHistoryEntry, SyncLogEntry } from '@/types';
 
 // Global state to deduplicate ongoing requests and provide a basic cache.
 const ongoingRequests = new Map<string, Promise<any>>();
@@ -91,6 +91,18 @@ export function useTasks() {
 
 export function useDisruptions() {
   return useFetch<ScheduleDisruption[]>('/api/disruptions');
+}
+
+export function useGradeHistory(classId?: string) {
+  const url = classId ? `/api/grade-history?classId=${encodeURIComponent(classId)}` : '/api/grade-history';
+  return useFetch<GradeHistoryEntry[]>(url);
+}
+
+export function useSyncLog(classId?: string, limit = 200) {
+  const url = classId
+    ? `/api/sync-log?classId=${encodeURIComponent(classId)}&limit=${limit}`
+    : `/api/sync-log?limit=${limit}`;
+  return useFetch<SyncLogEntry[]>(url);
 }
 
 // Mutation helpers

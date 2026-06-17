@@ -26,6 +26,7 @@ import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
+import LinearProgress from '@mui/material/LinearProgress';
 import AddIcon from '@mui/icons-material/Add';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
@@ -184,13 +185,20 @@ function SchedulePageInner() {
 
   const handleAutoGenerate = () => {
     if (!classes) return;
+    const dayOfWeek = form.date ? dayjs(form.date).day() : -1;
+    const dayClasses = dayOfWeek >= 0 ? classes.filter((c) => c.days.includes(dayOfWeek)) : classes;
     let overrides: PeriodOverride[] = [];
     if (form.type === 'early_out') {
-      overrides = generateEarlyOutOverrides(classes, autoTime);
+      overrides = generateEarlyOutOverrides(dayClasses, autoTime, dayOfWeek >= 0 ? dayOfWeek : undefined);
     } else if (form.type === 'late_start') {
-      overrides = generateLateStartOverrides(classes, autoTime);
+      overrides = generateLateStartOverrides(dayClasses, autoTime, dayOfWeek >= 0 ? dayOfWeek : undefined);
     } else if (form.type === 'no_school') {
-      overrides = classes.map((c) => ({ period: c.period, startTime: c.startTime, endTime: c.endTime, cancelled: true }));
+      overrides = dayClasses.map((c) => ({
+        period: c.period,
+        startTime: (dayOfWeek >= 0 && c.dayTimes?.[dayOfWeek]?.startTime) || c.startTime,
+        endTime: (dayOfWeek >= 0 && c.dayTimes?.[dayOfWeek]?.endTime) || c.endTime,
+        cancelled: true,
+      }));
     }
     setForm({ ...form, periodOverrides: overrides });
   };
@@ -216,7 +224,7 @@ function SchedulePageInner() {
     setDetailDate(date);
   };
 
-  if (cLoading || dLoading) return null;
+  if (cLoading || dLoading) return <Box sx={{ pt: 2 }}><LinearProgress sx={{ borderRadius: 1 }} /></Box>;
 
   const isTodaySelected = selectedDate.isSame(dayjs(), 'day');
   const todayDisruption = daySchedule?.disruption;

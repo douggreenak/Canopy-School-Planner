@@ -76,23 +76,23 @@ export function getMonthSchedules(
 /**
  * Generate common early-out disruption overrides.
  * Compresses a normal schedule so all periods end proportionally earlier.
+ * Pass dayOfWeek (0=Sun…6=Sat) so per-day time overrides are respected.
  */
 export function generateEarlyOutOverrides(
   classes: SchoolClass[],
-  earlyEndTime: string
+  earlyEndTime: string,
+  dayOfWeek?: number,
 ): { period: number; startTime: string; endTime: string; cancelled: boolean }[] {
-  // Sort by effective start time for the day — if a class has per-day
-  // overrides we prefer the earliest of those for ordering. Fall back to
-  // the class default startTime when no per-day override exists.
-  const sorted = [...classes].sort((a, b) => {
-    const aStart = (a.dayTimes && a.dayTimes[1]?.startTime) || a.startTime; // arbitrary weekday used for ordering
-    const bStart = (b.dayTimes && b.dayTimes[1]?.startTime) || b.startTime;
-    return aStart.localeCompare(bStart);
-  });
+  const eStart = (c: SchoolClass) =>
+    (dayOfWeek !== undefined && c.dayTimes?.[dayOfWeek]?.startTime) || c.startTime;
+  const eEnd = (c: SchoolClass) =>
+    (dayOfWeek !== undefined && c.dayTimes?.[dayOfWeek]?.endTime) || c.endTime;
+
+  const sorted = [...classes].sort((a, b) => eStart(a).localeCompare(eStart(b)));
   if (sorted.length === 0) return [];
 
-  const firstStart = timeToMinutes(sorted[0].startTime);
-  const lastEnd = timeToMinutes(sorted[sorted.length - 1].endTime);
+  const firstStart = timeToMinutes(eStart(sorted[0]));
+  const lastEnd = timeToMinutes(eEnd(sorted[sorted.length - 1]));
   const earlyEnd = timeToMinutes(earlyEndTime);
 
   const normalDuration = lastEnd - firstStart;
@@ -103,7 +103,7 @@ export function generateEarlyOutOverrides(
   // integer minutes using the Largest Remainder method so the rounded
   // durations sum exactly to newDuration. This avoids 1-minute rounding
   // gaps between adjacent periods that were visible on the calendar.
-  const originalDurations = sorted.map((c) => timeToMinutes(c.endTime) - timeToMinutes(c.startTime));
+  const originalDurations = sorted.map((c) => timeToMinutes(eEnd(c)) - timeToMinutes(eStart(c)));
   const idealDurations = originalDurations.map((d) => d * ratio);
   const floored = idealDurations.map((d) => Math.floor(d));
   const remainders = idealDurations.map((d, i) => ({ i, rem: d - floored[i] }));
@@ -150,26 +150,29 @@ export function generateEarlyOutOverrides(
 
 /**
  * Generate late-start overrides.
+ * Pass dayOfWeek (0=Sun…6=Sat) so per-day time overrides are respected.
  */
 export function generateLateStartOverrides(
   classes: SchoolClass[],
-  lateStartTime: string
+  lateStartTime: string,
+  dayOfWeek?: number,
 ): { period: number; startTime: string; endTime: string; cancelled: boolean }[] {
-  const sorted = [...classes].sort((a, b) => {
-    const aStart = (a.dayTimes && a.dayTimes[1]?.startTime) || a.startTime;
-    const bStart = (b.dayTimes && b.dayTimes[1]?.startTime) || b.startTime;
-    return aStart.localeCompare(bStart);
-  });
+  const eStart = (c: SchoolClass) =>
+    (dayOfWeek !== undefined && c.dayTimes?.[dayOfWeek]?.startTime) || c.startTime;
+  const eEnd = (c: SchoolClass) =>
+    (dayOfWeek !== undefined && c.dayTimes?.[dayOfWeek]?.endTime) || c.endTime;
+
+  const sorted = [...classes].sort((a, b) => eStart(a).localeCompare(eStart(b)));
   if (sorted.length === 0) return [];
 
-  const originalFirstStart = timeToMinutes(sorted[0].startTime);
+  const originalFirstStart = timeToMinutes(eStart(sorted[0]));
   const newFirstStart = timeToMinutes(lateStartTime);
   const delay = newFirstStart - originalFirstStart;
 
   return sorted.map((c) => ({
     period: c.period,
-    startTime: minutesToTime(timeToMinutes(c.startTime) + delay),
-    endTime: minutesToTime(timeToMinutes(c.endTime) + delay),
+    startTime: minutesToTime(timeToMinutes(eStart(c)) + delay),
+    endTime: minutesToTime(timeToMinutes(eEnd(c)) + delay),
     cancelled: false,
   }));
 }

@@ -15,6 +15,7 @@ import Stack from '@mui/material/Stack';
 import Paper from '@mui/material/Paper';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
+import Button from '@mui/material/Button';
 import LinearProgress from '@mui/material/LinearProgress';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -26,9 +27,11 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useClasses, useHomework, useExams, useTasks, useDisruptions } from '@/lib/hooks';
 import { buildDaySchedule } from '@/lib/calendar';
 import { getWeekSchedule } from '@/lib/schedule';
+import { buildHeatmap } from '@/lib/heatmap';
 import DayView from '@/components/DayView';
 import WeekView from '@/components/WeekView';
 import YearView from '@/components/YearView';
+import WhatshotIcon from '@mui/icons-material/Whatshot';
 
 dayjs.extend(isoWeek);
 
@@ -158,6 +161,22 @@ export default function Dashboard() {
 
   return (
     <Box>
+      {/* Onboarding — shown only when no classes are set up */}
+      {(!classes || classes.length === 0) && (
+        <Alert
+          severity="info"
+          sx={{ mb: 3, borderRadius: 2 }}
+          action={
+            <Button color="inherit" size="small" href="/settings">
+              Go to Settings
+            </Button>
+          }
+        >
+          <AlertTitle sx={{ fontWeight: 600 }}>Welcome to Canopy!</AlertTitle>
+          Get started by adding your classes in Settings, then connect PowerSchool to automatically import your grades and assignments.
+        </Alert>
+      )}
+
       {/* Ask banner */}
       {askTasks.length > 0 && (
         <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
@@ -175,7 +194,7 @@ export default function Dashboard() {
             {selectedDate.format('dddd, MMMM D, YYYY')}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Welcome back! Here&apos;s your schedule overview.
+            {classes && classes.length > 0 ? 'Here\'s your schedule overview.' : 'Add your classes to see your schedule here.'}
           </Typography>
         </Box>
         <Stack direction="row" spacing={1}>
@@ -238,12 +257,16 @@ export default function Dashboard() {
           <Card>
             <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
               <CheckCircleIcon sx={{ color: 'success.main', fontSize: 32, mb: 0.5 }} />
-              <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                {completedToday.hw + completedToday.tasks}
-                <Typography component="span" variant="body2" color="text.secondary">
-                  /{completedToday.hwTotal + completedToday.tasksTotal}
+              {completedToday.hwTotal + completedToday.tasksTotal > 0 ? (
+                <Typography variant="h4" sx={{ fontWeight: 600 }}>
+                  {completedToday.hw + completedToday.tasks}
+                  <Typography component="span" variant="body2" color="text.secondary">
+                    /{completedToday.hwTotal + completedToday.tasksTotal}
+                  </Typography>
                 </Typography>
-              </Typography>
+              ) : (
+                <Typography variant="h4" sx={{ fontWeight: 600, color: 'text.disabled' }}>—</Typography>
+              )}
               <Typography variant="caption" color="text.secondary">Completed Today</Typography>
             </CardContent>
           </Card>
@@ -260,13 +283,24 @@ export default function Dashboard() {
           <Tab label="Day" />
           <Tab label="Week" />
           <Tab label="Year" />
+          <Tab label="Heatmap" icon={<WhatshotIcon fontSize="small" />} iconPosition="start" />
         </Tabs>
         <Box sx={{ p: 2 }}>
           {tab === 0 && todaySchedule && (
             <DayView schedule={todaySchedule} date={selectedDate.format('YYYY-MM-DD')} />
           )}
+          {tab === 0 && !todaySchedule && (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+              No classes scheduled — add classes in Settings to see your day view.
+            </Typography>
+          )}
           {tab === 1 && weekSchedule && (
             <WeekView schedule={weekSchedule} weekStart={selectedDate.startOf('isoWeek').format('YYYY-MM-DD')} />
+          )}
+          {tab === 1 && !weekSchedule && (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+              No schedule to display. Add classes in Settings to see your week view.
+            </Typography>
           )}
           {tab === 2 && classesWithLunch && disruptions && (
             <YearView
@@ -276,6 +310,62 @@ export default function Dashboard() {
               onDateClick={(d) => { setSelectedDate(dayjs(d)); setTab(0); }}
             />
           )}
+          {tab === 3 && (() => {
+            const heatmapDays = buildHeatmap(homework ?? [], tasks ?? []);
+            const intensityColors = ['transparent', 'rgba(25,118,210,0.18)', 'rgba(25,118,210,0.45)', 'rgba(25,118,210,0.75)'];
+            return (
+              <Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  14-day workload — assignments + tasks due each day.
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+                  {heatmapDays.map((day) => (
+                    <Box
+                      key={day.date}
+                      onClick={() => { setSelectedDate(dayjs(day.date)); setTab(0); }}
+                      sx={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 1.5,
+                        bgcolor: day.intensity === 0 ? 'action.hover' : intensityColors[day.intensity],
+                        border: '1px solid',
+                        borderColor: day.date === dayjs().format('YYYY-MM-DD') ? 'primary.main' : 'divider',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        '&:hover': { opacity: 0.8 },
+                      }}
+                    >
+                      <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.65rem', color: 'text.secondary', lineHeight: 1 }}>
+                        {dayjs(day.date).format('ddd')}
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
+                        {dayjs(day.date).format('D')}
+                      </Typography>
+                      {day.total > 0 && (
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', color: day.intensity >= 2 ? 'primary.main' : 'text.secondary', fontWeight: 700 }}>
+                          {day.total}
+                        </Typography>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 2 }}>
+                  <Typography variant="caption" color="text.secondary">Workload:</Typography>
+                  {[0, 1, 2, 3].map((i) => (
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: i === 0 ? 'action.hover' : intensityColors[i], border: '1px solid', borderColor: 'divider' }} />
+                      <Typography variant="caption" color="text.secondary">
+                        {i === 0 ? 'None' : i === 1 ? 'Light' : i === 2 ? 'Moderate' : 'Heavy'}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            );
+          })()}
         </Box>
       </Paper>
 
@@ -287,9 +377,12 @@ export default function Dashboard() {
               <Typography variant="h6" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                 <AssignmentIcon fontSize="small" sx={{ color: 'error.main' }} />
                 Upcoming Homework
+                <Typography component="span" variant="caption" color="text.disabled" sx={{ ml: 'auto' }}>
+                  {upcomingHomework.length > 0 ? `${upcomingHomework.length} item${upcomingHomework.length === 1 ? '' : 's'}` : ''}
+                </Typography>
               </Typography>
               {upcomingHomework.length === 0 && (
-                <Typography variant="body2" color="text.secondary">No upcoming homework</Typography>
+                <Typography variant="body2" color="text.secondary">No homework due soon. Add some on the Tasks page.</Typography>
               )}
               <Stack spacing={1}>
                 {upcomingHomework.map((h) => (
@@ -319,7 +412,7 @@ export default function Dashboard() {
                 Upcoming Exams
               </Typography>
               {upcomingExams.length === 0 && (
-                <Typography variant="body2" color="text.secondary">No upcoming exams</Typography>
+                <Typography variant="body2" color="text.secondary">No exams scheduled. Add them on the Exams page.</Typography>
               )}
               <Stack spacing={1}>
                 {upcomingExams.map((e) => (
@@ -343,7 +436,7 @@ export default function Dashboard() {
                 Pending Tasks
               </Typography>
               {pendingTasks.length === 0 && (
-                <Typography variant="body2" color="text.secondary">All tasks complete!</Typography>
+                <Typography variant="body2" color="text.secondary">No pending tasks — you&apos;re all caught up!</Typography>
               )}
               <Stack spacing={1}>
                 {pendingTasks.map((t) => (

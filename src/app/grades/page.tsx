@@ -32,6 +32,8 @@ import CircularProgress from '@mui/material/CircularProgress';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Divider from '@mui/material/Divider';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import Tooltip from '@mui/material/Tooltip';
 import { alpha, useTheme } from '@mui/material/styles';
 import Accordion from '@mui/material/Accordion';
@@ -48,7 +50,10 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlined';
 import EventIcon from '@mui/icons-material/Event';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
-import { useClasses, useHomework } from '@/lib/hooks';
+import { useClasses, useHomework, useGradeHistory } from '@/lib/hooks';
+import { missingWorkImpact } from '@/lib/gradeEngine';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import {
   gradeColor,
   letterFromPercent,
@@ -60,6 +65,8 @@ import {
   isUpcoming,
 } from '@/lib/grades';
 import type { SchoolClass, Homework } from '@/types';
+import TranscriptPage from '@/app/transcript/page';
+import SyncLogPage from '@/app/sync-log/page';
 
 // ---- Reusable stat tile for the "at a glance" strip ----
 // Each tile renders a big number on a subtly-colored card so the most important
@@ -129,9 +136,11 @@ export default function GradesPage() {
   const router = useRouter();
   const { data: classes, loading: loadingClasses, refetch: refetchClasses } = useClasses();
   const { data: homework, loading: loadingHomework, refetch: refetchHomework } = useHomework();
+  const { data: gradeHistory } = useGradeHistory();
   const [syncing, setSyncing] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
   const [sortMode, setSortMode] = useState<'period' | 'grade'>('period');
+  const [activeTab, setActiveTab] = useState<'grades' | 'transcript' | 'sync-log'>('grades');
   // Keeps the full server-side sync log + stats after each sync so the user
   // can see exactly what the scraper did. Without this the "no assignments
   // showed up" case is a black box.
@@ -197,6 +206,43 @@ export default function GradesPage() {
     return m;
   }, [psClasses]);
 
+  // Velocity: compare most recent grade history entry to one from ~5+ days ago per class.
+  const velocityByClass = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!gradeHistory || gradeHistory.length === 0) return m;
+    const now = dayjs();
+    const byClass = new Map<string, typeof gradeHistory>();
+    for (const e of gradeHistory) {
+      const arr = byClass.get(e.classId) ?? [];
+      arr.push(e);
+      byClass.set(e.classId, arr);
+    }
+    for (const [classId, entries] of byClass) {
+      if (entries.length < 2) continue;
+      const sorted = [...entries].sort((a, b) => dayjs(b.capturedAt).valueOf() - dayjs(a.capturedAt).valueOf());
+      const recent = sorted[0];
+      const older = sorted.find((e) => now.diff(dayjs(e.capturedAt), 'day') >= 5 && e.id !== recent.id);
+      if (!older || recent.gradePercent == null || older.gradePercent == null) continue;
+      const delta = recent.gradePercent - older.gradePercent;
+      if (Math.abs(delta) >= 0.1) m.set(classId, delta);
+    }
+    return m;
+  }, [gradeHistory]);
+
+  // Cross-class missing-work triage: rank Missing items by grade impact.
+  const missingWorkItems = useMemo(() => {
+    const all: { cls: SchoolClass; homework: Homework; gradeImpactPercent: number }[] = [];
+    for (const cls of psClasses) {
+      if (!cls.categoryWeights || Object.keys(cls.categoryWeights).length === 0) continue;
+      const hw = homeworkByClass.get(cls.id) ?? [];
+      const impacts = missingWorkImpact(hw, cls.categoryWeights);
+      for (const impact of impacts) {
+        all.push({ cls, homework: impact.homework, gradeImpactPercent: impact.gradeImpactPercent });
+      }
+    }
+    return all.sort((a, b) => b.gradeImpactPercent - a.gradeImpactPercent).slice(0, 8);
+  }, [psClasses, homeworkByClass]);
+
   const syncNow = async () => {
     setSyncing(true);
     try {
@@ -248,7 +294,7 @@ export default function GradesPage() {
             Grades
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Live grades and assignments from PowerSchool.
+            Your PowerSchool grades, assignments, and status — synced automatically.
           </Typography>
         </Box>
         {lastSync && (
@@ -266,6 +312,20 @@ export default function GradesPage() {
         </Button>
       </Box>
 
+      <Tabs
+        value={activeTab}
+        onChange={(_, v) => setActiveTab(v as 'grades' | 'transcript' | 'sync-log')}
+        sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}
+      >
+        <Tab value="grades" label="Grades" />
+        <Tab value="transcript" label="Transcript" />
+        <Tab value="sync-log" label="Sync Log" />
+      </Tabs>
+
+      {activeTab === 'transcript' && <TranscriptPage />}
+      {activeTab === 'sync-log' && <SyncLogPage />}
+
+      {activeTab === 'grades' && (<>
       {/* ===== Sync log panel =====
           Collapsed by default. Expanded automatically when the sync failed or
           produced 0 assignments for any class — the common "why are rows
@@ -297,14 +357,12 @@ export default function GradesPage() {
               </Typography>
             ) : (
               <Box
-                component="pre"
                 sx={{
                   m: 0,
                   p: 1.5,
                   bgcolor: 'action.hover',
                   borderRadius: 1,
                   fontSize: '0.75rem',
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                   maxHeight: 360,
                   overflow: 'auto',
                   whiteSpace: 'pre-wrap',
@@ -380,25 +438,20 @@ export default function GradesPage() {
           Combines the per-class progress bars with what's coming up. Left
           side answers "how am I doing across classes" at a glance, right
           side answers "what's next." */}
-      {!loading && (overallPercent != null || upcomingSoon.length > 0) && (
+      {!loading && (psClasses.length > 0 || upcomingSoon.length > 0) && (
         <Grid container spacing={2} sx={{ mb: 3 }}>
-          {overallPercent != null && (
+          {psClasses.length > 0 && (
             <Grid size={{ xs: 12, md: upcomingSoon.length > 0 ? 7 : 12 }}>
               <Card sx={{ height: '100%' }}>
                 <CardContent>
                   <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1 }}>
-                    Grade comparison
+                    Grade overview
                   </Typography>
                   <Stack spacing={1.25} sx={{ mt: 1 }}>
-                    {psClasses.filter((c) => c.gradePercent != null).map((c) => (
+                    {psClasses.map((c) => (
                       <Box key={c.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: c.color, flexShrink: 0 }} />
                         <Tooltip title={c.name}>
-                          {/* Fixed width — not min/max — so every bar starts
-                              at the same x-coordinate regardless of label
-                              length. Long names truncate with an ellipsis,
-                              short ones leave whitespace; either way the bars
-                              line up. */}
                           <Typography
                             variant="body2"
                             sx={{ width: 160, flexShrink: 0, cursor: 'pointer' }}
@@ -408,25 +461,36 @@ export default function GradesPage() {
                             {c.name}
                           </Typography>
                         </Tooltip>
-                        <LinearProgress
-                          variant="determinate"
-                          value={Math.min(100, c.gradePercent!)}
-                          sx={{
-                            flex: 1,
-                            height: 8,
-                            borderRadius: 4,
-                            bgcolor: alpha(gradeColor(c.gradePercent, theme), 0.15),
-                            '& .MuiLinearProgress-bar': {
-                              bgcolor: gradeColor(c.gradePercent, theme),
-                            },
-                          }}
-                        />
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 600, width: 56, flexShrink: 0, textAlign: 'right', color: gradeColor(c.gradePercent, theme) }}
-                        >
-                          {c.gradePercent!.toFixed(1)}%
-                        </Typography>
+                        {c.gradePercent != null ? (
+                          <>
+                            <LinearProgress
+                              variant="determinate"
+                              value={Math.min(100, c.gradePercent)}
+                              sx={{
+                                flex: 1,
+                                height: 8,
+                                borderRadius: 4,
+                                bgcolor: alpha(gradeColor(c.gradePercent, theme), 0.15),
+                                '& .MuiLinearProgress-bar': {
+                                  bgcolor: gradeColor(c.gradePercent, theme),
+                                },
+                              }}
+                            />
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 600, width: 56, flexShrink: 0, textAlign: 'right', color: gradeColor(c.gradePercent, theme) }}
+                            >
+                              {c.gradePercent.toFixed(1)}%
+                            </Typography>
+                          </>
+                        ) : (
+                          <>
+                            <Box sx={{ flex: 1, height: 8, borderRadius: 4, bgcolor: 'action.hover' }} />
+                            <Typography variant="caption" color="text.disabled" sx={{ width: 56, flexShrink: 0, textAlign: 'right' }}>
+                              No grade
+                            </Typography>
+                          </>
+                        )}
                       </Box>
                     ))}
                   </Stack>
@@ -435,7 +499,7 @@ export default function GradesPage() {
             </Grid>
           )}
           {upcomingSoon.length > 0 && (
-            <Grid size={{ xs: 12, md: overallPercent != null ? 5 : 12 }}>
+            <Grid size={{ xs: 12, md: psClasses.length > 0 ? 5 : 12 }}>
               <Card sx={{ height: '100%' }}>
                 <CardContent>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
@@ -496,11 +560,60 @@ export default function GradesPage() {
         </Grid>
       )}
 
+      {/* ===== Missing-work triage =====
+          Only shown when there are actually missing items with computable impact.
+          Requires category weights to be set on at least one class. */}
+      {missingWorkItems.length > 0 && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1 }}>
+            Missing Work — Grade Impact
+          </Typography>
+          <Card variant="outlined" sx={{ mt: 1 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 600 }}>Assignment</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Class</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Category</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600 }}>Grade impact</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {missingWorkItems.map(({ cls, homework: hw, gradeImpactPercent }) => (
+                  <TableRow key={hw.id} hover sx={{ cursor: 'pointer' }} onClick={() => router.push(`/grades/${cls.id}`)}>
+                    <TableCell>
+                      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                        <ErrorOutlineIcon sx={{ fontSize: 14, color: 'error.main' }} />
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{hw.title}</Typography>
+                      </Stack>
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: cls.color, flexShrink: 0 }} />
+                        <Typography variant="body2" color="text.secondary">{cls.name}</Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption" color="text.secondary">{hw.category ?? '—'}</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'error.main' }}>
+                        −{gradeImpactPercent.toFixed(1)}%
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        </Box>
+      )}
+
       {/* ===== Sort toggle ===== */}
       {psClasses.length > 1 && (
         <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1 }}>
-            {psClasses.length} {psClasses.length === 1 ? 'class' : 'classes'}
+            {psClasses.length} {psClasses.length === 1 ? 'Class' : 'Classes'}
           </Typography>
           <ToggleButtonGroup
             size="small"
@@ -515,18 +628,18 @@ export default function GradesPage() {
       )}
 
       {/* ===== Loading / empty states ===== */}
-      {loading && null}
+      {loading && <LinearProgress sx={{ borderRadius: 1, mt: 2 }} />}
 
       {!loading && psClasses.length === 0 && (
         <Card>
           <CardContent sx={{ textAlign: 'center', py: 6 }}>
             <SchoolIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-            <Typography variant="h6" gutterBottom>No PowerSchool classes yet</Typography>
+            <Typography variant="h6" gutterBottom>No grades imported yet</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Save your PowerSchool login in Settings and run an import — your classes, grades, and assignments will appear here.
+              Connect your PowerSchool account in Settings to automatically import your classes, grades, and assignments.
             </Typography>
-            <Button variant="contained" href="/settings" startIcon={<SchoolIcon />}>
-              Go to Settings
+            <Button variant="contained" onClick={() => router.push('/settings')} startIcon={<SchoolIcon />}>
+              Set Up PowerSchool
             </Button>
           </CardContent>
         </Card>
@@ -550,6 +663,7 @@ export default function GradesPage() {
           const grade = cls.grade || (cls.gradePercent != null ? letterFromPercent(cls.gradePercent) : null);
           const color = gradeColor(cls.gradePercent, theme);
           const classStats = statusCounts(classHomework);
+          const velocity = velocityByClass.get(cls.id) ?? null;
 
           return (
             <Card key={cls.id}>
@@ -569,6 +683,10 @@ export default function GradesPage() {
                     e.preventDefault();
                     router.push(`/grades/${cls.id}`);
                   }
+                }}
+                sx={{
+                  '& .MuiCardActionArea-focusHighlight': { display: 'none' },
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.03)' },
                 }}
               >
                 <CardContent>
@@ -631,6 +749,16 @@ export default function GradesPage() {
                               <Typography variant="h6" sx={{ color, fontWeight: 500 }}>
                                 {grade}
                               </Typography>
+                              {velocity !== null && (
+                                <Chip
+                                  icon={velocity > 0 ? <TrendingUpIcon /> : <TrendingDownIcon />}
+                                  label={`${velocity > 0 ? '+' : ''}${velocity.toFixed(1)}%`}
+                                  size="small"
+                                  color={velocity > 0 ? 'success' : 'error'}
+                                  variant="outlined"
+                                  sx={{ mt: 0.5 }}
+                                />
+                              )}
                             </>
                           ) : grade ? (
                             <Typography variant="h3" sx={{ fontSize: '2.5rem', fontWeight: 500, color, lineHeight: 1 }}>
@@ -655,61 +783,80 @@ export default function GradesPage() {
                           View all →
                         </Typography>
                       </Box>
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell sx={{ width: '55%' }}>Assignment</TableCell>
-                            <TableCell>Category</TableCell>
-                            <TableCell>Due</TableCell>
-                            <TableCell align="right">Score</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
+                      <Stack divider={<Divider />} spacing={0}>
                           {recent.map((h) => {
-                            // Subtle row tint pulls the eye to rows that need
-                            // attention. Missing = red-wash, late = orange-wash.
-                            const rowBg = isMissing(h)
-                              ? alpha(theme.palette.error.main, 0.06)
+                            const pct = h.scorePercent ?? null;
+                            const scoreColor = pct != null ? gradeColor(pct, theme) : theme.palette.text.secondary;
+                            const stripeColor = isMissing(h)
+                              ? theme.palette.error.main
                               : isLate(h)
-                                ? alpha(theme.palette.warning.main, 0.06)
-                                : 'transparent';
+                                ? theme.palette.warning.main
+                                : null;
                             return (
-                              <TableRow key={h.id} hover sx={{ bgcolor: rowBg }}>
-                                <TableCell sx={{ fontWeight: h.completed ? 400 : 500 }}>{h.title}</TableCell>
-                                <TableCell>
-                                  {h.category ? (
-                                    <Typography variant="caption" color="text.secondary">{h.category}</Typography>
-                                  ) : '—'}
-                                </TableCell>
-                                <TableCell>
-                                  <Typography variant="body2" color="text.secondary">
-                                    {relativeDueLabel(h.dueDate)}
+                              <Box
+                                key={h.id}
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1.5,
+                                  py: 1,
+                                  px: 1,
+                                  bgcolor: stripeColor ? alpha(stripeColor, 0.05) : 'transparent',
+                                  borderLeft: stripeColor
+                                    ? `3px solid ${stripeColor}`
+                                    : '3px solid transparent',
+                                }}
+                              >
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                  <Typography variant="body2" noWrap sx={{ fontWeight: 500, lineHeight: 1.3 }}>
+                                    {h.title}
                                   </Typography>
-                                </TableCell>
-                                <TableCell align="right">
-                                  <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
+                                  <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mt: 0.3 }}>
+                                    {h.category && (
+                                      <Box
+                                        sx={{
+                                          px: 0.625,
+                                          py: 0.25,
+                                          borderRadius: 10,
+                                          bgcolor: alpha(theme.palette.text.secondary, 0.1),
+                                          fontSize: '0.62rem',
+                                          color: 'text.secondary',
+                                          lineHeight: 1.4,
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        {h.category}
+                                      </Box>
+                                    )}
+                                    <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.65rem' }}>
+                                      {relativeDueLabel(h.dueDate)}
+                                    </Typography>
                                     {h.flags && (
                                       <Chip
                                         label={h.flags}
                                         size="small"
                                         color={flagSeverity(h.flags)}
-                                        sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600 }}
+                                        sx={{ height: 14, fontSize: '0.58rem', fontWeight: 600 }}
                                       />
                                     )}
-                                    {h.score ? (
-                                      <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
-                                        {h.score}
-                                      </Typography>
-                                    ) : !h.flags ? (
-                                      <Typography variant="body2" color="text.disabled">—</Typography>
-                                    ) : null}
                                   </Stack>
-                                </TableCell>
-                              </TableRow>
+                                </Box>
+                                <Box sx={{ flexShrink: 0, textAlign: 'right' }}>
+                                  {h.score ? (
+                                    <Typography
+                                      variant="body2"
+                                      sx={{ fontWeight: 600, color: scoreColor, lineHeight: 1.2 }}
+                                    >
+                                      {h.score}
+                                    </Typography>
+                                  ) : !h.flags ? (
+                                    <Typography variant="body2" color="text.disabled">—</Typography>
+                                  ) : null}
+                                </Box>
+                              </Box>
                             );
                           })}
-                        </TableBody>
-                      </Table>
+                        </Stack>
                     </Box>
                   )}
 
@@ -724,6 +871,7 @@ export default function GradesPage() {
           );
         })}
       </Stack>
+      </>)}
 
       <Snackbar
         open={snackbar.open}

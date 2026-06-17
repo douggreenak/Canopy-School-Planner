@@ -13,6 +13,8 @@
 import { use, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
+import WhatIfDialog from '@/components/WhatIfDialog';
+import { mostImpactfulAssignment } from '@/lib/gradeEngine';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Card from '@mui/material/Card';
@@ -23,11 +25,6 @@ import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Grid from '@mui/material/Grid';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
 import Alert from '@mui/material/Alert';
 import Snackbar from '@mui/material/Snackbar';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -41,6 +38,9 @@ import Divider from '@mui/material/Divider';
 import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SyncIcon from '@mui/icons-material/Sync';
+import CalculateIcon from '@mui/icons-material/Calculate';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import SearchIcon from '@mui/icons-material/Search';
 import SchoolIcon from '@mui/icons-material/School';
 import EmailIcon from '@mui/icons-material/Email';
@@ -51,7 +51,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlined';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
 import EventIcon from '@mui/icons-material/Event';
-import { useClasses, useHomework } from '@/lib/hooks';
+import { useClasses, useHomework, useGradeHistory, useSyncLog } from '@/lib/hooks';
 import {
   gradeColor,
   letterFromPercent,
@@ -87,15 +87,49 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
   const [query, setQuery] = useState('');
   const [sortMode, setSortMode] = useState<'due-desc' | 'due-asc' | 'category'>('due-desc');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
-  // null = no category filter; set when the user clicks a category card.
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [whatIfOpen, setWhatIfOpen] = useState(false);
+
+  const { data: gradeHistory } = useGradeHistory(classId);
+  const { data: syncLog } = useSyncLog(classId, 50);
 
   const cls = useMemo(() => (classes || []).find((c) => c.id === classId), [classes, classId]);
+
+  // Grade velocity: compare most recent history snapshot to 5+ days ago.
+  const velocity = useMemo(() => {
+    if (!gradeHistory || gradeHistory.length < 2) return null;
+    const sorted = [...gradeHistory].sort(
+      (a, b) => dayjs(b.capturedAt).valueOf() - dayjs(a.capturedAt).valueOf(),
+    );
+    const recent = sorted[0];
+    const now = dayjs();
+    const older = sorted.find(
+      (e) => now.diff(dayjs(e.capturedAt), 'day') >= 5 && e.id !== recent.id,
+    );
+    if (!older || recent.gradePercent == null || older.gradePercent == null) return null;
+    const delta = recent.gradePercent - older.gradePercent;
+    return Math.abs(delta) < 0.5 ? null : delta;
+  }, [gradeHistory]);
 
   const classHomework: Homework[] = useMemo(() => {
     if (!cls) return [];
     return (homework || []).filter((h) => h.classId === cls.id);
   }, [homework, cls]);
+
+  // Most-impactful assignment: reconstruct "before" state from sync log score_changed entries.
+  const impactfulChange = useMemo(() => {
+    if (!cls?.categoryWeights || !syncLog || classHomework.length === 0) return null;
+    const weights = cls.categoryWeights;
+    const before: Homework[] = classHomework.map((hw) => {
+      const change = (syncLog ?? []).find(
+        (e) => e.entityId === hw.id && e.changeType === 'score_changed',
+      );
+      if (!change) return hw;
+      const match = change.detail.match(/^([\d.]+)%/);
+      return match ? { ...hw, scorePercent: parseFloat(match[1]) } : hw;
+    });
+    return mostImpactfulAssignment(classHomework, before, weights);
+  }, [classHomework, syncLog, cls]);
 
   // Counts powering the stat strip and the badge counts on the filter chips.
   const stats = useMemo(() => statusCounts(classHomework), [classHomework]);
@@ -205,7 +239,11 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
   const loading = loadingClasses || loadingHomework;
   const color = cls ? gradeColor(cls.gradePercent, theme) : theme.palette.text.disabled;
 
-  if (loading && !cls) return null;
+  if (loading && !cls) return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}>
+      <CircularProgress />
+    </Box>
+  );
 
   if (!loading && !cls) {
     return (
@@ -243,6 +281,16 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
         <Typography variant="body2" color="text.disabled">/</Typography>
         <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>{cls.name}</Typography>
         <Box sx={{ flex: 1 }} />
+        {cls?.categoryWeights && Object.keys(cls.categoryWeights).length > 0 && (
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<CalculateIcon />}
+            onClick={() => setWhatIfOpen(true)}
+          >
+            What if?
+          </Button>
+        )}
         <Button
           variant="outlined"
           size="small"
@@ -298,6 +346,18 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
             </Grid>
           </Grid>
 
+          {velocity !== null && (
+            <Box sx={{ mt: 1 }}>
+              <Chip
+                icon={velocity > 0 ? <TrendingUpIcon /> : <TrendingDownIcon />}
+                label={`${velocity > 0 ? '+' : ''}${velocity.toFixed(1)}% this week`}
+                size="small"
+                color={velocity > 0 ? 'success' : 'error'}
+                variant="outlined"
+              />
+            </Box>
+          )}
+
           {cls.gradePercent != null && (
             <Box sx={{ mt: 2 }}>
               <LinearProgress
@@ -320,8 +380,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
           student see "do I have anything to fix here?" without scanning the
           full assignments table. The tiles are also implicit shortcuts —
           their values match the filter-chip counts directly below. */}
-      {classHomework.length > 0 && (
-        <Grid container spacing={1.5} sx={{ mb: 3 }}>
+      <Grid container spacing={1.5} sx={{ mb: 3 }}>
           <Grid size={{ xs: 6, sm: 4, md: 2.4 }}>
             <Card variant="outlined">
               <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
@@ -428,8 +487,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
               </CardContent>
             </Card>
           </Grid>
-        </Grid>
-      )}
+      </Grid>
 
       {/* ===== Category breakdown =====
           Each category card shows count + average. Click to filter the table
@@ -510,6 +568,43 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
               );
             })}
           </Grid>
+        </Box>
+      )}
+
+      {/* ===== Category-weight transparency =====
+          Only shown when we can identify which assignment moved the needle most.
+          Suppress for tiny deltas that are just floating-point noise. */}
+      {impactfulChange && Math.abs(impactfulChange.delta) >= 0.1 && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1 }}>
+            Grade Change Driver
+          </Typography>
+          <Card variant="outlined" sx={{ mt: 1 }}>
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                {impactfulChange.delta > 0 ? (
+                  <TrendingUpIcon sx={{ color: 'success.main', fontSize: 20 }} />
+                ) : (
+                  <TrendingDownIcon sx={{ color: 'error.main', fontSize: 20 }} />
+                )}
+                <Box>
+                  <Typography variant="body2">
+                    <strong>{impactfulChange.assignment.title}</strong>
+                    {impactfulChange.assignment.category && (
+                      <Box component="span" sx={{ color: 'text.secondary' }}> · {impactfulChange.assignment.category}</Box>
+                    )}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Moved overall grade by{' '}
+                    <Box component="span" sx={{ fontWeight: 600, color: impactfulChange.delta > 0 ? 'success.main' : 'error.main' }}>
+                      {impactfulChange.delta > 0 ? '+' : ''}{impactfulChange.delta.toFixed(2)}%
+                    </Box>
+                    {' '}since last sync
+                  </Typography>
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
         </Box>
       )}
 
@@ -615,13 +710,13 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
           exclusive
           onChange={(_, v) => v && setSortMode(v)}
         >
-          <Tooltip title="Newest first (grouped by week)">
-            <ToggleButton value="due-desc">Newest</ToggleButton>
+          <Tooltip title="Most recent first, grouped by week">
+            <ToggleButton value="due-desc">Recent</ToggleButton>
           </Tooltip>
           <Tooltip title="Oldest first">
             <ToggleButton value="due-asc">Oldest</ToggleButton>
           </Tooltip>
-          <Tooltip title="Group by category">
+          <Tooltip title="Group by assignment category">
             <ToggleButton value="category">Category</ToggleButton>
           </Tooltip>
         </ToggleButtonGroup>
@@ -652,28 +747,24 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
           </Box>
         </Alert>
       ) : (
-        <Card variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ bgcolor: alpha(theme.palette.action.hover, 0.6) }}>
-                <TableCell sx={{ fontWeight: 600 }}>Assignment</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Category</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Due</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 600 }}>Score</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 600 }}>%</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {groupedRows.map((group) => (
-                <BucketGroup
-                  key={group.bucket}
-                  group={group}
-                  theme={theme}
-                />
-              ))}
-            </TableBody>
-          </Table>
+        <Card variant="outlined" sx={{ overflow: 'hidden' }}>
+          {groupedRows.map((group) => (
+            <BucketGroup
+              key={group.bucket}
+              group={group}
+              theme={theme}
+            />
+          ))}
         </Card>
+      )}
+
+      {cls && (
+        <WhatIfDialog
+          open={whatIfOpen}
+          onClose={() => setWhatIfOpen(false)}
+          cls={cls}
+          homework={classHomework}
+        />
       )}
 
       <Snackbar
@@ -690,11 +781,6 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
   );
 }
 
-// ============================================================
-// One time-bucket group of rows. Renders an optional section header row
-// (when `bucket !== 'all'`) followed by the assignment rows themselves.
-// Pulled out as a sub-component so the main render stays readable.
-// ============================================================
 function BucketGroup({
   group,
   theme,
@@ -706,99 +792,127 @@ function BucketGroup({
   return (
     <>
       {showHeader && (
-        <TableRow>
-          <TableCell
-            colSpan={5}
+        <Box
+          sx={{
+            px: 2,
+            pt: 2,
+            pb: 0.75,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+          }}
+        >
+          <Typography
             sx={{
-              bgcolor: alpha(theme.palette.action.hover, 0.3),
-              py: 0.5,
-              borderTop: 1,
-              borderColor: 'divider',
+              fontSize: '0.63rem',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: 1.2,
+              color: 'text.disabled',
+              whiteSpace: 'nowrap',
             }}
           >
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'text.secondary' }}>
-                {group.bucket}
-              </Typography>
-              <Divider orientation="vertical" flexItem sx={{ height: 12, alignSelf: 'center' }} />
-              <Typography variant="caption" color="text.disabled">
-                {group.items.length} {group.items.length === 1 ? 'assignment' : 'assignments'}
-              </Typography>
-            </Stack>
-          </TableCell>
-        </TableRow>
+            {group.bucket}
+          </Typography>
+          <Box sx={{ flex: 1, height: '1px', bgcolor: 'divider' }} />
+          <Typography sx={{ fontSize: '0.63rem', color: 'text.disabled' }}>
+            {group.items.length}
+          </Typography>
+        </Box>
       )}
       {group.items.map((h) => {
-        // Prefer the scraped % column over re-parsing the raw score.
         const pct = homeworkPercent(h);
         const rowColor = pct != null ? gradeColor(pct, theme) : theme.palette.text.disabled;
         const missing = isMissing(h);
         const late = isLate(h);
-        // Subtle row tinting + colored left border so the eye finds attention
-        // items first. Missing wins over late if a row somehow has both.
         const stripeColor = missing
           ? theme.palette.error.main
           : late
             ? theme.palette.warning.main
             : null;
         return (
-          <TableRow
+          <Box
             key={h.id}
-            hover
             sx={{
-              bgcolor: stripeColor ? alpha(stripeColor, 0.05) : 'transparent',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              px: 2,
+              py: 1.25,
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              bgcolor: stripeColor ? alpha(stripeColor, 0.04) : 'transparent',
               borderLeft: stripeColor ? `3px solid ${stripeColor}` : '3px solid transparent',
+              '&:last-child': { borderBottom: 0 },
             }}
           >
-            <TableCell>
-              <Typography variant="body2" sx={{ fontWeight: 500 }}>{h.title}</Typography>
-              {h.description && h.description !== `Category: ${h.category}` && (
-                <Typography variant="caption" color="text.secondary">{h.description}</Typography>
-              )}
-            </TableCell>
-            <TableCell>
-              {h.category ? (
-                <Chip label={h.category} size="small" variant="outlined" />
-              ) : (
-                <Typography variant="body2" color="text.disabled">—</Typography>
-              )}
-            </TableCell>
-            <TableCell>
-              <Tooltip title={fullDueLabel(h.dueDate)}>
-                <Typography variant="body2" color="text.secondary">
-                  {relativeDueLabel(h.dueDate)}
-                </Typography>
-              </Tooltip>
-            </TableCell>
-            <TableCell align="right">
-              <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.3 }} noWrap>
+                {h.title}
+              </Typography>
+              <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', mt: 0.375, flexWrap: 'wrap' }}>
+                {h.category && (
+                  <Box
+                    sx={{
+                      px: 0.75,
+                      py: 0.25,
+                      borderRadius: 10,
+                      bgcolor: alpha(theme.palette.text.secondary, 0.1),
+                      fontSize: '0.65rem',
+                      color: 'text.secondary',
+                      lineHeight: 1.4,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {h.category}
+                  </Box>
+                )}
+                <Tooltip title={fullDueLabel(h.dueDate)}>
+                  <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.68rem' }}>
+                    {relativeDueLabel(h.dueDate)}
+                  </Typography>
+                </Tooltip>
                 {h.flags && (
                   <Chip
                     label={h.flags}
                     size="small"
                     color={flagSeverity(h.flags)}
-                    sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600 }}
+                    sx={{ height: 16, fontSize: '0.6rem', fontWeight: 700 }}
                   />
                 )}
-                {h.score ? (
-                  <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
-                    {h.score}
-                  </Typography>
-                ) : !h.flags ? (
-                  <Typography variant="body2" color="text.disabled">—</Typography>
-                ) : null}
               </Stack>
-            </TableCell>
-            <TableCell align="right">
-              {pct != null ? (
-                <Typography variant="body2" sx={{ fontWeight: 600, color: rowColor }}>
-                  {pct.toFixed(1)}%
+            </Box>
+            <Box sx={{ flexShrink: 0, textAlign: 'right' }}>
+              {h.score && (
+                <Typography
+                  variant="body2"
+                  sx={{ fontWeight: 600, color: pct != null ? rowColor : 'text.primary', lineHeight: 1.2 }}
+                >
+                  {h.score}
                 </Typography>
-              ) : (
-                <Typography variant="body2" color="text.disabled">—</Typography>
               )}
-            </TableCell>
-          </TableRow>
+              {pct != null ? (
+                <Box
+                  sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    px: 0.875,
+                    py: 0.25,
+                    borderRadius: 10,
+                    bgcolor: alpha(rowColor, 0.12),
+                    color: rowColor,
+                    fontSize: '0.7rem',
+                    fontWeight: 700,
+                    mt: h.score ? 0.375 : 0,
+                  }}
+                >
+                  {pct.toFixed(1)}%
+                </Box>
+              ) : !h.score && !h.flags ? (
+                <Typography variant="body2" color="text.disabled">—</Typography>
+              ) : null}
+            </Box>
+          </Box>
         );
       })}
     </>

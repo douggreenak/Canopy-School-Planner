@@ -306,7 +306,7 @@ export default function SetupWizard({ open, onClose }: Props) {
                     <Typography variant="body2">Sync log ({psLog.length} entries)</Typography>
                   </AccordionSummary>
                   <AccordionDetails>
-                    <Box sx={{ fontFamily: 'monospace', fontSize: '0.72rem', maxHeight: 160, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
+                    <Box sx={{ fontSize: '0.72rem', maxHeight: 160, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
                       {psLog.map((line, i) => <div key={i}>{line}</div>)}
                     </Box>
                   </AccordionDetails>
@@ -355,7 +355,7 @@ export default function SetupWizard({ open, onClose }: Props) {
                     <Typography variant="body2" sx={{ textAlign: 'left' }}>Sync log ({psLog.length} entries)</Typography>
                   </AccordionSummary>
                   <AccordionDetails>
-                    <Box sx={{ fontFamily: 'monospace', fontSize: '0.72rem', maxHeight: 160, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1, textAlign: 'left' }}>
+                    <Box sx={{ fontSize: '0.72rem', maxHeight: 160, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1, textAlign: 'left' }}>
                       {psLog.map((line, i) => <div key={i}>{line}</div>)}
                     </Box>
                   </AccordionDetails>

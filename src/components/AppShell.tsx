@@ -25,6 +25,8 @@ import GradeIcon from '@mui/icons-material/Grade';
 import QuizIcon from '@mui/icons-material/Quiz';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import TuneIcon from '@mui/icons-material/Tune';
+import HistoryIcon from '@mui/icons-material/History';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import LoadingOverlay from '@/components/LoadingOverlay';
@@ -351,6 +353,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <Typography variant="h6" noWrap sx={{ fontWeight: 600, flex: 1, color: 'primary.main', letterSpacing: '-0.3px' }}>
               Canopy
             </Typography>
+            <Tooltip title={currentUser ? `Signed in as ${currentUser.username}` : 'Sign out'}>
+              <IconButton onClick={doLogout} size="small" sx={{ color: 'text.secondary' }} aria-label="Sign out">
+                <LogoutIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Toolbar>
         </AppBar>
       )}
@@ -403,7 +410,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
+          p: { xs: 2, sm: 3 },
           mt: isMobile ? '64px' : 0,
           minWidth: 0,
           bgcolor: 'background.default',

@@ -38,6 +38,8 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import { useHomework, useTasks, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import { nextMeetingDate } from '@/lib/schedule';
+import { suggestRebalancing } from '@/lib/heatmap';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import TaskDetailDialog from '@/components/TaskDetailDialog';
 import type { Homework, Task, SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
@@ -113,6 +115,11 @@ export default function TasksPage() {
 
   const pendingCount = manualHomework.filter((h) => !h.completed).length + (tasks || []).filter((t) => !t.completed).length;
   const doneCount = manualHomework.filter((h) => h.completed).length + (tasks || []).filter((t) => t.completed).length;
+
+  const rebalancingByHwId = useMemo(() => {
+    const suggestions = suggestRebalancing(manualHomework);
+    return new Map(suggestions.map((s) => [s.homework.id, s]));
+  }, [manualHomework]);
 
   // ---- Dialog helpers ----
 
@@ -266,7 +273,10 @@ export default function TasksPage() {
 
   return (
     <Box>
-      <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 2 }}>Homework & Tasks</Typography>
+      <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 0.5 }}>Homework & Tasks</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Personal homework and tasks — PowerSchool assignments are on the Grades page.
+      </Typography>
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label={`Upcoming (${pendingCount})`} />
@@ -312,9 +322,14 @@ export default function TasksPage() {
 
       {merged.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 6 }}>
-          <Typography variant="body1" color="text.secondary">
-            {tab === 0 ? 'Nothing pending!' : tab === 1 ? 'Nothing completed yet.' : 'No items found.'}
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
+            {tab === 0 ? 'All caught up!' : tab === 1 ? 'Nothing completed yet.' : 'No items found.'}
           </Typography>
+          {tab === 0 && (
+            <Typography variant="body2" color="text.disabled">
+              Use the + button to add homework or a task.
+            </Typography>
+          )}
         </Box>
       )}
 
@@ -338,13 +353,21 @@ export default function TasksPage() {
                     </Typography>
                     {hw.description && <Typography variant="body2" color="text.secondary" noWrap>{hw.description}</Typography>}
                     <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <Chip size="small" label="HW" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
+                      <Chip size="small" label="Homework" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
                       {cls && (
                         <Chip size="small" label={cls.name} sx={{ backgroundColor: cls.color + '18', color: cls.color, fontWeight: 500, fontSize: '0.7rem' }} />
                       )}
                       <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
                         {overdue ? 'OVERDUE • ' : ''}Due {dayjs(hw.dueDate).format('MMM D, YYYY')}
                       </Typography>
+                      {rebalancingByHwId.get(hw.id) && !hw.completed && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                          <SwapHorizIcon sx={{ fontSize: 12, color: 'warning.main' }} />
+                          <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 500 }}>
+                            Start by {dayjs(rebalancingByHwId.get(hw.id)!.startBy).format('ddd MMM D')} — {rebalancingByHwId.get(hw.id)!.reason}
+                          </Typography>
+                        </Box>
+                      )}
                     </Box>
                   </Box>
                   <Chip size="small" label={hw.priority} color={hw.priority === 'high' ? 'error' : hw.priority === 'medium' ? 'warning' : 'default'} sx={{ fontSize: '0.7rem' }} />
