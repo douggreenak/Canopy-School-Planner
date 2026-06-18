@@ -2,16 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ['puppeteer-core', '@sparticuz/chromium-min'],
-  // Allow access from any local network device during development
-  // (your phone, another laptop, etc. on the same WiFi)
-  allowedDevOrigins: [
-    '192.168.1.15',
-    // Any other LAN IPs you want to access from — add them here.
-    // Wildcards are supported: '192.168.1.*', '10.0.0.*', '*.local'
-    '192.168.1.*',
-    '10.0.0.*',
-    '*.local',
-  ],
+  ...(process.env.NODE_ENV === 'development' ? {
+    allowedDevOrigins: [
+      '192.168.1.15',
+      '192.168.1.*',
+      '10.0.0.*',
+      '*.local',
+    ],
+  } : {}),
 };
 
 export default nextConfig;

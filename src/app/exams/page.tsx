@@ -205,7 +205,7 @@ export default function ExamsPage() {
     <Box sx={{ pb: 10 }}>
       <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 0.5 }}>Exams</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Upcoming tests and exams — click a card to see how the score would affect your grade.
+        Upcoming tests and exams — set a weight to see how the score could affect your grade.
       </Typography>
 
       {upcoming.length === 0 && past.length === 0 && (

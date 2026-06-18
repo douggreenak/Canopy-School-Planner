@@ -38,6 +38,6 @@ export async function POST(request: NextRequest) {
     return Response.json({ success: true, migrated });
   } catch (err) {
     console.error('Migration error:', err);
-    return Response.json({ success: false, error: (err as Error).message }, { status: 500 });
+    return Response.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

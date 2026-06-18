@@ -19,11 +19,14 @@ import {
   clearSessionCookie,
 } from '@/lib/auth';
 
+const MAX_USERNAME_LEN = 128;
+const MAX_PASSWORD_LEN = 1024;
+const MIN_PASSWORD_LEN = 1;
+
 let dbReady = false;
 async function ensureDb() {
   if (!dbReady) {
     await initializeDatabase();
-    // Seed admin account from env vars on every cold start.
     const adminPassword = process.env.ADMIN_PASSWORD;
     if (adminPassword) {
       const adminUsername = (process.env.ADMIN_USERNAME || 'admin').toLowerCase();
@@ -41,8 +44,7 @@ export async function GET(request: Request) {
     if (!userId) return Response.json({ user: null });
     const user = await getUserById(userId);
     return Response.json({ user });
-  } catch (error) {
-    console.error('GET /api/auth error:', error);
+  } catch {
     return Response.json({ user: null });
   }
 }
@@ -58,11 +60,11 @@ export async function POST(request: NextRequest) {
       if (!username || !password) {
         return Response.json({ error: 'Username and password are required.' }, { status: 400 });
       }
-      if (username.trim().length < 2) {
-        return Response.json({ error: 'Username must be at least 2 characters.' }, { status: 400 });
+      if (username.trim().length < 2 || username.trim().length > MAX_USERNAME_LEN) {
+        return Response.json({ error: `Username must be 2–${MAX_USERNAME_LEN} characters.` }, { status: 400 });
       }
-      if (password.length < 4) {
-        return Response.json({ error: 'Password must be at least 4 characters.' }, { status: 400 });
+      if (password.length < MIN_PASSWORD_LEN || password.length > MAX_PASSWORD_LEN) {
+        return Response.json({ error: `Password must be ${MIN_PASSWORD_LEN}–${MAX_PASSWORD_LEN} characters.` }, { status: 400 });
       }
       const existing = await getUserByUsername(username.trim());
       if (existing) {
@@ -71,9 +73,9 @@ export async function POST(request: NextRequest) {
       const id = uuid();
       const passwordHash = await hashPassword(password);
       await createUser(id, username.trim(), passwordHash);
-      const { token, cookie } = await createSession(id);
+      const { cookie } = await createSession(id);
       return new Response(
-        JSON.stringify({ success: true, token, user: { id, username: username.trim().toLowerCase(), role: 'user' } }),
+        JSON.stringify({ success: true, user: { id, username: username.trim().toLowerCase(), role: 'user' } }),
         { headers: { 'Content-Type': 'application/json', 'Set-Cookie': cookie } },
       );
     }
@@ -83,6 +85,9 @@ export async function POST(request: NextRequest) {
       if (!username || !password) {
         return Response.json({ error: 'Username and password are required.' }, { status: 400 });
       }
+      if (password.length > MAX_PASSWORD_LEN) {
+        return Response.json({ error: 'Invalid username or password.' }, { status: 401 });
+      }
       const user = await getUserByUsername(username.trim());
       if (!user) {
         return Response.json({ error: 'Invalid username or password.' }, { status: 401 });
@@ -91,9 +96,9 @@ export async function POST(request: NextRequest) {
       if (!valid) {
         return Response.json({ error: 'Invalid username or password.' }, { status: 401 });
       }
-      const { token, cookie } = await createSession(user.id);
+      const { cookie } = await createSession(user.id);
       return new Response(
-        JSON.stringify({ success: true, token, user: { id: user.id, username: user.username, role: user.role } }),
+        JSON.stringify({ success: true, user: { id: user.id, username: user.username, role: user.role } }),
         { headers: { 'Content-Type': 'application/json', 'Set-Cookie': cookie } },
       );
     }
@@ -112,8 +117,8 @@ export async function POST(request: NextRequest) {
       if (!currentPassword || !newPassword) {
         return Response.json({ error: 'Current and new password are required.' }, { status: 400 });
       }
-      if (newPassword.length < 4) {
-        return Response.json({ error: 'New password must be at least 4 characters.' }, { status: 400 });
+      if (newPassword.length < MIN_PASSWORD_LEN || newPassword.length > MAX_PASSWORD_LEN) {
+        return Response.json({ error: `New password must be ${MIN_PASSWORD_LEN}–${MAX_PASSWORD_LEN} characters.` }, { status: 400 });
       }
       const user = await getUserByIdWithHash(userId);
       if (!user) return Response.json({ error: 'User not found.' }, { status: 404 });
@@ -127,6 +132,14 @@ export async function POST(request: NextRequest) {
     if (action === 'deleteAccount') {
       const userId = await getSessionUserId(request);
       if (!userId) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      const { password } = body;
+      if (!password) {
+        return Response.json({ error: 'Password is required to delete your account.' }, { status: 400 });
+      }
+      const user = await getUserByIdWithHash(userId);
+      if (!user) return Response.json({ error: 'User not found.' }, { status: 404 });
+      const valid = await verifyPassword(password, user.passwordHash);
+      if (!valid) return Response.json({ error: 'Incorrect password.' }, { status: 401 });
       await deleteUserAndAllData(userId);
       return new Response(JSON.stringify({ success: true }), {
         headers: { 'Content-Type': 'application/json', 'Set-Cookie': clearSessionCookie() },
@@ -134,8 +147,7 @@ export async function POST(request: NextRequest) {
     }
 
     return Response.json({ error: 'Unknown action' }, { status: 400 });
-  } catch (error) {
-    console.error('POST /api/auth error:', error);
-    return Response.json({ error: (error as Error).message }, { status: 500 });
+  } catch {
+    return Response.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

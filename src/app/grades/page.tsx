@@ -9,7 +9,7 @@
 //   5. Sort toggle
 //   6. Class cards with smart dates, status chips, and flagged-row tinting
 // ============================================================
-import { useState, useMemo, type ReactNode } from 'react';
+import { useState, useMemo, useEffect, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
 import Box from '@mui/material/Box';
@@ -62,6 +62,7 @@ import {
   isMissing,
   isLate,
   isUpcoming,
+  VELOCITY_THRESHOLD,
 } from '@/lib/grades';
 import type { SchoolClass, Homework } from '@/types';
 import TranscriptPage from '@/app/transcript/page';
@@ -150,6 +151,15 @@ export default function GradesPage() {
     log: string[];
   } | null>(null);
 
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((s) => {
+        if (s.lastSyncAt) setLastSync({ at: s.lastSyncAt, ok: true, summary: '', log: [] });
+      })
+      .catch(() => {});
+  }, []);
+
   // Only show PowerSchool classes — that's where grades come from.
   const psClasses: SchoolClass[] = useMemo(() => {
     if (!classes) return [];
@@ -223,7 +233,7 @@ export default function GradesPage() {
       const older = sorted.find((e) => now.diff(dayjs(e.capturedAt), 'day') >= 5 && e.id !== recent.id);
       if (!older || recent.gradePercent == null || older.gradePercent == null) continue;
       const delta = recent.gradePercent - older.gradePercent;
-      if (Math.abs(delta) >= 0.1) m.set(classId, delta);
+      if (Math.abs(delta) >= VELOCITY_THRESHOLD) m.set(classId, delta);
     }
     return m;
   }, [gradeHistory]);
@@ -264,6 +274,7 @@ export default function GradesPage() {
           : `Synced — already up to date (${data.classCount ?? 0} classes, ${data.assignmentCount ?? 0} assignments).`;
         setSnackbar({ open: true, message: summary, severity: 'success' });
         setLastSync({ at: nowStr, ok: true, summary, log: Array.isArray(data.log) ? data.log : [] });
+        fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'lastSyncAt', value: nowStr }) }).catch(() => {});
         refetchClasses();
         refetchHomework();
       } else {
@@ -293,7 +304,7 @@ export default function GradesPage() {
             Grades
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Your PowerSchool grades, assignments, and status — synced automatically.
+            Your PowerSchool grades, assignments, and status — click Sync Now to update.
           </Typography>
         </Box>
         {lastSync && (

@@ -7,6 +7,8 @@ const scryptAsync = promisify(scrypt);
 export const SESSION_COOKIE = 'sp-session';
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString('hex');
   const hash = (await scryptAsync(password, salt, 64)) as Buffer;
@@ -25,22 +27,21 @@ export async function verifyPassword(password: string, stored: string): Promise<
   }
 }
 
-export async function createSession(userId: string): Promise<{ token: string; cookie: string }> {
+export async function createSession(userId: string): Promise<{ cookie: string }> {
   const token = randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
   await createDbSession(token, userId, expiresAt);
   const maxAge = Math.floor(SESSION_DURATION_MS / 1000);
-  const cookie = `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${maxAge}`;
-  return { token, cookie };
+  const secure = isProduction ? '; Secure' : '';
+  const cookie = `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+  return { cookie };
 }
 
 export async function getSessionUserId(request: Request): Promise<string | null> {
-  // 1. Try Authorization: Bearer <token> (used by native apps)
   const authHeader = request.headers.get('authorization') ?? '';
   const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
   const bearerToken = bearerMatch?.[1];
 
-  // 2. Fall back to HttpOnly cookie (used by the web app)
   const cookieHeader = request.headers.get('cookie') ?? '';
   const cookieMatch = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]*)`));
   const cookieToken = cookieMatch?.[1];
@@ -65,5 +66,6 @@ export async function deleteSession(request: Request): Promise<void> {
 }
 
 export function clearSessionCookie(): string {
-  return `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0`;
+  const secure = isProduction ? '; Secure' : '';
+  return `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0${secure}`;
 }

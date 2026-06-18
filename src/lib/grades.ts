@@ -47,9 +47,7 @@ export function parseScorePercent(raw: string | undefined): number | null {
   const bare = txt.match(/^-?(\d+(?:\.\d+)?)$/);
   if (bare) {
     const n = parseFloat(bare[1]);
-    if (n > 100) return null;
-    if (n <= 20) return null; // heuristic: small bare numbers are point values
-    return n;
+    if (n >= 0 && n <= 150) return n;
   }
   return null;
 }
@@ -176,3 +174,5 @@ export function timeBucket(iso: string | undefined): TimeBucket {
 }
 // Stable order when we render the buckets as headers.
 export const TIME_BUCKET_ORDER: TimeBucket[] = ['Upcoming', 'This Week', 'Last Week', 'This Month', 'Earlier'];
+
+export const VELOCITY_THRESHOLD = 0.3;

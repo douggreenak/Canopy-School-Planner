@@ -19,11 +19,20 @@ export async function GET(request: NextRequest) {
   }
 }
 
+function validateExam(e: Exam): string | null {
+  if (!e.title || e.title.length > 1000) return 'Title is required and must be under 1000 chars.';
+  if (e.notes && e.notes.length > 5000) return 'Notes too long.';
+  if (e.location && e.location.length > 500) return 'Location too long.';
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const userId = await getSessionUserId(request);
     if (!userId) return unauth();
     const body: Exam = await request.json();
+    const err = validateExam(body);
+    if (err) return Response.json({ error: err }, { status: 400 });
     await addExam(body, userId);
     return Response.json({ success: true });
   } catch (error) {
@@ -37,6 +46,8 @@ export async function PUT(request: NextRequest) {
     const userId = await getSessionUserId(request);
     if (!userId) return unauth();
     const body: Exam = await request.json();
+    const err = validateExam(body);
+    if (err) return Response.json({ error: err }, { status: 400 });
     await updateExam(body, userId);
     return Response.json({ success: true });
   } catch (error) {

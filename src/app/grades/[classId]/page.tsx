@@ -68,6 +68,7 @@ import {
   isGraded,
   timeBucket,
   TIME_BUCKET_ORDER,
+  VELOCITY_THRESHOLD,
   type TimeBucket,
 } from '@/lib/grades';
 import type { Homework } from '@/types';
@@ -110,7 +111,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
     );
     if (!older || recent.gradePercent == null || older.gradePercent == null) return null;
     const delta = recent.gradePercent - older.gradePercent;
-    return Math.abs(delta) < 0.5 ? null : delta;
+    return Math.abs(delta) < VELOCITY_THRESHOLD ? null : delta;
   }, [gradeHistory]);
 
   const classHomework: Homework[] = useMemo(() => {

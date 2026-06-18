@@ -271,7 +271,7 @@ export default function Dashboard() {
               ) : (
                 <Typography variant="h4" sx={{ fontWeight: 600, color: 'text.disabled' }}>—</Typography>
               )}
-              <Typography variant="caption" color="text.secondary">Completed Today</Typography>
+              <Typography variant="caption" color="text.secondary">Due Today</Typography>
             </CardContent>
           </Card>
         </Grid>

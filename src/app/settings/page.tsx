@@ -155,6 +155,8 @@ function SettingsInner() {
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState('');
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
 
   const handleDeleteAccount = async () => {
     setDeletingAccount(true);
@@ -163,7 +165,7 @@ function SettingsInner() {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'deleteAccount' }),
+        body: JSON.stringify({ action: 'deleteAccount', password: deletePassword }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -299,23 +301,20 @@ function SettingsInner() {
 
   const saveSchoolSettings = async () => {
     setSyncing('school');
-    const settings = {
-      schoolName,
-      semesterStart,
-      semesterEnd,
-      calendarToken,
-      powerschoolUrl: psUrl,
-      powerschoolUsername: psUser,
-      lunchTimes: JSON.stringify(lunchTimes),
-    };
     try {
-      for (const [key, value] of Object.entries(settings)) {
-        await fetch('/api/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key, value }),
-        });
-      }
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          batch: {
+            schoolName,
+            semesterStart,
+            semesterEnd,
+            calendarToken,
+            lunchTimes: JSON.stringify(lunchTimes),
+          },
+        }),
+      });
       setSnackbar({ open: true, message: 'Settings saved!', severity: 'success' });
     } catch {
       setSnackbar({ open: true, message: 'Failed to save settings', severity: 'error' });
@@ -647,14 +646,23 @@ function SettingsInner() {
                 <TextField fullWidth label="Semester Start" type="date" value={semesterStart} onChange={(e) => setSemesterStart(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
               </Grid>
               <Grid size={6}>
-                <TextField fullWidth label="Semester End" type="date" value={semesterEnd} onChange={(e) => setSemesterEnd(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
+                <TextField
+                  fullWidth
+                  label="Semester End"
+                  type="date"
+                  value={semesterEnd}
+                  onChange={(e) => setSemesterEnd(e.target.value)}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  error={!!(semesterStart && semesterEnd && semesterEnd < semesterStart)}
+                  helperText={semesterStart && semesterEnd && semesterEnd < semesterStart ? 'End date must be after start date' : ''}
+                />
               </Grid>
               <Grid size={12}>
                 <Button
                   variant="contained"
                   startIcon={syncing === 'school' ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
                   onClick={saveSchoolSettings}
-                  disabled={!!syncing}
+                  disabled={!!syncing || !!(semesterStart && semesterEnd && semesterEnd < semesterStart)}
                 >
                   Save School Info
                 </Button>
@@ -774,7 +782,6 @@ function SettingsInner() {
             </Typography>
             <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>
               Import your class schedule, assignments, and current grades from PowerSchool. Log in once — future imports reuse the saved credentials so you can sync with a single click.
-              <br /><strong>Requires Google Chrome</strong> to be installed on the computer running this app.
             </Alert>
             <Grid container spacing={2}>
               <Grid size={12}>
@@ -1151,7 +1158,7 @@ function SettingsInner() {
                 <TextField fullWidth label="Secret Token" value={calendarToken} onChange={(e) => setCalendarToken(e.target.value)} placeholder="Click Generate to create a token" />
               </Grid>
               <Grid size={4} sx={{ display: 'flex', alignItems: 'center' }}>
-                <Button variant="outlined" onClick={() => setCalendarToken(crypto.randomUUID())} fullWidth>
+                <Button variant="outlined" onClick={() => { const t = crypto.randomUUID(); setCalendarToken(t); fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'calendarToken', value: t }) }).catch(() => {}); }} fullWidth>
                   Generate Token
                 </Button>
               </Grid>
@@ -1171,7 +1178,7 @@ function SettingsInner() {
               </Grid>
               <Grid size={12}>
                 <Typography variant="caption" color="text.secondary">
-                  Generate a token, then save your settings using &quot;Save School Info&quot; — the subscription URL will appear here.
+                  Click Generate to create a secret token — the subscription URL will appear automatically.
                 </Typography>
               </Grid>
             </Grid>
@@ -1273,20 +1280,39 @@ function SettingsInner() {
       </Stack>
 
       {/* Delete account confirmation dialog */}
-      <Dialog open={deleteAccountOpen} onClose={() => { setDeleteAccountOpen(false); setDeleteAccountError(''); }} maxWidth="xs" fullWidth>
+      <Dialog open={deleteAccountOpen} onClose={() => { setDeleteAccountOpen(false); setDeleteAccountError(''); setDeleteConfirmText(''); setDeletePassword(''); }} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ color: 'error.main' }}>Delete account?</DialogTitle>
         <DialogContent>
           <DialogContentText>
             This will permanently erase your account and every piece of data stored in Canopy — classes, grades, homework, tasks, and settings. This cannot be undone.
           </DialogContentText>
+          <TextField
+            fullWidth
+            size="small"
+            label="Enter your password"
+            type="password"
+            value={deletePassword}
+            onChange={(e) => setDeletePassword(e.target.value)}
+            sx={{ mt: 2 }}
+            autoComplete="current-password"
+          />
+          <TextField
+            fullWidth
+            size="small"
+            label='Type "DELETE" to confirm'
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            sx={{ mt: 2 }}
+            autoComplete="off"
+          />
           {deleteAccountError && <Alert severity="error" sx={{ mt: 2 }}>{deleteAccountError}</Alert>}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => { setDeleteAccountOpen(false); setDeleteAccountError(''); }}>Cancel</Button>
+          <Button onClick={() => { setDeleteAccountOpen(false); setDeleteAccountError(''); setDeleteConfirmText(''); setDeletePassword(''); }}>Cancel</Button>
           <Button
             variant="contained"
             color="error"
-            disabled={deletingAccount}
+            disabled={deletingAccount || deleteConfirmText !== 'DELETE' || !deletePassword}
             startIcon={deletingAccount ? <CircularProgress size={16} color="inherit" /> : <DeleteForeverIcon />}
             onClick={handleDeleteAccount}
           >

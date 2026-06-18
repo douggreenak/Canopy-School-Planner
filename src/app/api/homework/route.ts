@@ -19,11 +19,21 @@ export async function GET(request: NextRequest) {
   }
 }
 
+const MAX_TEXT = 1000;
+
+function validateHw(h: Homework): string | null {
+  if (!h.title || h.title.length > MAX_TEXT) return 'Title is required and must be under 1000 chars.';
+  if (h.description && h.description.length > 5000) return 'Description too long.';
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const userId = await getSessionUserId(request);
     if (!userId) return unauth();
     const body: Homework = await request.json();
+    const err = validateHw(body);
+    if (err) return Response.json({ error: err }, { status: 400 });
     await addHomework(body, userId);
     return Response.json({ success: true });
   } catch (error) {
@@ -37,6 +47,8 @@ export async function PUT(request: NextRequest) {
     const userId = await getSessionUserId(request);
     if (!userId) return unauth();
     const body: Homework = await request.json();
+    const err = validateHw(body);
+    if (err) return Response.json({ error: err }, { status: 400 });
     await updateHomework(body, userId);
     return Response.json({ success: true });
   } catch (error) {

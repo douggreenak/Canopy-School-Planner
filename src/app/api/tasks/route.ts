@@ -19,11 +19,20 @@ export async function GET(request: NextRequest) {
   }
 }
 
+function validateTask(t: Task): string | null {
+  if (!t.title || t.title.length > 1000) return 'Title is required and must be under 1000 chars.';
+  if (t.description && t.description.length > 5000) return 'Description too long.';
+  if (t.category && t.category.length > 100) return 'Category too long.';
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const userId = await getSessionUserId(request);
     if (!userId) return unauth();
     const body: Task = await request.json();
+    const err = validateTask(body);
+    if (err) return Response.json({ error: err }, { status: 400 });
     await addTask(body, userId);
     return Response.json({ success: true });
   } catch (error) {
@@ -37,6 +46,8 @@ export async function PUT(request: NextRequest) {
     const userId = await getSessionUserId(request);
     if (!userId) return unauth();
     const body: Task = await request.json();
+    const err = validateTask(body);
+    if (err) return Response.json({ error: err }, { status: 400 });
     await updateTask(body, userId);
     return Response.json({ success: true });
   } catch (error) {

@@ -1,8 +1,7 @@
 import { NextRequest } from 'next/server';
 import { v4 as uuid } from 'uuid';
 import { scrapePowerSchool, type ScrapedSchedule } from '@/lib/powerschool';
-import { syncClassesFromSource, syncHomeworkFromSource, addSyncLogEntries, addGradeHistoryEntry } from '@/lib/db';
-import { getConfigFromRequest, writeConfigFile } from '@/lib/config';
+import { syncClassesFromSource, syncHomeworkFromSource, addSyncLogEntries, addGradeHistoryEntry, getPowerSchoolCredentials } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
@@ -12,25 +11,17 @@ export async function POST(request: NextRequest) {
     if (!userId) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json().catch(() => ({}));
-    const cfg = getConfigFromRequest(request);
+    const saved = await getPowerSchoolCredentials(userId);
 
-    const url      = body.url      || cfg.powerschoolUrl      || '';
-    const username = body.username || cfg.powerschoolUsername || '';
-    const password = body.password || cfg.powerschoolPassword || '';
+    const url      = body.url      || saved.url      || '';
+    const username = body.username || saved.username || '';
+    const password = body.password || saved.password || '';
 
     if (!url || !username || !password) {
       return Response.json({
         success: false,
         error: 'Missing PowerSchool credentials. Save them in Settings first.',
       }, { status: 400 });
-    }
-
-    if (body.url || body.username || body.password) {
-      writeConfigFile({
-        powerschoolUrl: url,
-        powerschoolUsername: username,
-        powerschoolPassword: password,
-      });
     }
 
     result = await scrapePowerSchool({ url, username, password });
@@ -107,9 +98,12 @@ export async function POST(request: NextRequest) {
       for (const line of log) console.log(`[ps] ${line}`);
       console.log('=== end sync ===');
     }
+    const msg = (error as Error).message ?? '';
+    const safeMsg = msg.includes('PowerSchool') || msg.includes('credentials') || msg.includes('timeout')
+      ? msg : 'Sync failed due to an internal error.';
     return Response.json({
       success: false,
-      error: (error as Error).message,
+      error: safeMsg,
       log,
     }, { status: 500 });
   }

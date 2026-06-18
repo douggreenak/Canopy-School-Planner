@@ -1,7 +1,12 @@
 import { NextRequest } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import { getClasses, getExams, getHomework, getDisruptions, getSettings } from '@/lib/db';
-import { getConfigFromRequest } from '@/lib/config';
 import { generateCalendarFeed } from '@/lib/calendar';
+
+function safeTokenCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,11 +20,9 @@ export async function GET(request: NextRequest) {
       return new Response('Missing userId parameter', { status: 400 });
     }
 
-    // Token is always required — no token configured means no access
-    const cfg = getConfigFromRequest(request);
     const savedSettings = await getSettings(userId);
-    const validToken = cfg.calendarSecretToken || savedSettings.calendarToken;
-    if (!validToken || token !== validToken) {
+    const validToken = savedSettings.calendarToken as string | undefined;
+    if (!validToken || !token || !safeTokenCompare(token, validToken)) {
       return new Response('Unauthorized', { status: 401 });
     }
 
@@ -31,8 +34,13 @@ export async function GET(request: NextRequest) {
       getSettings(userId),
     ]);
 
-    const semesterStart = freshSettings.semesterStart || '2026-01-12';
-    const semesterEnd = freshSettings.semesterEnd || '2026-06-15';
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const defaultStart = month >= 7 ? `${year}-08-15` : `${year}-01-10`;
+    const defaultEnd = month >= 7 ? `${year + 1}-06-15` : `${year}-06-15`;
+    const semesterStart = freshSettings.semesterStart || defaultStart;
+    const semesterEnd = freshSettings.semesterEnd || defaultEnd;
     const schoolName = freshSettings.schoolName || 'School';
 
     // Inject a synthetic Lunch class into the calendar feed

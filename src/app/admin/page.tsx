@@ -18,6 +18,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
 import ParkIcon from '@mui/icons-material/Park';
 import PeopleIcon from '@mui/icons-material/People';
 import PersonIcon from '@mui/icons-material/Person';
@@ -53,6 +54,7 @@ export default function AdminPage() {
   const [confirmUsername, setConfirmUsername] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   const loadStats = () =>
     fetch('/api/admin/stats')
@@ -248,18 +250,27 @@ export default function AdminPage() {
       )}
 
       {/* Delete confirmation dialog */}
-      <Dialog open={!!confirmUsername} onClose={() => !deleting && setConfirmUsername(null)} maxWidth="xs" fullWidth>
+      <Dialog open={!!confirmUsername} onClose={() => { if (!deleting) { setConfirmUsername(null); setDeleteConfirmText(''); } }} maxWidth="xs" fullWidth>
         <DialogTitle>Delete user?</DialogTitle>
         <DialogContent>
           <DialogContentText>
             This will permanently delete <strong>{confirmUsername}</strong> and all of their classes,
             assignments, grades, tasks, and settings. This cannot be undone.
           </DialogContentText>
+          <TextField
+            fullWidth
+            size="small"
+            label={`Type "${confirmUsername}" to confirm`}
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            sx={{ mt: 2 }}
+            autoComplete="off"
+          />
           {deleteError && <Alert severity="error" sx={{ mt: 2 }}>{deleteError}</Alert>}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmUsername(null)} disabled={deleting}>Cancel</Button>
-          <Button onClick={handleDeleteConfirm} color="error" variant="contained" disabled={deleting}>
+          <Button onClick={() => { setConfirmUsername(null); setDeleteConfirmText(''); }} disabled={deleting}>Cancel</Button>
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained" disabled={deleting || deleteConfirmText !== confirmUsername}>
             {deleting ? 'Deleting…' : 'Delete'}
           </Button>
         </DialogActions>

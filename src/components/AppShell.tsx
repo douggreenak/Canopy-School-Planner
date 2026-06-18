@@ -33,6 +33,7 @@ import Button from '@mui/material/Button';
 import LoadingOverlay from '@/components/LoadingOverlay';
 import SetupWizard from '@/components/SetupWizard';
 import LoginScreen from '@/components/LoginScreen';
+import { clearClientCache } from '@/lib/hooks';
 
 const DRAWER_WIDTH   = 256;
 const COLLAPSED_WIDTH = 64;
@@ -240,6 +241,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'logout' }),
     }).catch(() => {});
+    clearClientCache();
     setCurrentUser(false);
     router.push('/');
   };

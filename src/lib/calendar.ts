@@ -1,7 +1,7 @@
 // ============================================================
 // iCal Calendar Feed Generator
 // ============================================================
-import ical, { ICalCalendarMethod } from 'ical-generator';
+import ical, { ICalCalendarMethod, ICalWeekday, ICalEventRepeatingFreq } from 'ical-generator';
 import dayjs from 'dayjs';
 import type { SchoolClass, Exam, Homework, ScheduleDisruption, DaySchedule, ScheduleEntry } from '@/types';
 import { parseMinutes } from './calendarMetrics';
@@ -90,31 +90,58 @@ export function generateCalendarFeed(
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
 
-  // -- Recurring class events --
-  let current = dayjs(semesterStart);
-  const end = dayjs(semesterEnd);
+  // -- Recurring class events (RRULE-based) --
+  const icalDays = [ICalWeekday.SU, ICalWeekday.MO, ICalWeekday.TU, ICalWeekday.WE, ICalWeekday.TH, ICalWeekday.FR, ICalWeekday.SA];
+  const semEnd = dayjs(semesterEnd);
+  const semStart = dayjs(semesterStart);
 
-  while (current.isBefore(end) || current.isSame(end, 'day')) {
-    const dateStr = current.format('YYYY-MM-DD');
-    const schedule = buildDaySchedule(dateStr, classes, disruptions);
+  const disruptionDates = new Set(disruptions.map((d) => d.date));
 
-    for (const entry of schedule.classes) {
-      if (entry.cancelled) continue;
+  for (const cls of classes) {
+    if (!cls.days || cls.days.length === 0) continue;
 
-      const startMin = parseMinutes(entry.startTime);
-      const endMin = parseMinutes(entry.endTime);
+    for (const dow of cls.days) {
+      const startTime = cls.dayTimes?.[dow]?.startTime || cls.startTime;
+      const endTime = cls.dayTimes?.[dow]?.endTime || cls.endTime;
+      if (!startTime || !endTime) continue;
 
-      cal.createEvent({
-        start: current.hour(Math.floor(startMin / 60)).minute(startMin % 60).second(0).toDate(),
-        end: current.hour(Math.floor(endMin / 60)).minute(endMin % 60).second(0).toDate(),
-        summary: entry.classInfo.name,
-        location: `Room ${entry.classInfo.room}`,
-        description: `Teacher: ${entry.classInfo.teacher}\nPeriod ${entry.classInfo.period}`,
+      const sMin = parseMinutes(startTime);
+      const eMin = parseMinutes(endTime);
+
+      let firstDate = semStart;
+      while (firstDate.day() !== dow && firstDate.isBefore(semEnd)) {
+        firstDate = firstDate.add(1, 'day');
+      }
+      if (firstDate.isAfter(semEnd)) continue;
+
+      const exDates: Date[] = [];
+      let scan = firstDate;
+      while (scan.isBefore(semEnd) || scan.isSame(semEnd, 'day')) {
+        if (disruptionDates.has(scan.format('YYYY-MM-DD'))) {
+          const d = disruptions.find((dis) => dis.date === scan.format('YYYY-MM-DD'));
+          if (d?.type === 'no_school' || d?.periodOverrides.some((o) => o.period === cls.period && o.cancelled)) {
+            exDates.push(scan.hour(Math.floor(sMin / 60)).minute(sMin % 60).second(0).toDate());
+          }
+        }
+        scan = scan.add(7, 'day');
+      }
+
+      const event = cal.createEvent({
+        start: firstDate.hour(Math.floor(sMin / 60)).minute(sMin % 60).second(0).toDate(),
+        end: firstDate.hour(Math.floor(eMin / 60)).minute(eMin % 60).second(0).toDate(),
+        summary: cls.name,
+        location: cls.room ? `Room ${cls.room}` : '',
+        description: `Teacher: ${cls.teacher}\nPeriod ${cls.period}`,
         categories: [{ name: 'Class' }],
       });
-    }
 
-    current = current.add(1, 'day');
+      event.repeating({
+        freq: ICalEventRepeatingFreq.WEEKLY,
+        byDay: [icalDays[dow]],
+        until: semEnd.toDate(),
+        exclude: exDates.length > 0 ? exDates : undefined,
+      });
+    }
   }
 
   // -- Exams --

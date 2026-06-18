@@ -2,8 +2,22 @@ import { NextRequest } from 'next/server';
 import { getSettings, setSetting, initializeDatabase } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 
+const ALLOWED_KEYS = new Set([
+  'schoolName', 'semesterStart', 'semesterEnd', 'calendarToken',
+  'lunchTimes', 'lathropMode', 'early_out_schedule',
+  'themeMode', 'accentColor', 'lastSyncAt',
+]);
+
+const MAX_VALUE_LEN = 10_000;
+
 function unauth() {
   return Response.json({ error: 'Unauthorized' }, { status: 401 });
+}
+
+function validateSetting(key: string, value: string): string | null {
+  if (!ALLOWED_KEYS.has(key)) return `Key "${key}" is not allowed.`;
+  if (typeof value === 'string' && value.length > MAX_VALUE_LEN) return `Value for "${key}" is too long.`;
+  return null;
 }
 
 export async function GET(request: Request) {
@@ -12,8 +26,7 @@ export async function GET(request: Request) {
     if (!userId) return unauth();
     const settings = await getSettings(userId);
     return Response.json(settings);
-  } catch (error) {
-    console.error('GET /api/settings error:', error);
+  } catch {
     return Response.json({}, { status: 200 });
   }
 }
@@ -22,12 +35,27 @@ export async function POST(request: NextRequest) {
   try {
     const userId = await getSessionUserId(request);
     if (!userId) return unauth();
-    const { key, value } = await request.json();
+    const body = await request.json();
+
+    if (body.batch && typeof body.batch === 'object') {
+      const entries = Object.entries(body.batch) as [string, string][];
+      for (const [k, v] of entries) {
+        const strVal = typeof v === 'string' ? v : JSON.stringify(v);
+        const err = validateSetting(k, strVal);
+        if (err) return Response.json({ error: err }, { status: 400 });
+      }
+      await Promise.all(entries.map(([k, v]) => setSetting(k, typeof v === 'string' ? v : JSON.stringify(v), userId)));
+      return Response.json({ success: true });
+    }
+
+    const { key, value } = body;
     if (!key) return Response.json({ error: 'Missing key' }, { status: 400 });
-    await setSetting(key, value, userId);
+    const strVal = typeof value === 'string' ? value : JSON.stringify(value);
+    const err = validateSetting(key, strVal);
+    if (err) return Response.json({ error: err }, { status: 400 });
+    await setSetting(key, strVal, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('POST /api/settings error:', error);
+  } catch {
     return Response.json({ error: 'Failed to save setting.' }, { status: 500 });
   }
 }
@@ -42,8 +70,7 @@ export async function PUT(request: Request) {
       return Response.json({ success: true });
     }
     return Response.json({ error: 'Unknown action' }, { status: 400 });
-  } catch (error) {
-    console.error('PUT /api/settings error:', error);
-    return Response.json({ error: `Failed: ${(error as Error).message}` }, { status: 500 });
+  } catch {
+    return Response.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

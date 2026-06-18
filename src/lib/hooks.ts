@@ -2,13 +2,41 @@
 // ============================================================
 // Client-side data fetching hooks
 // ============================================================
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 import type { SchoolClass, Homework, Exam, Task, ScheduleDisruption, GradeHistoryEntry, SyncLogEntry } from '@/types';
 
 // Global state to deduplicate ongoing requests and provide a basic cache.
 const ongoingRequests = new Map<string, Promise<any>>();
 const globalCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 5_000; // 5 seconds
+
+// Subscription system so all instances of useFetch(url) see the same data.
+const subscribers = new Map<string, Set<() => void>>();
+
+function notifySubscribers(url: string) {
+  const subs = subscribers.get(url);
+  if (subs) subs.forEach((cb) => cb());
+}
+
+function subscribe(url: string, cb: () => void) {
+  let subs = subscribers.get(url);
+  if (!subs) { subs = new Set(); subscribers.set(url, subs); }
+  subs.add(cb);
+  return () => { subs!.delete(cb); if (subs!.size === 0) subscribers.delete(url); };
+}
+
+function getSnapshot<T>(url: string): T | null {
+  return globalCache.get(url)?.data ?? null;
+}
+
+/**
+ * Clear all client-side cached data and in-flight requests.
+ * Call on logout so the next user can't see the previous user's data.
+ */
+export function clearClientCache() {
+  globalCache.clear();
+  ongoingRequests.clear();
+}
 
 async function fetchWithDeduplication<T>(url: string, forceRefresh = false): Promise<T> {
   if (!forceRefresh) {
@@ -29,6 +57,7 @@ async function fetchWithDeduplication<T>(url: string, forceRefresh = false): Pro
     })
     .then((d) => {
       globalCache.set(url, { data: d, timestamp: Date.now() });
+      notifySubscribers(url);
       return d as T;
     })
     .finally(() => {
@@ -40,9 +69,19 @@ async function fetchWithDeduplication<T>(url: string, forceRefresh = false): Pro
 }
 
 function useFetch<T>(url: string) {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cached = useSyncExternalStore(
+    (cb) => subscribe(url, cb),
+    () => getSnapshot<T>(url),
+    () => null,
+  );
+
+  const [data, setData] = useState<T | null>(cached);
+  const [loading, setLoading] = useState(cached === null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (cached !== null) setData(cached);
+  }, [cached]);
 
   const refetch = useCallback(async (forceRefresh = false): Promise<T> => {
     setLoading(true);
@@ -60,12 +99,13 @@ function useFetch<T>(url: string) {
     }
   }, [url]);
 
-  useEffect(() => { refetch(); }, [refetch]);
+  useEffect(() => { if (cached === null) refetch(); }, [refetch, cached]);
 
   const mutate = useCallback((next: T | null | ((prev: T | null) => T | null)) => {
     setData((prev) => {
       const updated = typeof next === 'function' ? (next as (p: T | null) => T | null)(prev) : next;
       globalCache.set(url, { data: updated, timestamp: Date.now() });
+      notifySubscribers(url);
       return updated;
     });
   }, [url]);

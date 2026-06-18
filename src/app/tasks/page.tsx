@@ -289,9 +289,9 @@ export default function TasksPage() {
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
               <AssignmentIcon fontSize="small" sx={{ color: 'primary.main' }} />
               <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.5 }}>
-                Quick add homework
+                Quick add task
               </Typography>
-              <Typography variant="caption" color="text.disabled">· due next class</Typography>
+              <Typography variant="caption" color="text.disabled">· due next class meeting</Typography>
             </Stack>
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
               {sortedClasses.map((c) => (

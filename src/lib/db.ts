@@ -2,6 +2,7 @@
 // Neon (PostgreSQL) Database Layer
 // ============================================================
 import { neon } from '@neondatabase/serverless';
+import crypto from 'crypto';
 import type {
   SchoolClass,
   Homework,
@@ -649,12 +650,18 @@ export async function deleteDisruption(id: string, userId: string): Promise<void
 
 // ---- Settings ----
 
+// Credential keys are managed via getPowerSchoolCredentials and must never be
+// returned through the generic settings bag (the password is stored encrypted,
+// and even the ciphertext should not be shipped to the client).
+const CREDENTIAL_SETTING_KEYS = new Set(['powerschoolPassword']);
+
 export async function getSettings(userId: string): Promise<Partial<AppSettings>> {
   const sql = getDb();
   const rows = await sql`SELECT key, value FROM settings WHERE user_id = ${userId}`;
   const settings: Record<string, unknown> = {};
   for (const row of rows) {
     const key = row.key as string;
+    if (CREDENTIAL_SETTING_KEYS.has(key)) continue;
     const value = row.value as string;
     if (key === 'lunchTimes' && value) {
       try { settings[key] = JSON.parse(value); } catch { settings[key] = value; }
@@ -671,6 +678,101 @@ export async function setSetting(key: string, value: string, userId: string): Pr
     INSERT INTO settings (user_id, key, value) VALUES (${userId}, ${key}, ${value})
     ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value
   `;
+}
+
+export async function deleteSetting(key: string, userId: string): Promise<void> {
+  const sql = getDb();
+  await sql`DELETE FROM settings WHERE user_id = ${userId} AND key = ${key}`;
+}
+
+// ---- Credential encryption (AES-256-GCM, fixed-key) ----
+// Used for at-rest encryption of per-user secrets (e.g. PowerSchool password)
+// stored in the settings table. Unlike crypto.ts (passphrase + per-record salt),
+// this derives a single fixed key from an environment secret so values can be
+// transparently decrypted server-side without a user-supplied passphrase.
+// Output format: base64( iv[12] | authTag[16] | ciphertext ).
+
+const CRED_ALGORITHM = 'aes-256-gcm';
+const CRED_IV_LENGTH = 12;
+const CRED_TAG_LENGTH = 16;
+
+function credentialKey(): Buffer {
+  const secret = process.env.CREDENTIAL_KEY || process.env.DATABASE_URL || '';
+  // Derive a stable 32-byte key from whatever secret is available.
+  return crypto.createHash('sha256').update(secret).digest();
+}
+
+export function encryptCredential(plaintext: string): string {
+  const iv = crypto.randomBytes(CRED_IV_LENGTH);
+  const cipher = crypto.createCipheriv(CRED_ALGORITHM, credentialKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return Buffer.concat([iv, authTag, encrypted]).toString('base64');
+}
+
+export function decryptCredential(ciphertext: string): string {
+  const packed = Buffer.from(ciphertext, 'base64');
+  if (packed.length < CRED_IV_LENGTH + CRED_TAG_LENGTH + 1) {
+    throw new Error('Invalid credential ciphertext.');
+  }
+  const iv = packed.subarray(0, CRED_IV_LENGTH);
+  const authTag = packed.subarray(CRED_IV_LENGTH, CRED_IV_LENGTH + CRED_TAG_LENGTH);
+  const data = packed.subarray(CRED_IV_LENGTH + CRED_TAG_LENGTH);
+  const decipher = crypto.createDecipheriv(CRED_ALGORITHM, credentialKey(), iv);
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+}
+
+// ---- PowerSchool credentials (per-user, password encrypted at rest) ----
+
+export interface PowerSchoolCredentials {
+  url: string;
+  username: string;
+  password: string;
+}
+
+export async function getPowerSchoolCredentials(userId: string): Promise<PowerSchoolCredentials> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT key, value FROM settings
+    WHERE user_id = ${userId}
+      AND key IN ('powerschoolUrl', 'powerschoolUsername', 'powerschoolPassword')
+  `;
+  let url = '';
+  let username = '';
+  let password = '';
+  for (const row of rows) {
+    const key = row.key as string;
+    const value = (row.value as string) ?? '';
+    if (key === 'powerschoolUrl') url = value;
+    else if (key === 'powerschoolUsername') username = value;
+    else if (key === 'powerschoolPassword' && value) {
+      try {
+        password = decryptCredential(value);
+      } catch {
+        // Corrupt or key-rotated ciphertext — treat as unset rather than throwing.
+        password = '';
+      }
+    }
+  }
+  return { url, username, password };
+}
+
+export async function setPowerSchoolCredentials(
+  userId: string,
+  url: string,
+  username: string,
+  password: string,
+): Promise<void> {
+  await setSetting('powerschoolUrl', url, userId);
+  await setSetting('powerschoolUsername', username, userId);
+  await setSetting('powerschoolPassword', encryptCredential(password), userId);
+}
+
+export async function clearPowerSchoolCredentials(userId: string): Promise<void> {
+  await deleteSetting('powerschoolUrl', userId);
+  await deleteSetting('powerschoolUsername', userId);
+  await deleteSetting('powerschoolPassword', userId);
 }
 
 // ---- Grade history & sync log ----
