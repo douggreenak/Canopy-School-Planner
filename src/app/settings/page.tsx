@@ -26,6 +26,7 @@ import Switch from '@mui/material/Switch';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+import AddIcon from '@mui/icons-material/Add';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -106,6 +107,9 @@ function SettingsInner() {
     4: { startTime: '10:50', endTime: '11:20' },
     5: { startTime: '10:26', endTime: '10:57' },
   });
+
+  // Early-out bell schedule: period number → {startTime, endTime}
+  const [earlyOutSchedule, setEarlyOutSchedule] = useState<Record<number, { startTime: string; endTime: string }>>({});
 
   // PowerSchool
   const [psUrl, setPsUrl] = useState('');
@@ -208,6 +212,12 @@ function SettingsInner() {
         if (s.powerschoolUsername) setPsUser(s.powerschoolUsername);
         if (s.lunchTimes) setLunchTimes(typeof s.lunchTimes === 'string' ? JSON.parse(s.lunchTimes) : s.lunchTimes);
         if (s.lathropMode) setLathropMode(s.lathropMode === true || s.lathropMode === 'true');
+        if (s.early_out_schedule) {
+          const raw = typeof s.early_out_schedule === 'string' ? JSON.parse(s.early_out_schedule) : s.early_out_schedule;
+          const tpl: Record<number, { startTime: string; endTime: string }> = {};
+          for (const [k, v] of Object.entries(raw)) tpl[Number(k)] = v as { startTime: string; endTime: string };
+          setEarlyOutSchedule(tpl);
+        }
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -228,6 +238,37 @@ function SettingsInner() {
       setSnackbar({ open: true, message: 'Failed to save lunch times', severity: 'error' });
     }
     setSyncing(null);
+  };
+
+  const saveEarlyOutSchedule = async () => {
+    setSyncing('early-out');
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'early_out_schedule', value: JSON.stringify(earlyOutSchedule) }),
+      });
+      setSnackbar({ open: true, message: 'Early-out bell schedule saved!', severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'Failed to save early-out schedule', severity: 'error' });
+    }
+    setSyncing(null);
+  };
+
+  const updateEarlyOutTime = (period: number, field: 'startTime' | 'endTime', value: string) => {
+    setEarlyOutSchedule((prev) => ({
+      ...prev,
+      [period]: { ...(prev[period] || { startTime: '', endTime: '' }), [field]: value },
+    }));
+  };
+
+  const addEarlyOutPeriod = (period: number) => {
+    if (!period || earlyOutSchedule[period]) return;
+    setEarlyOutSchedule((prev) => ({ ...prev, [period]: { startTime: '', endTime: '' } }));
+  };
+
+  const removeEarlyOutPeriod = (period: number) => {
+    setEarlyOutSchedule((prev) => { const next = { ...prev }; delete next[period]; return next; });
   };
 
   const saveSchoolSettings = async () => {
@@ -566,6 +607,98 @@ function SettingsInner() {
                 </Button>
               </Grid>
             </Grid>
+          </CardContent>
+        </Card>
+
+        {/* ===== BELL SCHEDULES ===== */}
+        <Card>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CalendarMonthIcon color="primary" /> Bell Schedules
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Set your school&apos;s exact period times for early-out days. Auto-generate will use these instead of estimating.
+            </Typography>
+
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>Early-Out Schedule</Typography>
+
+            {/* Period rows */}
+            <Stack spacing={1} sx={{ mb: 1.5 }}>
+              {Object.entries(earlyOutSchedule)
+                .sort(([a], [b]) => Number(a) - Number(b))
+                .map(([periodStr, times]) => {
+                  const period = Number(periodStr);
+                  const matchingClass = importedClasses?.find((c) => c.period === period);
+                  return (
+                    <Box key={period} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 56 }}>
+                        P{period}
+                        {matchingClass && (
+                          <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                            {matchingClass.name.split(/[,/]/)[0].trim().slice(0, 12)}
+                          </Typography>
+                        )}
+                      </Typography>
+                      <TextField
+                        size="small"
+                        type="time"
+                        label="Start"
+                        value={times.startTime}
+                        onChange={(e) => updateEarlyOutTime(period, 'startTime', e.target.value)}
+                        slotProps={{ inputLabel: { shrink: true } }}
+                        sx={{ width: 130 }}
+                      />
+                      <Typography variant="body2" color="text.secondary">–</Typography>
+                      <TextField
+                        size="small"
+                        type="time"
+                        label="End"
+                        value={times.endTime}
+                        onChange={(e) => updateEarlyOutTime(period, 'endTime', e.target.value)}
+                        slotProps={{ inputLabel: { shrink: true } }}
+                        sx={{ width: 130 }}
+                      />
+                      <IconButton size="small" onClick={() => removeEarlyOutPeriod(period)} color="error">
+                        <DeleteForeverIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  );
+                })}
+            </Stack>
+
+            {/* Quick-add from classes */}
+            {importedClasses && importedClasses.filter((c) => !earlyOutSchedule[c.period]).length > 0 && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                  Add from your classes:
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {importedClasses
+                    .filter((c) => !earlyOutSchedule[c.period])
+                    .sort((a, b) => a.period - b.period)
+                    .map((c) => (
+                      <Chip
+                        key={c.id}
+                        size="small"
+                        label={`P${c.period} – ${c.name.split(/[,/]/)[0].trim().slice(0, 14)}`}
+                        onClick={() => addEarlyOutPeriod(c.period)}
+                        icon={<AddIcon />}
+                        sx={{ cursor: 'pointer' }}
+                      />
+                    ))}
+                </Box>
+              </Box>
+            )}
+
+            <Button
+              size="small"
+              variant="contained"
+              onClick={saveEarlyOutSchedule}
+              disabled={!!syncing}
+              startIcon={syncing === 'early-out' ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />}
+            >
+              Save Bell Schedule
+            </Button>
           </CardContent>
         </Card>
 

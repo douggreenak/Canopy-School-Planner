@@ -75,15 +75,38 @@ export function getMonthSchedules(
 
 /**
  * Generate early-out disruption overrides.
- * Scales each period's position proportionally within the compressed day so
+ *
+ * When a bell-schedule template is provided (period → exact times), those
+ * fixed times are used directly — this matches the school's real early-out
+ * bell schedule. Classes whose period number isn't in the template are omitted
+ * (they'll show at their normal time and the user can adjust manually).
+ *
+ * Without a template, falls back to proportional position scaling so
  * passing-period gaps shrink proportionally instead of being eliminated.
- * Pass dayOfWeek (0=Sun…6=Sat) so per-day time overrides are respected.
+ *
+ * Pass dayOfWeek (0=Sun…6=Sat) so per-day time overrides are respected
+ * in the fallback path.
  */
 export function generateEarlyOutOverrides(
   classes: SchoolClass[],
   earlyEndTime: string,
   dayOfWeek?: number,
+  template?: Record<number, { startTime: string; endTime: string }>,
 ): { period: number; startTime: string; endTime: string; cancelled: boolean }[] {
+  // ── Template path: use fixed bell-schedule times ─────────────────────────
+  if (template && Object.keys(template).length > 0) {
+    return classes
+      .filter((c) => template[c.period])
+      .sort((a, b) => timeToMinutes(template[a.period].startTime) - timeToMinutes(template[b.period].startTime))
+      .map((c) => ({
+        period: c.period,
+        startTime: template[c.period].startTime,
+        endTime: template[c.period].endTime,
+        cancelled: false,
+      }));
+  }
+
+  // ── Fallback: proportional position scaling ───────────────────────────────
   const eStart = (c: SchoolClass) =>
     (dayOfWeek !== undefined && c.dayTimes?.[dayOfWeek]?.startTime) || c.startTime;
   const eEnd = (c: SchoolClass) =>
@@ -101,13 +124,6 @@ export function generateEarlyOutOverrides(
   // Nothing to do if the early-end is outside the school day.
   if (earlyEnd <= firstStart || earlyEnd >= lastEnd) return [];
 
-  // Proportional scaling: shift every period's start and end by the same ratio
-  // so the gaps between periods shrink proportionally rather than disappearing.
-  //
-  // newPosition = firstStart + (origPosition - firstStart) * ratio
-  //
-  // The previous Largest-Remainder approach distributed the compressed break
-  // time as extra class time, packing periods back-to-back with no gaps.
   const ratio = (earlyEnd - firstStart) / (lastEnd - firstStart);
 
   const overrides = sorted.map((c) => {

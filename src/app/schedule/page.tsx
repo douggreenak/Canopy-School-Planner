@@ -82,6 +82,7 @@ function SchedulePageInner() {
   const [lunchTimes, setLunchTimes] = useState<Record<number, { startTime: string; endTime: string }>>(DEFAULT_LUNCH_TIMES);
   const [semesterStart, setSemesterStart] = useState<string | undefined>(undefined);
   const [semesterEnd, setSemesterEnd] = useState<string | undefined>(undefined);
+  const [earlyOutTemplate, setEarlyOutTemplate] = useState<Record<number, { startTime: string; endTime: string }> | undefined>(undefined);
 
   useEffect(() => {
     fetch('/api/settings')
@@ -92,6 +93,12 @@ function SchedulePageInner() {
         }
         if (s.semesterStart) setSemesterStart(s.semesterStart);
         if (s.semesterEnd) setSemesterEnd(s.semesterEnd);
+        if (s.early_out_schedule) {
+          const raw = typeof s.early_out_schedule === 'string' ? JSON.parse(s.early_out_schedule) : s.early_out_schedule;
+          const tpl: Record<number, { startTime: string; endTime: string }> = {};
+          for (const [k, v] of Object.entries(raw)) tpl[Number(k)] = v as { startTime: string; endTime: string };
+          setEarlyOutTemplate(tpl);
+        }
       })
       .catch(() => {});
   }, []);
@@ -189,7 +196,7 @@ function SchedulePageInner() {
     const dayClasses = dayOfWeek >= 0 ? classes.filter((c) => c.days.includes(dayOfWeek)) : classes;
     let overrides: PeriodOverride[] = [];
     if (form.type === 'early_out') {
-      overrides = generateEarlyOutOverrides(dayClasses, autoTime, dayOfWeek >= 0 ? dayOfWeek : undefined);
+      overrides = generateEarlyOutOverrides(dayClasses, autoTime, dayOfWeek >= 0 ? dayOfWeek : undefined, earlyOutTemplate);
     } else if (form.type === 'late_start') {
       overrides = generateLateStartOverrides(dayClasses, autoTime, dayOfWeek >= 0 ? dayOfWeek : undefined);
     } else if (form.type === 'no_school') {
