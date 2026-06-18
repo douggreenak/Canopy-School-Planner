@@ -29,6 +29,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import Button from '@mui/material/Button';
 import LoadingOverlay from '@/components/LoadingOverlay';
 import SetupWizard from '@/components/SetupWizard';
 import LoginScreen from '@/components/LoginScreen';
@@ -198,7 +199,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const [currentUser, setCurrentUser] = useState<{ id: string; username: string } | null | false>(null);
+  const [currentUser, setCurrentUser] = useState<{ id: string; username: string; role: string } | null | false>(null);
 
   useEffect(() => {
     fetch('/api/auth')
@@ -213,6 +214,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardRequired, setWizardRequired] = useState(false);
 
   useEffect(() => {
     const handler = () => setWizardOpen(true);
@@ -247,10 +249,30 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <LoginScreen
       onLogin={(user, isNew) => {
         setCurrentUser(user);
-        if (isNew) setWizardOpen(true);
+        if (isNew && user.role !== 'admin') {
+          setWizardRequired(true);
+          setWizardOpen(true);
+        }
+        if (user.role === 'admin') router.push('/admin');
       }}
     />
   );
+
+  // Admin gets a minimal shell — no student data, no wizard, just the admin page.
+  if (currentUser.role === 'admin') {
+    return (
+      <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
+        <Box component="main" sx={{ p: { xs: 2, sm: 3 } }}>
+          {children}
+        </Box>
+        <Box sx={{ position: 'fixed', bottom: 16, right: 16 }}>
+          <Button variant="outlined" size="small" onClick={doLogout} startIcon={<LogoutIcon />}>
+            Sign Out
+          </Button>
+        </Box>
+      </Box>
+    );
+  }
 
   const drawerWidth = isMobile ? DRAWER_WIDTH : collapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH;
 
@@ -352,7 +374,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <LoadingOverlay />
-      <SetupWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      <SetupWizard
+        open={wizardOpen}
+        required={wizardRequired}
+        onClose={() => { setWizardOpen(false); setWizardRequired(false); }}
+      />
 
       {/* Mobile top bar */}
       {isMobile && (

@@ -25,7 +25,6 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import StorageIcon from '@mui/icons-material/Storage';
-import SkipNextIcon from '@mui/icons-material/SkipNext';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 
@@ -34,9 +33,10 @@ const STEPS = ['Welcome', 'School Info', 'PowerSchool', 'Done'];
 interface Props {
   open: boolean;
   onClose: () => void;
+  required?: boolean;
 }
 
-export default function SetupWizard({ open, onClose }: Props) {
+export default function SetupWizard({ open, onClose, required = false }: Props) {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -122,7 +122,13 @@ export default function SetupWizard({ open, onClose }: Props) {
   const canSyncPS = psUrl.trim() && psUser.trim() && psPass.trim();
 
   return (
-    <Dialog open={open} maxWidth="sm" fullWidth sx={{ '& .MuiDialog-paper': { borderRadius: 3 } }}>
+    <Dialog
+      open={open}
+      maxWidth="sm"
+      fullWidth
+      onClose={required ? undefined : handleClose}
+      sx={{ '& .MuiDialog-paper': { borderRadius: 3 } }}
+    >
       <DialogContent sx={{ p: 0 }}>
         {/* Header */}
         <Box sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', px: 3, pt: 3, pb: 2 }}>
@@ -173,9 +179,11 @@ export default function SetupWizard({ open, onClose }: Props) {
               >
                 Get Started
               </Button>
-              <Button size="small" color="inherit" sx={{ color: 'text.disabled' }} onClick={handleClose}>
-                Skip — I&apos;ll set up in Settings
-              </Button>
+              {!required && (
+                <Button size="small" color="inherit" sx={{ color: 'text.disabled' }} onClick={handleClose}>
+                  Skip — I&apos;ll set up in Settings
+                </Button>
+              )}
             </Stack>
           )}
 
@@ -236,9 +244,11 @@ export default function SetupWizard({ open, onClose }: Props) {
                 >
                   Save &amp; Continue
                 </Button>
-                <Button variant="outlined" startIcon={<SkipNextIcon />} onClick={() => setStep(2)} disabled={busy}>
-                  Skip
-                </Button>
+                {!required && (
+                  <Button variant="outlined" onClick={() => setStep(2)} disabled={busy}>
+                    Skip
+                  </Button>
+                )}
               </Stack>
             </Stack>
           )}
@@ -327,7 +337,7 @@ export default function SetupWizard({ open, onClose }: Props) {
                 >
                   {busy ? 'Syncing…' : 'Connect & Sync'}
                 </Button>
-                <Button variant="outlined" startIcon={<SkipNextIcon />} onClick={() => setStep(3)} disabled={busy}>
+                <Button variant="outlined" onClick={() => setStep(3)} disabled={busy}>
                   Skip
                 </Button>
               </Stack>

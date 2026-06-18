@@ -5,7 +5,6 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import Fab from '@mui/material/Fab';
 import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
 import Checkbox from '@mui/material/Checkbox';
@@ -56,7 +55,7 @@ export default function TasksPage() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
-  const [tab, setTab] = useState(0); // 0=upcoming, 1=done, 2=all
+  const [tab, setTab] = useState(0); // 0=to-do (all non-done), 1=done
 
   // Add/edit dialog
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -279,9 +278,8 @@ export default function TasksPage() {
       </Typography>
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label={`Upcoming (${pendingCount})`} />
+        <Tab label={`To Do (${pendingCount})`} />
         <Tab label={`Done (${doneCount})`} />
-        <Tab label={`All (${pendingCount + doneCount})`} />
       </Tabs>
 
       {/* Quick add homework — hide on Done tab */}
@@ -323,7 +321,7 @@ export default function TasksPage() {
       {merged.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 6 }}>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
-            {tab === 0 ? 'All caught up!' : tab === 1 ? 'Nothing completed yet.' : 'No items found.'}
+            {tab === 0 ? 'All caught up!' : 'Nothing completed yet.'}
           </Typography>
           {tab === 0 && (
             <Typography variant="body2" color="text.disabled">
@@ -415,11 +413,18 @@ export default function TasksPage() {
             </Card>
           );
         })}
+        {tab === 0 && (
+          <Button
+            variant="outlined"
+            startIcon={<AddIcon />}
+            onClick={() => openAdd()}
+            fullWidth
+            sx={{ mt: 0.5, py: 1.25, borderStyle: 'dashed', color: 'text.secondary', borderColor: 'divider', '&:hover': { borderStyle: 'dashed' } }}
+          >
+            Add Task or Homework
+          </Button>
+        )}
       </Stack>
-
-      <Fab color="primary" sx={{ position: 'fixed', bottom: 24, right: 24 }} onClick={() => openAdd()}>
-        <AddIcon />
-      </Fab>
 
       {/* ===== Add / Edit dialog ===== */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>

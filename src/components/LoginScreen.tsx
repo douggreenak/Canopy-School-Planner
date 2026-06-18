@@ -16,7 +16,7 @@ import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 
 interface Props {
-  onLogin: (user: { id: string; username: string }, isNew?: boolean) => void;
+  onLogin: (user: { id: string; username: string; role: string }, isNew?: boolean) => void;
 }
 
 export default function LoginScreen({ onLogin }: Props) {

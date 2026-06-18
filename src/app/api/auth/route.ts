@@ -2,8 +2,11 @@ import { NextRequest } from 'next/server';
 import { v4 as uuid } from 'uuid';
 import {
   createUser,
+  createOrUpdateAdminUser,
   getUserByUsername,
   getUserById,
+  getUserByIdWithHash,
+  updateUserPassword,
   deleteUserAndAllData,
   initializeDatabase,
 } from '@/lib/db';
@@ -20,6 +23,13 @@ let dbReady = false;
 async function ensureDb() {
   if (!dbReady) {
     await initializeDatabase();
+    // Seed admin account from env vars on every cold start.
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (adminPassword) {
+      const adminUsername = (process.env.ADMIN_USERNAME || 'admin').toLowerCase();
+      const hash = await hashPassword(adminPassword);
+      await createOrUpdateAdminUser(adminUsername, hash);
+    }
     dbReady = true;
   }
 }
@@ -63,7 +73,7 @@ export async function POST(request: NextRequest) {
       await createUser(id, username.trim(), passwordHash);
       const { token, cookie } = await createSession(id);
       return new Response(
-        JSON.stringify({ success: true, token, user: { id, username: username.trim().toLowerCase() } }),
+        JSON.stringify({ success: true, token, user: { id, username: username.trim().toLowerCase(), role: 'user' } }),
         { headers: { 'Content-Type': 'application/json', 'Set-Cookie': cookie } },
       );
     }
@@ -83,7 +93,7 @@ export async function POST(request: NextRequest) {
       }
       const { token, cookie } = await createSession(user.id);
       return new Response(
-        JSON.stringify({ success: true, token, user: { id: user.id, username: user.username } }),
+        JSON.stringify({ success: true, token, user: { id: user.id, username: user.username, role: user.role } }),
         { headers: { 'Content-Type': 'application/json', 'Set-Cookie': cookie } },
       );
     }
@@ -93,6 +103,25 @@ export async function POST(request: NextRequest) {
       return new Response(JSON.stringify({ success: true }), {
         headers: { 'Content-Type': 'application/json', 'Set-Cookie': clearSessionCookie() },
       });
+    }
+
+    if (action === 'changePassword') {
+      const userId = await getSessionUserId(request);
+      if (!userId) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      const { currentPassword, newPassword } = body;
+      if (!currentPassword || !newPassword) {
+        return Response.json({ error: 'Current and new password are required.' }, { status: 400 });
+      }
+      if (newPassword.length < 4) {
+        return Response.json({ error: 'New password must be at least 4 characters.' }, { status: 400 });
+      }
+      const user = await getUserByIdWithHash(userId);
+      if (!user) return Response.json({ error: 'User not found.' }, { status: 404 });
+      const valid = await verifyPassword(currentPassword, user.passwordHash);
+      if (!valid) return Response.json({ error: 'Current password is incorrect.' }, { status: 401 });
+      const newHash = await hashPassword(newPassword);
+      await updateUserPassword(userId, newHash);
+      return Response.json({ success: true });
     }
 
     if (action === 'deleteAccount') {

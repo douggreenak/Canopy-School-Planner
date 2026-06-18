@@ -144,6 +144,13 @@ function SettingsInner() {
 
   const [lathropMode, setLathropMode] = useState(false);
 
+  // Change password
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+
   // Delete account
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState('');
@@ -238,6 +245,25 @@ function SettingsInner() {
       setSnackbar({ open: true, message: 'Failed to save lunch times', severity: 'error' });
     }
     setSyncing(null);
+  };
+
+  const LATHROP_EARLY_OUT: Record<number, { startTime: string; endTime: string }> = {
+    1: { startTime: '07:30', endTime: '08:10' },
+    2: { startTime: '08:15', endTime: '08:55' },
+    3: { startTime: '09:00', endTime: '09:40' },
+    4: { startTime: '09:50', endTime: '10:30' },
+    5: { startTime: '10:35', endTime: '11:15' },
+    6: { startTime: '11:20', endTime: '12:00' },
+  };
+
+  const applyLathropEarlyOut = () => {
+    const tpl: Record<number, { startTime: string; endTime: string }> = { ...LATHROP_EARLY_OUT };
+    // Ext Seminar (P9) runs in the Period 1 slot on early-out days
+    if (importedClasses?.some((c) => /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(c.name))) {
+      const extClass = importedClasses!.find((c) => /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(c.name))!;
+      tpl[extClass.period] = { startTime: '07:30', endTime: '08:10' };
+    }
+    setEarlyOutSchedule(tpl);
   };
 
   const saveEarlyOutSchedule = async () => {
@@ -347,6 +373,33 @@ function SettingsInner() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: 'lathropMode', value: enabled }),
     }).catch(() => {});
+  };
+
+  const handleChangePassword = async () => {
+    if (newPassword !== confirmPassword) {
+      setSnackbar({ open: true, message: 'New passwords do not match.', severity: 'error' });
+      return;
+    }
+    setSyncing('change-pw');
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'changePassword', currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSnackbar({ open: true, message: 'Password changed successfully.', severity: 'success' });
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      } else {
+        setSnackbar({ open: true, message: data.error || 'Failed to change password.', severity: 'error' });
+      }
+    } catch {
+      setSnackbar({ open: true, message: 'Network error.', severity: 'error' });
+    }
+    setSyncing(null);
   };
 
   const applyLathropSchedule = async (classes: SchoolClass[]) => {
@@ -620,7 +673,14 @@ function SettingsInner() {
               Set your school&apos;s exact period times for early-out days. Auto-generate will use these instead of estimating.
             </Typography>
 
-            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>Early-Out Schedule</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>Early-Out Schedule</Typography>
+              {lathropMode && (
+                <Button size="small" variant="outlined" onClick={applyLathropEarlyOut} sx={{ py: 0.25, fontSize: '0.7rem' }}>
+                  Auto-fill Lathrop
+                </Button>
+              )}
+            </Box>
 
             {/* Period rows */}
             <Stack spacing={1} sx={{ mb: 1.5 }}>
@@ -1115,6 +1175,78 @@ function SettingsInner() {
                 </Typography>
               </Grid>
             </Grid>
+          </CardContent>
+        </Card>
+
+        {/* ===== ACCOUNT ===== */}
+        <Card>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <KeyIcon color="primary" /> Account
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1.5 }}>Change Password</Typography>
+            <Stack spacing={2} sx={{ maxWidth: 400 }}>
+              <TextField
+                size="small"
+                fullWidth
+                label="Current Password"
+                type={showCurrentPw ? 'text' : 'password'}
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+                slotProps={{
+                  input: {
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton size="small" onClick={() => setShowCurrentPw((v) => !v)}>
+                          {showCurrentPw ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+              />
+              <TextField
+                size="small"
+                fullWidth
+                label="New Password"
+                type={showNewPw ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                slotProps={{
+                  input: {
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton size="small" onClick={() => setShowNewPw((v) => !v)}>
+                          {showNewPw ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+              />
+              <TextField
+                size="small"
+                fullWidth
+                label="Confirm New Password"
+                type={showNewPw ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                error={confirmPassword.length > 0 && confirmPassword !== newPassword}
+                helperText={confirmPassword.length > 0 && confirmPassword !== newPassword ? 'Passwords do not match' : ''}
+              />
+              <Button
+                variant="contained"
+                onClick={handleChangePassword}
+                disabled={!currentPassword || !newPassword || newPassword !== confirmPassword || !!syncing}
+                startIcon={syncing === 'change-pw' ? <CircularProgress size={16} color="inherit" /> : <KeyIcon />}
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                Change Password
+              </Button>
+            </Stack>
           </CardContent>
         </Card>
 

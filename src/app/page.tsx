@@ -53,6 +53,8 @@ export default function Dashboard() {
   };
 
   const [lunchTimes, setLunchTimes] = useState<Record<number, { startTime: string; endTime: string }>>(DEFAULT_LUNCH_TIMES);
+  const [semesterStart, setSemesterStart] = useState<string | undefined>(undefined);
+  const [semesterEnd, setSemesterEnd] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     fetch('/api/settings')
@@ -61,6 +63,8 @@ export default function Dashboard() {
         if (s.lunchTimes) {
           setLunchTimes(typeof s.lunchTimes === 'string' ? JSON.parse(s.lunchTimes) : s.lunchTimes);
         }
+        if (s.semesterStart) setSemesterStart(s.semesterStart);
+        if (s.semesterEnd) setSemesterEnd(s.semesterEnd);
       })
       .catch(() => {});
   }, []);
@@ -87,13 +91,13 @@ export default function Dashboard() {
 
   const todaySchedule = useMemo(() => {
     if (!classesWithLunch || !disruptions) return null;
-    return buildDaySchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions);
-  }, [classesWithLunch, disruptions, selectedDate]);
+    return buildDaySchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions, semesterStart, semesterEnd);
+  }, [classesWithLunch, disruptions, selectedDate, semesterStart, semesterEnd]);
 
   const weekSchedule = useMemo(() => {
     if (!classesWithLunch || !disruptions) return null;
-    return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions);
-  }, [classesWithLunch, disruptions, selectedDate]);
+    return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions, semesterStart, semesterEnd);
+  }, [classesWithLunch, disruptions, selectedDate, semesterStart, semesterEnd]);
 
   // PowerSchool assignments belong on the Grades tab only — don't show them
   // in the Dashboard's "Upcoming Homework" card or summary counts. They're
@@ -283,7 +287,7 @@ export default function Dashboard() {
           <Tab label="Day" />
           <Tab label="Week" />
           <Tab label="Year" />
-          <Tab label="Heatmap" icon={<WhatshotIcon fontSize="small" />} iconPosition="start" />
+          <Tab label="Heatmap" />
         </Tabs>
         <Box sx={{ p: 2 }}>
           {tab === 0 && todaySchedule && (
@@ -307,6 +311,8 @@ export default function Dashboard() {
               year={selectedDate.year()}
               classes={classesWithLunch}
               disruptions={disruptions}
+              semesterStart={semesterStart}
+              semesterEnd={semesterEnd}
               onDateClick={(d) => { setSelectedDate(dayjs(d)); setTab(0); }}
             />
           )}

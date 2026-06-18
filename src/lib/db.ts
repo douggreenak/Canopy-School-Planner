@@ -171,6 +171,10 @@ export async function initializeDatabase() {
   await sql`CREATE INDEX IF NOT EXISTS idx_sync_log_user_time ON sync_log (user_id, occurred_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_sync_log_class ON sync_log (user_id, class_id, occurred_at DESC)`;
 
+  // Admin support: role column on users, created_at on sessions
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`;
+  await sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`;
+
   // Migrate settings table PK from single-column (key) to composite (user_id, key)
   await sql`
     DO $$
@@ -300,30 +304,90 @@ export interface DbUser {
   id: string;
   username: string;
   passwordHash: string;
+  role: string;
 }
 
 export async function createUser(id: string, username: string, passwordHash: string): Promise<void> {
   const sql = getDb();
   await sql`
-    INSERT INTO users (id, username, password_hash)
-    VALUES (${id}, ${username.toLowerCase()}, ${passwordHash})
+    INSERT INTO users (id, username, password_hash, role)
+    VALUES (${id}, ${username.toLowerCase()}, ${passwordHash}, 'user')
+  `;
+}
+
+/** Upsert the admin account. Takes a pre-hashed password to avoid circular imports with auth.ts. */
+export async function createOrUpdateAdminUser(username: string, passwordHash: string): Promise<void> {
+  const sql = getDb();
+  const id = uuid();
+  await sql`
+    INSERT INTO users (id, username, password_hash, role)
+    VALUES (${id}, ${username.toLowerCase()}, ${passwordHash}, 'admin')
+    ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = 'admin'
   `;
 }
 
 export async function getUserByUsername(username: string): Promise<DbUser | null> {
   const sql = getDb();
-  const rows = await sql`SELECT id, username, password_hash FROM users WHERE username = ${username.toLowerCase()}`;
+  const rows = await sql`SELECT id, username, password_hash, role FROM users WHERE username = ${username.toLowerCase()}`;
   if (rows.length === 0) return null;
   const row = rows[0] as Record<string, unknown>;
-  return { id: row.id as string, username: row.username as string, passwordHash: row.password_hash as string };
+  return { id: row.id as string, username: row.username as string, passwordHash: row.password_hash as string, role: (row.role as string) || 'user' };
 }
 
-export async function getUserById(id: string): Promise<{ id: string; username: string } | null> {
+export async function getUserByIdWithHash(id: string): Promise<DbUser | null> {
   const sql = getDb();
-  const rows = await sql`SELECT id, username FROM users WHERE id = ${id}`;
+  const rows = await sql`SELECT id, username, password_hash, role FROM users WHERE id = ${id}`;
   if (rows.length === 0) return null;
   const row = rows[0] as Record<string, unknown>;
-  return { id: row.id as string, username: row.username as string };
+  return { id: row.id as string, username: row.username as string, passwordHash: row.password_hash as string, role: (row.role as string) || 'user' };
+}
+
+export async function updateUserPassword(userId: string, newPasswordHash: string): Promise<void> {
+  const sql = getDb();
+  await sql`UPDATE users SET password_hash = ${newPasswordHash} WHERE id = ${userId}`;
+}
+
+export async function getUserById(id: string): Promise<{ id: string; username: string; role: string } | null> {
+  const sql = getDb();
+  const rows = await sql`SELECT id, username, role FROM users WHERE id = ${id}`;
+  if (rows.length === 0) return null;
+  const row = rows[0] as Record<string, unknown>;
+  return { id: row.id as string, username: row.username as string, role: (row.role as string) || 'user' };
+}
+
+export interface SystemStats {
+  totalUsers: number;
+  activeUsersLast7Days: number;
+  activeUsersLast30Days: number;
+  totalClasses: number;
+  totalAssignments: number;
+  totalExams: number;
+  totalTasks: number;
+  registrationsByMonth: { month: string; count: number }[];
+}
+
+export async function getSystemStats(): Promise<SystemStats> {
+  const sql = getDb();
+  const [users, active7, active30, classes, hw, exams, tasks, regByMonth] = await Promise.all([
+    sql`SELECT COUNT(*) AS count FROM users WHERE role != 'admin'`,
+    sql`SELECT COUNT(DISTINCT s.user_id) AS count FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.role != 'admin' AND s.created_at > NOW() - INTERVAL '7 days'`,
+    sql`SELECT COUNT(DISTINCT s.user_id) AS count FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.role != 'admin' AND s.created_at > NOW() - INTERVAL '30 days'`,
+    sql`SELECT COUNT(*) AS count FROM classes c JOIN users u ON u.id = c.user_id WHERE u.role != 'admin'`,
+    sql`SELECT COUNT(*) AS count FROM homework h JOIN users u ON u.id = h.user_id WHERE u.role != 'admin'`,
+    sql`SELECT COUNT(*) AS count FROM exams e JOIN users u ON u.id = e.user_id WHERE u.role != 'admin'`,
+    sql`SELECT COUNT(*) AS count FROM tasks t JOIN users u ON u.id = t.user_id WHERE u.role != 'admin'`,
+    sql`SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month, COUNT(*) AS count FROM users WHERE role != 'admin' GROUP BY month ORDER BY month DESC LIMIT 12`,
+  ]);
+  return {
+    totalUsers: Number(users[0].count),
+    activeUsersLast7Days: Number(active7[0].count),
+    activeUsersLast30Days: Number(active30[0].count),
+    totalClasses: Number(classes[0].count),
+    totalAssignments: Number(hw[0].count),
+    totalExams: Number(exams[0].count),
+    totalTasks: Number(tasks[0].count),
+    registrationsByMonth: (regByMonth as Record<string, unknown>[]).map((r) => ({ month: r.month as string, count: Number(r.count) })),
+  };
 }
 
 /** Permanently delete a user and every row they own across all tables. */

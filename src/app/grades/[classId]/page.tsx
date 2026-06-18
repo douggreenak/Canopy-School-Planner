@@ -14,6 +14,7 @@ import { use, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
 import WhatIfDialog from '@/components/WhatIfDialog';
+import FinalGradeDialog from '@/components/FinalGradeDialog';
 import { mostImpactfulAssignment } from '@/lib/gradeEngine';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -38,6 +39,7 @@ import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SyncIcon from '@mui/icons-material/Sync';
 import CalculateIcon from '@mui/icons-material/Calculate';
+import GradingIcon from '@mui/icons-material/Grading';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import SearchIcon from '@mui/icons-material/Search';
@@ -88,6 +90,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [whatIfOpen, setWhatIfOpen] = useState(false);
+  const [finalCalcOpen, setFinalCalcOpen] = useState(false);
 
   const { data: gradeHistory } = useGradeHistory(classId);
   const { data: syncLog } = useSyncLog(classId, 50);
@@ -290,6 +293,14 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
             What if?
           </Button>
         )}
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={<GradingIcon />}
+          onClick={() => setFinalCalcOpen(true)}
+        >
+          Final Calc
+        </Button>
         <Button
           variant="outlined"
           size="small"
@@ -759,6 +770,13 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
           homework={classHomework}
         />
       )}
+
+      <FinalGradeDialog
+        open={finalCalcOpen}
+        onClose={() => setFinalCalcOpen(false)}
+        currentGrade={cls?.gradePercent ?? null}
+        className={cls?.name}
+      />
 
       <Snackbar
         open={snackbar.open}
