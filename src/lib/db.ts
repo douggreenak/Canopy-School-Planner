@@ -364,11 +364,12 @@ export interface SystemStats {
   totalExams: number;
   totalTasks: number;
   registrationsByMonth: { month: string; count: number }[];
+  userList: { username: string; registeredAt: string; lastActiveAt: string | null }[];
 }
 
 export async function getSystemStats(): Promise<SystemStats> {
   const sql = getDb();
-  const [users, active7, active30, classes, hw, exams, tasks, regByMonth] = await Promise.all([
+  const [users, active7, active30, classes, hw, exams, tasks, regByMonth, userList] = await Promise.all([
     sql`SELECT COUNT(*) AS count FROM users WHERE role != 'admin'`,
     sql`SELECT COUNT(DISTINCT s.user_id) AS count FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.role != 'admin' AND s.created_at > NOW() - INTERVAL '7 days'`,
     sql`SELECT COUNT(DISTINCT s.user_id) AS count FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.role != 'admin' AND s.created_at > NOW() - INTERVAL '30 days'`,
@@ -377,6 +378,7 @@ export async function getSystemStats(): Promise<SystemStats> {
     sql`SELECT COUNT(*) AS count FROM exams e JOIN users u ON u.id = e.user_id WHERE u.role != 'admin'`,
     sql`SELECT COUNT(*) AS count FROM tasks t JOIN users u ON u.id = t.user_id WHERE u.role != 'admin'`,
     sql`SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month, COUNT(*) AS count FROM users WHERE role != 'admin' GROUP BY month ORDER BY month DESC LIMIT 12`,
+    sql`SELECT u.username, u.created_at, MAX(s.created_at) AS last_active FROM users u LEFT JOIN sessions s ON s.user_id = u.id WHERE u.role != 'admin' GROUP BY u.username, u.created_at ORDER BY u.created_at DESC`,
   ]);
   return {
     totalUsers: Number(users[0].count),
@@ -387,6 +389,11 @@ export async function getSystemStats(): Promise<SystemStats> {
     totalExams: Number(exams[0].count),
     totalTasks: Number(tasks[0].count),
     registrationsByMonth: (regByMonth as Record<string, unknown>[]).map((r) => ({ month: r.month as string, count: Number(r.count) })),
+    userList: (userList as Record<string, unknown>[]).map((r) => ({
+      username: r.username as string,
+      registeredAt: (r.created_at as Date).toISOString(),
+      lastActiveAt: r.last_active ? (r.last_active as Date).toISOString() : null,
+    })),
   };
 }
 

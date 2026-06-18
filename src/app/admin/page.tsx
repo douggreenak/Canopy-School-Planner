@@ -10,6 +10,14 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
+import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
 import ParkIcon from '@mui/icons-material/Park';
 import PeopleIcon from '@mui/icons-material/People';
 import PersonIcon from '@mui/icons-material/Person';
@@ -17,6 +25,8 @@ import ClassIcon from '@mui/icons-material/Class';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import QuizIcon from '@mui/icons-material/Quiz';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import DeleteIcon from '@mui/icons-material/Delete';
 import type { SystemStats } from '@/lib/db';
 
 function StatCard({ label, value, icon, sub }: { label: string; value: number | string; icon: React.ReactNode; sub?: string }) {
@@ -40,24 +50,52 @@ export default function AdminPage() {
   const router = useRouter();
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [error, setError] = useState('');
+  const [confirmUsername, setConfirmUsername] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  const loadStats = () =>
+    fetch('/api/admin/stats')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.error) setError(data.error);
+        else setStats(data);
+      })
+      .catch(() => setError('Failed to load stats.'));
 
   useEffect(() => {
     fetch('/api/auth')
       .then((r) => r.json())
       .then((data) => {
-        if (!data.user || data.user.role !== 'admin') {
-          router.replace('/');
-          return;
-        }
-        return fetch('/api/admin/stats');
-      })
-      .then((r) => r?.json())
-      .then((data) => {
-        if (data?.error) setError(data.error);
-        else if (data) setStats(data);
+        if (!data.user || data.user.role !== 'admin') { router.replace('/'); return; }
+        return loadStats();
       })
       .catch(() => setError('Failed to load stats.'));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
+
+  const handleDeleteConfirm = async () => {
+    if (!confirmUsername) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: confirmUsername }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDeleteError(data.error ?? 'Delete failed.');
+      } else {
+        setConfirmUsername(null);
+        await loadStats();
+      }
+    } catch {
+      setDeleteError('Network error.');
+    }
+    setDeleting(false);
+  };
 
   return (
     <Box sx={{ maxWidth: 800, mx: 'auto', pt: 4 }}>
@@ -151,8 +189,81 @@ export default function AdminPage() {
               </Card>
             </>
           )}
+
+          {stats.userList.length > 0 && (
+            <>
+              <Divider sx={{ mb: 3, mt: 3 }} />
+              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 1 }}>
+                Registered Users
+              </Typography>
+              <Card variant="outlined" sx={{ mt: 1 }}>
+                {stats.userList.map((u, i) => {
+                  const registeredAt = new Date(u.registeredAt).toLocaleDateString();
+                  const lastActive = u.lastActiveAt ? new Date(u.lastActiveAt).toLocaleDateString() : null;
+                  const isRecent = u.lastActiveAt
+                    ? Date.now() - new Date(u.lastActiveAt).getTime() < 7 * 24 * 60 * 60 * 1000
+                    : false;
+                  return (
+                    <Box
+                      key={u.username}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.5,
+                        px: 2,
+                        py: 1,
+                        borderBottom: i < stats.userList.length - 1 ? '1px solid' : 'none',
+                        borderColor: 'divider',
+                      }}
+                    >
+                      <AccountCircleIcon sx={{ color: 'text.disabled', fontSize: 20, flexShrink: 0 }} />
+                      <Typography variant="body2" sx={{ fontWeight: 500, flex: 1 }}>{u.username}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                        Joined {registeredAt}
+                      </Typography>
+                      {lastActive && (
+                        <Chip
+                          label={isRecent ? 'Active' : `Last seen ${lastActive}`}
+                          size="small"
+                          color={isRecent ? 'success' : 'default'}
+                          variant={isRecent ? 'filled' : 'outlined'}
+                          sx={{ fontSize: '0.7rem', height: 20 }}
+                        />
+                      )}
+                      <IconButton
+                        size="small"
+                        onClick={() => setConfirmUsername(u.username)}
+                        sx={{ color: 'error.main', flexShrink: 0 }}
+                        aria-label={`Delete ${u.username}`}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  );
+                })}
+              </Card>
+            </>
+          )}
         </>
       )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!confirmUsername} onClose={() => !deleting && setConfirmUsername(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete user?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This will permanently delete <strong>{confirmUsername}</strong> and all of their classes,
+            assignments, grades, tasks, and settings. This cannot be undone.
+          </DialogContentText>
+          {deleteError && <Alert severity="error" sx={{ mt: 2 }}>{deleteError}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmUsername(null)} disabled={deleting}>Cancel</Button>
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained" disabled={deleting}>
+            {deleting ? 'Deleting…' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
