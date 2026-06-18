@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { AppRouterCacheProvider } from '@mui/material-nextjs/v15-appRouter';
 import ThemeRegistry from '@/components/ThemeRegistry';
 import AppShell from '@/components/AppShell';
 import { SpeedInsights } from '@vercel/speed-insights/next';
@@ -18,9 +19,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body suppressHydrationWarning>
-        <ThemeRegistry>
-          <AppShell>{children}</AppShell>
-        </ThemeRegistry>
+        <AppRouterCacheProvider>
+          <ThemeRegistry>
+            <AppShell>{children}</AppShell>
+          </ThemeRegistry>
+        </AppRouterCacheProvider>
         <SpeedInsights />
       </body>
     </html>
