@@ -59,9 +59,10 @@ export async function GET(request: NextRequest) {
     };
     const classesWithLunch = classes.find((c) => c.id === '__lunch__') ? classes : [...classes, lunchClass];
 
+    const userTimezone = (freshSettings as Record<string, unknown>).timezone as string || 'America/Anchorage';
     const ical = generateCalendarFeed(
       classesWithLunch, exams, homework, disruptions,
-      semesterStart, semesterEnd, schoolName
+      semesterStart, semesterEnd, schoolName, userTimezone
     );
 
     return new Response(ical, {

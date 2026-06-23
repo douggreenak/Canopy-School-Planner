@@ -9,6 +9,24 @@ import { parseMinutes } from './calendarMetrics';
 
 dayjs.extend(isoWeek);
 
+export const LATHROP_EARLY_OUT: Record<number, { startTime: string; endTime: string }> = {
+  1: { startTime: '07:30', endTime: '08:10' },
+  2: { startTime: '08:15', endTime: '08:55' },
+  3: { startTime: '09:00', endTime: '09:40' },
+  4: { startTime: '09:50', endTime: '10:30' },
+  5: { startTime: '10:35', endTime: '11:15' },
+  6: { startTime: '11:20', endTime: '12:00' },
+};
+
+export function buildLathropEarlyOutTemplate(classes?: SchoolClass[]): Record<number, { startTime: string; endTime: string }> {
+  const tpl = { ...LATHROP_EARLY_OUT };
+  if (classes) {
+    const extClass = classes.find((c) => /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(c.name));
+    if (extClass) tpl[extClass.period] = { startTime: '07:30', endTime: '08:10' };
+  }
+  return tpl;
+}
+
 /**
  * Find the next date a class meets, given its weekly day pattern.
  * Returns an ISO date string (YYYY-MM-DD). Returns '' if the class has no

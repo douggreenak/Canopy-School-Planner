@@ -13,6 +13,13 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: 'Canopy',
   description: 'Your personal school planner — classes, schedule, grades, homework, and tasks in one place.',
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-32x32.png', type: 'image/png', sizes: '32x32' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

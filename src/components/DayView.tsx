@@ -161,7 +161,7 @@ const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug, index
             whiteSpace: 'nowrap',
           }}
         >
-          {entry.classInfo.teacher}{entry.classInfo.room ? ` · Rm ${entry.classInfo.room}` : ''}
+          {entry.classInfo.teacher.replace(/^Email\s+/i, '')}{entry.classInfo.room ? ` · Rm ${entry.classInfo.room}` : ''}
         </Typography>
       )}
       {debug && (
@@ -198,6 +198,9 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
       <Box sx={{ textAlign: 'center', py: 8 }}>
         <Typography variant="body1" color="text.secondary">
           No classes scheduled for {dayjs(date).format('dddd, MMMM D')}
+        </Typography>
+        <Typography variant="body2" color="text.disabled" sx={{ mt: 1 }}>
+          Set up your classes via PowerSchool sync or the Classes page.
         </Typography>
       </Box>
     );

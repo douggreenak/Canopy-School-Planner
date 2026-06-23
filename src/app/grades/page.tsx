@@ -34,6 +34,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Divider from '@mui/material/Divider';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import Tooltip from '@mui/material/Tooltip';
 import { alpha, useTheme } from '@mui/material/styles';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
@@ -461,14 +462,16 @@ export default function GradesPage() {
                     {psClasses.map((c) => (
                       <Box key={c.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: c.color, flexShrink: 0 }} />
-                        <Typography
-                          variant="body2"
-                          sx={{ width: 160, flexShrink: 0, cursor: 'pointer' }}
-                          noWrap
-                          onClick={() => router.push(`/grades/${c.id}`)}
-                        >
-                          {c.name}
-                        </Typography>
+                        <Tooltip title={c.name} placement="top" arrow>
+                          <Typography
+                            variant="body2"
+                            sx={{ width: 160, flexShrink: 0, cursor: 'pointer' }}
+                            noWrap
+                            onClick={() => router.push(`/grades/${c.id}`)}
+                          >
+                            {c.name}
+                          </Typography>
+                        </Tooltip>
                         {c.gradePercent != null ? (
                           <>
                             <LinearProgress
@@ -705,7 +708,7 @@ export default function GradesPage() {
                       </Typography>
                       <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                         {cls.teacher && cls.teacher !== 'TBD' && (
-                          <Typography variant="body2" color="text.secondary">{cls.teacher}</Typography>
+                          <Typography variant="body2" color="text.secondary">{cls.teacher.replace(/^Email\s+/i, '')}</Typography>
                         )}
                         {cls.room && (
                           <Chip label={`Rm ${cls.room}`} size="small" variant="outlined" />

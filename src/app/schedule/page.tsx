@@ -35,7 +35,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import { useClasses, useDisruptions, apiPost, apiPut, apiDelete } from '@/lib/hooks';
-import { generateEarlyOutOverrides, generateLateStartOverrides, getWeekSchedule } from '@/lib/schedule';
+import { generateEarlyOutOverrides, generateLateStartOverrides, getWeekSchedule, buildLathropEarlyOutTemplate } from '@/lib/schedule';
 import DayView from '@/components/DayView';
 import WeekView from '@/components/WeekView';
 import YearView from '@/components/YearView';
@@ -83,6 +83,7 @@ function SchedulePageInner() {
   const [semesterStart, setSemesterStart] = useState<string | undefined>(undefined);
   const [semesterEnd, setSemesterEnd] = useState<string | undefined>(undefined);
   const [earlyOutTemplate, setEarlyOutTemplate] = useState<Record<number, { startTime: string; endTime: string }> | undefined>(undefined);
+  const [lathropMode, setLathropMode] = useState(false);
 
   useEffect(() => {
     fetch('/api/settings')
@@ -93,11 +94,15 @@ function SchedulePageInner() {
         }
         if (s.semesterStart) setSemesterStart(s.semesterStart);
         if (s.semesterEnd) setSemesterEnd(s.semesterEnd);
+        const isLathrop = s.lathropMode === true || s.lathropMode === 'true';
+        setLathropMode(isLathrop);
         if (s.early_out_schedule) {
           const raw = typeof s.early_out_schedule === 'string' ? JSON.parse(s.early_out_schedule) : s.early_out_schedule;
           const tpl: Record<number, { startTime: string; endTime: string }> = {};
           for (const [k, v] of Object.entries(raw)) tpl[Number(k)] = v as { startTime: string; endTime: string };
           setEarlyOutTemplate(tpl);
+        } else if (isLathrop) {
+          setEarlyOutTemplate(buildLathropEarlyOutTemplate());
         }
       })
       .catch(() => {});
@@ -238,12 +243,15 @@ function SchedulePageInner() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
         <CalendarMonthIcon sx={{ color: 'primary.main', fontSize: 30 }} />
         <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400 }}>
           Schedule
         </Typography>
       </Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Your class calendar — click a class for details, or add schedule disruptions (early-outs, no-school days).
+      </Typography>
 
       {/* Date nav row */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>

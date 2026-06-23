@@ -27,6 +27,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import StorageIcon from '@mui/icons-material/Storage';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import TimezonePicker from '@/components/TimezonePicker';
 
 const STEPS = ['Welcome', 'School Info', 'PowerSchool', 'Done'];
 
@@ -45,6 +46,9 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
   const [schoolName, setSchoolName] = useState('');
   const [semesterStart, setSemesterStart] = useState('');
   const [semesterEnd, setSemesterEnd] = useState('');
+  const [timezone, setTimezone] = useState(() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'America/New_York'; }
+  });
 
   // Step 2 — PowerSchool
   const [psUrl, setPsUrl] = useState('');
@@ -61,7 +65,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
     setError('');
     setBusy(true);
     try {
-      const settings: Record<string, string> = { schoolName, semesterStart, semesterEnd };
+      const settings: Record<string, string> = { schoolName, semesterStart, semesterEnd, timezone };
       for (const [key, value] of Object.entries(settings)) {
         if (!value) continue;
         await fetch('/api/settings', {
@@ -230,6 +234,14 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 />
               </Stack>
 
+              <TimezonePicker
+                value={timezone}
+                onChange={setTimezone}
+                label="Your timezone"
+                size="medium"
+                helperText="Used for calendar feed and schedule display"
+              />
+
               <Stack direction="row" spacing={1.5}>
                 <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy}>
                   Back
@@ -266,10 +278,6 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                   Import your class schedule, assignments, and grades directly from PowerSchool. Credentials are saved securely so future syncs need just one click.
                 </Typography>
               </Box>
-
-              <Alert severity="info" sx={{ fontSize: '0.85rem' }}>
-                <strong>Requires Google Chrome</strong> to be installed on the computer running this app.
-              </Alert>
 
               <TextField
                 fullWidth

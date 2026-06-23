@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import dayjs from 'dayjs';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -210,20 +210,44 @@ export default function TasksPage() {
     }
   };
 
-  // ---- Delete ----
+  // ---- Delete with undo ----
+  const [pendingDelete, setPendingDelete] = useState<{ kind: ItemKind; id: string; snapshot: Homework[] | Task[] | null } | null>(null);
+  const pendingDeleteTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const deleteHw = async (id: string) => {
-    const snapshot = homework;
-    mutateHw((prev) => prev ? prev.filter((h) => h.id !== id) : prev);
-    try { await apiDelete(`/api/homework?id=${id}`); refetchHw(); }
-    catch (e) { mutateHw(snapshot ?? null); setErrorMsg(`Couldn't delete: ${(e as Error).message}`); }
+  const commitDelete = async (kind: ItemKind, id: string) => {
+    try {
+      if (kind === 'homework') { await apiDelete(`/api/homework?id=${id}`); refetchHw(); }
+      else { await apiDelete(`/api/tasks?id=${id}`); refetchTasks(); }
+    } catch (e) {
+      setErrorMsg(`Couldn't delete: ${(e as Error).message}`);
+      if (kind === 'homework') refetchHw();
+      else refetchTasks();
+    }
   };
 
-  const deleteTask = async (id: string) => {
+  const deleteHw = (id: string) => {
+    if (pendingDeleteTimer.current) { clearTimeout(pendingDeleteTimer.current); commitDelete(pendingDelete!.kind, pendingDelete!.id); }
+    const snapshot = homework;
+    mutateHw((prev) => prev ? prev.filter((h) => h.id !== id) : prev);
+    setPendingDelete({ kind: 'homework', id, snapshot: snapshot ?? null });
+    pendingDeleteTimer.current = setTimeout(() => { commitDelete('homework', id); setPendingDelete(null); pendingDeleteTimer.current = null; }, 5000);
+  };
+
+  const deleteTask = (id: string) => {
+    if (pendingDeleteTimer.current) { clearTimeout(pendingDeleteTimer.current); commitDelete(pendingDelete!.kind, pendingDelete!.id); }
     const snapshot = tasks;
     mutateTasks((prev) => prev ? prev.filter((t) => t.id !== id) : prev);
-    try { await apiDelete(`/api/tasks?id=${id}`); refetchTasks(); }
-    catch (e) { mutateTasks(snapshot ?? null); setErrorMsg(`Couldn't delete: ${(e as Error).message}`); }
+    setPendingDelete({ kind: 'task', id, snapshot: snapshot ?? null });
+    pendingDeleteTimer.current = setTimeout(() => { commitDelete('task', id); setPendingDelete(null); pendingDeleteTimer.current = null; }, 5000);
+  };
+
+  const undoDelete = () => {
+    if (!pendingDelete) return;
+    if (pendingDeleteTimer.current) clearTimeout(pendingDeleteTimer.current);
+    pendingDeleteTimer.current = null;
+    if (pendingDelete.kind === 'homework') mutateHw(pendingDelete.snapshot as Homework[] | null);
+    else mutateTasks(pendingDelete.snapshot as Task[] | null);
+    setPendingDelete(null);
   };
 
   // ---- Quick add homework ----
@@ -338,7 +362,7 @@ export default function TasksPage() {
             const cls = classMap.get(hw.classId);
             const overdue = !hw.completed && dayjs(hw.dueDate).isBefore(dayjs(), 'day');
             return (
-              <Card key={`hw-${hw.id}`} sx={{ opacity: hw.completed ? 0.7 : 1 }}>
+              <Card key={`hw-${hw.id}`} sx={{ opacity: hw.completed ? 0.7 : 1, ...(overdue ? { borderLeft: '3px solid', borderColor: 'error.main', bgcolor: (t) => alpha(t.palette.error.main, 0.04) } : {}) }}>
                 <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
                   <Checkbox
                     checked={hw.completed}
@@ -381,7 +405,7 @@ export default function TasksPage() {
           const overdue = !task.completed && task.dueDate && dayjs(task.dueDate).isBefore(dayjs(), 'day');
           const taskCls = task.classId ? classMap.get(task.classId) : undefined;
           return (
-            <Card key={`task-${task.id}`} sx={{ opacity: task.completed ? 0.7 : 1 }}>
+            <Card key={`task-${task.id}`} sx={{ opacity: task.completed ? 0.7 : 1, ...(overdue ? { borderLeft: '3px solid', borderColor: 'error.main', bgcolor: (t) => alpha(t.palette.error.main, 0.04) } : {}) }}>
               <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
                 <Checkbox checked={task.completed} onChange={() => toggleTask(task)} color="success" />
                 <Box
@@ -581,6 +605,14 @@ export default function TasksPage() {
       <Snackbar open={!!statusMsg} autoHideDuration={4000} onClose={() => setStatusMsg(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         <Alert severity="success" variant="filled" onClose={() => setStatusMsg(null)}>{statusMsg}</Alert>
       </Snackbar>
+      <Snackbar
+        open={!!pendingDelete}
+        autoHideDuration={5000}
+        onClose={(_, reason) => { if (reason !== 'clickaway') { setPendingDelete(null); } }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        message="Item deleted"
+        action={<Button color="inherit" size="small" onClick={undoDelete}>Undo</Button>}
+      />
     </Box>
   );
 }

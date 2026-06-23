@@ -5,7 +5,7 @@ import { getSessionUserId } from '@/lib/auth';
 const ALLOWED_KEYS = new Set([
   'schoolName', 'semesterStart', 'semesterEnd', 'calendarToken',
   'lunchTimes', 'lathropMode', 'early_out_schedule',
-  'themeMode', 'accentColor', 'lastSyncAt',
+  'themeMode', 'accentColor', 'lastSyncAt', 'timezone',
 ]);
 
 const MAX_VALUE_LEN = 10_000;

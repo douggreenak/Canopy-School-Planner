@@ -48,8 +48,10 @@ import DarkModeIcon from '@mui/icons-material/DarkMode';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import PaletteIcon from '@mui/icons-material/Palette';
 import { useClasses } from '@/lib/hooks';
+import { buildLathropEarlyOutTemplate } from '@/lib/schedule';
 import { useThemeMode } from '@/components/ThemeRegistry';
 import { ACCENT_PRESETS } from '@/lib/theme';
+import TimezonePicker from '@/components/TimezonePicker';
 import type { SchoolClass } from '@/types';
 
 export default function SettingsPage() {
@@ -100,6 +102,9 @@ function SettingsInner() {
   const [schoolName, setSchoolName] = useState('');
   const [semesterStart, setSemesterStart] = useState('');
   const [semesterEnd, setSemesterEnd] = useState('');
+  const [userTimezone, setUserTimezone] = useState(() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'America/New_York'; }
+  });
   const [lunchTimes, setLunchTimes] = useState<Record<number, { startTime: string; endTime: string }>>({
     1: { startTime: '10:26', endTime: '10:57' },
     2: { startTime: '10:50', endTime: '11:20' },
@@ -141,6 +146,7 @@ function SettingsInner() {
   // Calendar
   const [calendarToken, setCalendarToken] = useState('');
   const [calendarUrl, setCalendarUrl] = useState('');
+  const [calendarReady, setCalendarReady] = useState(false);
 
   const [lathropMode, setLathropMode] = useState(false);
 
@@ -186,12 +192,18 @@ function SettingsInner() {
   const [editableClass, setEditableClass] = useState<SchoolClass | null>(null);
 
   useEffect(() => {
-    if (currentUserId && calendarToken) {
+    if (!currentUserId) return;
+    if (calendarToken) {
       setCalendarUrl(`${window.location.origin}/api/calendar?userId=${currentUserId}&token=${calendarToken}`);
-    } else {
-      setCalendarUrl('');
+      setCalendarReady(true);
+    } else if (calendarReady === false) {
+      const t = crypto.randomUUID();
+      setCalendarToken(t);
+      fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'calendarToken', value: t }) }).catch(() => {});
+      setCalendarUrl(`${window.location.origin}/api/calendar?userId=${currentUserId}&token=${t}`);
+      setCalendarReady(true);
     }
-  }, [calendarToken, currentUserId]);
+  }, [calendarToken, currentUserId, calendarReady]);
 
   // Load setup status + saved settings
   useEffect(() => {
@@ -216,16 +228,20 @@ function SettingsInner() {
         if (s.schoolName) setSchoolName(s.schoolName);
         if (s.semesterStart) setSemesterStart(s.semesterStart);
         if (s.semesterEnd) setSemesterEnd(s.semesterEnd);
+        if (s.timezone) setUserTimezone(s.timezone);
         if (s.calendarToken) setCalendarToken(s.calendarToken);
         if (s.powerschoolUrl) setPsUrl(s.powerschoolUrl);
         if (s.powerschoolUsername) setPsUser(s.powerschoolUsername);
         if (s.lunchTimes) setLunchTimes(typeof s.lunchTimes === 'string' ? JSON.parse(s.lunchTimes) : s.lunchTimes);
-        if (s.lathropMode) setLathropMode(s.lathropMode === true || s.lathropMode === 'true');
+        const isLathrop = s.lathropMode === true || s.lathropMode === 'true';
+        if (s.lathropMode) setLathropMode(isLathrop);
         if (s.early_out_schedule) {
           const raw = typeof s.early_out_schedule === 'string' ? JSON.parse(s.early_out_schedule) : s.early_out_schedule;
           const tpl: Record<number, { startTime: string; endTime: string }> = {};
           for (const [k, v] of Object.entries(raw)) tpl[Number(k)] = v as { startTime: string; endTime: string };
           setEarlyOutSchedule(tpl);
+        } else if (isLathrop) {
+          setEarlyOutSchedule(buildLathropEarlyOutTemplate());
         }
       })
       .catch(() => {});
@@ -249,23 +265,8 @@ function SettingsInner() {
     setSyncing(null);
   };
 
-  const LATHROP_EARLY_OUT: Record<number, { startTime: string; endTime: string }> = {
-    1: { startTime: '07:30', endTime: '08:10' },
-    2: { startTime: '08:15', endTime: '08:55' },
-    3: { startTime: '09:00', endTime: '09:40' },
-    4: { startTime: '09:50', endTime: '10:30' },
-    5: { startTime: '10:35', endTime: '11:15' },
-    6: { startTime: '11:20', endTime: '12:00' },
-  };
-
   const applyLathropEarlyOut = () => {
-    const tpl: Record<number, { startTime: string; endTime: string }> = { ...LATHROP_EARLY_OUT };
-    // Ext Seminar (P9) runs in the Period 1 slot on early-out days
-    if (importedClasses?.some((c) => /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(c.name))) {
-      const extClass = importedClasses!.find((c) => /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(c.name))!;
-      tpl[extClass.period] = { startTime: '07:30', endTime: '08:10' };
-    }
-    setEarlyOutSchedule(tpl);
+    setEarlyOutSchedule(buildLathropEarlyOutTemplate(importedClasses ?? undefined));
   };
 
   const saveEarlyOutSchedule = async () => {
@@ -310,6 +311,7 @@ function SettingsInner() {
             schoolName,
             semesterStart,
             semesterEnd,
+            timezone: userTimezone,
             calendarToken,
             lunchTimes: JSON.stringify(lunchTimes),
           },
@@ -372,6 +374,10 @@ function SettingsInner() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: 'lathropMode', value: enabled }),
     }).catch(() => {});
+    if (enabled && Object.keys(earlyOutSchedule).length === 0) {
+      const tpl = buildLathropEarlyOutTemplate(importedClasses ?? undefined);
+      setEarlyOutSchedule(tpl);
+    }
   };
 
   const handleChangePassword = async () => {
@@ -556,9 +562,29 @@ function SettingsInner() {
         <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400 }}>Settings</Typography>
         {healthChip}
       </Stack>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Configure your school, appearance, and PowerSchool integration. Your data syncs across every device automatically.
       </Typography>
+
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mb: 2 }}>
+        {[
+          { label: 'Appearance', id: 'settings-appearance' },
+          { label: 'School', id: 'settings-school' },
+          { label: 'Bell Schedule', id: 'settings-bell' },
+          { label: 'PowerSchool', id: 'settings-powerschool' },
+          { label: 'Calendar', id: 'settings-calendar' },
+          { label: 'Account', id: 'settings-account' },
+        ].map((s) => (
+          <Chip
+            key={s.id}
+            label={s.label}
+            size="small"
+            variant="outlined"
+            clickable
+            onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          />
+        ))}
+      </Stack>
 
       <Stack spacing={3}>
 
@@ -571,7 +597,7 @@ function SettingsInner() {
         )}
 
         {/* ===== APPEARANCE ===== */}
-        <Card>
+        <Card id="settings-appearance">
           <CardContent>
             <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
               <PaletteIcon color="primary" /> Appearance
@@ -633,7 +659,7 @@ function SettingsInner() {
         </Card>
 
         {/* ===== SCHOOL INFORMATION ===== */}
-        <Card>
+        <Card id="settings-school">
           <CardContent>
             <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
               <SchoolIcon color="primary" /> School Information
@@ -658,6 +684,14 @@ function SettingsInner() {
                 />
               </Grid>
               <Grid size={12}>
+                <TimezonePicker
+                  value={userTimezone}
+                  onChange={setUserTimezone}
+                  label="Timezone"
+                  helperText="Used for calendar feed events — auto-detected from your browser"
+                />
+              </Grid>
+              <Grid size={12}>
                 <Button
                   variant="contained"
                   startIcon={syncing === 'school' ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
@@ -672,7 +706,7 @@ function SettingsInner() {
         </Card>
 
         {/* ===== BELL SCHEDULES ===== */}
-        <Card>
+        <Card id="settings-bell">
           <CardContent>
             <Typography variant="h6" sx={{ mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
               <CalendarMonthIcon color="primary" /> Bell Schedules
@@ -771,7 +805,7 @@ function SettingsInner() {
         </Card>
 
         {/* ===== POWERSCHOOL ===== */}
-        <Card>
+        <Card id="settings-powerschool">
           <CardContent>
             <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
               <SyncIcon color="primary" /> PowerSchool Import
@@ -1139,54 +1173,48 @@ function SettingsInner() {
         </Card>
 
         {/* ===== CALENDAR FEED ===== */}
-        <Card>
+        <Card id="settings-calendar">
           <CardContent>
             <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
               <CalendarMonthIcon color="primary" /> Calendar Feed (iCal)
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Subscribe to this URL in <strong>Google Calendar</strong>, <strong>Apple Calendar</strong>, or <strong>Outlook</strong> to see your class schedule, exams, and homework due dates on your phone and computer.
+              Copy this URL into <strong>Google Calendar</strong>, <strong>Apple Calendar</strong>, or <strong>Outlook</strong> to see your schedule, exams, and homework on your phone and computer. This link is unique to your account.
             </Typography>
-            <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>
-              <strong>How to subscribe:</strong><br />
-              <strong>Google Calendar:</strong> Settings → &quot;Add calendar&quot; → &quot;From URL&quot; → paste the URL below<br />
-              <strong>Apple Calendar:</strong> File → &quot;New Calendar Subscription&quot; → paste the URL below<br />
-              <strong>Outlook:</strong> &quot;Add calendar&quot; → &quot;Subscribe from web&quot; → paste the URL below
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }}>
+              <TextField
+                fullWidth
+                label="Your Calendar URL"
+                value={calendarUrl}
+                placeholder="Loading…"
+                slotProps={{ input: { readOnly: true, sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+              />
+              <Button variant="contained" startIcon={<ContentCopyIcon />} onClick={copyCalendarUrl} disabled={!calendarUrl} sx={{ flexShrink: 0 }}>
+                Copy
+              </Button>
+            </Box>
+            <Alert severity="info" sx={{ fontSize: '0.82rem' }}>
+              <strong>Google Calendar:</strong> Settings → &quot;Add calendar&quot; → &quot;From URL&quot; → paste<br />
+              <strong>Apple Calendar:</strong> File → &quot;New Calendar Subscription&quot; → paste<br />
+              <strong>Outlook:</strong> &quot;Add calendar&quot; → &quot;Subscribe from web&quot; → paste
             </Alert>
-            <Grid container spacing={2}>
-              <Grid size={8}>
-                <TextField fullWidth label="Secret Token" value={calendarToken} onChange={(e) => setCalendarToken(e.target.value)} placeholder="Click Generate to create a token" />
-              </Grid>
-              <Grid size={4} sx={{ display: 'flex', alignItems: 'center' }}>
-                <Button variant="outlined" onClick={() => { const t = crypto.randomUUID(); setCalendarToken(t); fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'calendarToken', value: t }) }).catch(() => {}); }} fullWidth>
-                  Generate Token
-                </Button>
-              </Grid>
-              <Grid size={12}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <TextField
-                    fullWidth
-                    label="Calendar Subscription URL"
-                    value={calendarUrl}
-                    placeholder={calendarToken ? 'Saving settings will generate the URL…' : 'Generate a token above first'}
-                    slotProps={{ input: { readOnly: true } }}
-                  />
-                  <Button variant="contained" startIcon={<ContentCopyIcon />} onClick={copyCalendarUrl} disabled={!calendarUrl}>
-                    Copy
-                  </Button>
-                </Box>
-              </Grid>
-              <Grid size={12}>
-                <Typography variant="caption" color="text.secondary">
-                  Click Generate to create a secret token — the subscription URL will appear automatically.
-                </Typography>
-              </Grid>
-            </Grid>
+            <Button
+              size="small"
+              variant="text"
+              sx={{ mt: 1.5, color: 'text.secondary' }}
+              onClick={() => {
+                const t = crypto.randomUUID();
+                setCalendarToken(t);
+                fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'calendarToken', value: t }) }).catch(() => {});
+              }}
+            >
+              Regenerate link (invalidates old one)
+            </Button>
           </CardContent>
         </Card>
 
         {/* ===== ACCOUNT ===== */}
-        <Card>
+        <Card id="settings-account">
           <CardContent>
             <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
               <KeyIcon color="primary" /> Account

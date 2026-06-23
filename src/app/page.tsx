@@ -282,6 +282,8 @@ export default function Dashboard() {
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
+          variant="scrollable"
+          scrollButtons="auto"
           sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
         >
           <Tab label="Day" />

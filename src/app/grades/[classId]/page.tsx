@@ -35,6 +35,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
 import Divider from '@mui/material/Divider';
+import Tooltip from '@mui/material/Tooltip';
 import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SyncIcon from '@mui/icons-material/Sync';
@@ -277,12 +278,21 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
     <Box>
       {/* ===== Top nav ===== */}
       <Stack direction="row" spacing={1} sx={{ mb: 2, alignItems: 'center' }}>
-        <IconButton onClick={() => router.push('/grades')} aria-label="Back to grades">
+        <IconButton onClick={() => router.push('/grades')} aria-label="Back to grades" sx={{ minWidth: 44, minHeight: 44 }}>
           <ArrowBackIcon />
         </IconButton>
-        <Typography variant="body2" color="text.secondary">Grades</Typography>
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+          onClick={() => router.push('/grades')}
+        >
+          Grades
+        </Typography>
         <Typography variant="body2" color="text.disabled">/</Typography>
-        <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>{cls.name}</Typography>
+        <Tooltip title={cls.name} placement="bottom">
+          <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>{cls.name}</Typography>
+        </Tooltip>
         <Box sx={{ flex: 1 }} />
         {cls?.categoryWeights && Object.keys(cls.categoryWeights).length > 0 && (
           <Button
@@ -326,7 +336,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
               </Typography>
               <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                 {cls.teacher && cls.teacher !== 'TBD' && (
-                  <Chip icon={<EmailIcon />} label={cls.teacher} size="small" variant="outlined" />
+                  <Chip icon={<EmailIcon />} label={cls.teacher.replace(/^Email\s+/i, '')} size="small" variant="outlined" />
                 )}
                 {cls.room && (
                   <Chip icon={<RoomIcon />} label={`Rm ${cls.room}`} size="small" variant="outlined" />

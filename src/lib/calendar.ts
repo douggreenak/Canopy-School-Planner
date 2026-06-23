@@ -81,14 +81,24 @@ export function generateCalendarFeed(
   disruptions: ScheduleDisruption[],
   semesterStart: string,
   semesterEnd: string,
-  schoolName: string
+  schoolName: string,
+  timezone = 'America/Anchorage',
 ): string {
   const cal = ical({
     name: `${schoolName || 'School'} Schedule`,
     method: ICalCalendarMethod.PUBLISH,
     prodId: { company: 'SchoolPlanner', product: 'ClassSchedule' },
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezone,
   });
+
+  // Build a local-time ISO string for the given date + HH:mm minutes.
+  // ical-generator pairs this with the calendar's TZID so the output is
+  // DTSTART;TZID=America/Anchorage:20260112T073000 — no UTC suffix.
+  const localDT = (d: dayjs.Dayjs, minutes: number): string => {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${d.format('YYYY-MM-DD')}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+  };
 
   // -- Recurring class events (RRULE-based) --
   const icalDays = [ICalWeekday.SU, ICalWeekday.MO, ICalWeekday.TU, ICalWeekday.WE, ICalWeekday.TH, ICalWeekday.FR, ICalWeekday.SA];
@@ -114,21 +124,22 @@ export function generateCalendarFeed(
       }
       if (firstDate.isAfter(semEnd)) continue;
 
-      const exDates: Date[] = [];
+      const exDates: string[] = [];
       let scan = firstDate;
       while (scan.isBefore(semEnd) || scan.isSame(semEnd, 'day')) {
         if (disruptionDates.has(scan.format('YYYY-MM-DD'))) {
           const d = disruptions.find((dis) => dis.date === scan.format('YYYY-MM-DD'));
           if (d?.type === 'no_school' || d?.periodOverrides.some((o) => o.period === cls.period && o.cancelled)) {
-            exDates.push(scan.hour(Math.floor(sMin / 60)).minute(sMin % 60).second(0).toDate());
+            exDates.push(localDT(scan, sMin));
           }
         }
         scan = scan.add(7, 'day');
       }
 
       const event = cal.createEvent({
-        start: firstDate.hour(Math.floor(sMin / 60)).minute(sMin % 60).second(0).toDate(),
-        end: firstDate.hour(Math.floor(eMin / 60)).minute(eMin % 60).second(0).toDate(),
+        start: localDT(firstDate, sMin),
+        end: localDT(firstDate, eMin),
+        timezone,
         summary: cls.name,
         location: cls.room ? `Room ${cls.room}` : '',
         description: `Teacher: ${cls.teacher}\nPeriod ${cls.period}`,
@@ -138,16 +149,13 @@ export function generateCalendarFeed(
       event.repeating({
         freq: ICalEventRepeatingFreq.WEEKLY,
         byDay: [icalDays[dow]],
-        until: semEnd.toDate(),
+        until: localDT(semEnd, 23 * 60 + 59),
         exclude: exDates.length > 0 ? exDates : undefined,
       });
     }
   }
 
   // -- Exams --
-  // Exams now happen during the linked class period. Pull start/end time and
-  // room from that class; fall back to the exam's own fields (legacy rows
-  // still have them) and finally to a generic 8–9 AM block.
   const classById = new Map(classes.map((c) => [c.id, c]));
   for (const exam of exams) {
     const examDate = dayjs(exam.date);
@@ -159,11 +167,10 @@ export function generateCalendarFeed(
     const sMin = parseMinutes(startTime);
     const eMin = parseMinutes(endTime);
 
-    // No alarm — the user opted out of exam reminders. The event still goes
-    // on the calendar; it just won't pop a notification before the exam.
     cal.createEvent({
-      start: examDate.hour(Math.floor(sMin / 60)).minute(sMin % 60).second(0).toDate(),
-      end: examDate.hour(Math.floor(eMin / 60)).minute(eMin % 60).second(0).toDate(),
+      start: localDT(examDate, sMin),
+      end: localDT(examDate, eMin),
+      timezone,
       summary: `EXAM: ${exam.title}`,
       location,
       description: exam.notes,
@@ -178,10 +185,9 @@ export function generateCalendarFeed(
   for (const hw of homework) {
     if (!hw.dueDate) continue;
     if (hw.source === 'powerschool') continue;
-    const dueDate = dayjs(hw.dueDate);
     cal.createEvent({
-      start: dueDate.hour(23).minute(59).toDate(),
-      end: dueDate.hour(23).minute(59).toDate(),
+      start: `${hw.dueDate}T00:00:00`,
+      end: `${hw.dueDate}T00:00:00`,
       summary: `DUE: ${hw.title}`,
       description: hw.description,
       categories: [{ name: 'Homework' }],
@@ -193,8 +199,8 @@ export function generateCalendarFeed(
   for (const d of disruptions) {
     if (d.type === 'no_school') {
       cal.createEvent({
-        start: dayjs(d.date).toDate(),
-        end: dayjs(d.date).toDate(),
+        start: `${d.date}T00:00:00`,
+        end: `${d.date}T00:00:00`,
         summary: d.label || 'No School',
         allDay: true,
         categories: [{ name: 'Disruption' }],

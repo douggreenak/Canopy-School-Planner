@@ -120,7 +120,7 @@ export default function ClassesPage() {
                 </Box>
                 <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                   <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <PersonIcon fontSize="small" /> {cls.teacher}
+                    <PersonIcon fontSize="small" /> {cls.teacher.replace(/^Email\s+/i, '')}
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <RoomIcon fontSize="small" /> Room {cls.room}
