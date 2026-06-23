@@ -177,5 +177,3 @@ To change the admin password, update the env var in Vercel and redeploy — the 
    - `ADMIN_USERNAME` + `ADMIN_PASSWORD`
    - `CHROMIUM_EXECUTABLE_PATH` (if using Puppeteer on Vercel — see [@sparticuz/chromium](https://github.com/Sparticuz/chromium))
 4. Deploy
-
----
