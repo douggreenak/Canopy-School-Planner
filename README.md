@@ -179,9 +179,3 @@ To change the admin password, update the env var in Vercel and redeploy — the 
 4. Deploy
 
 ---
-
-## Built with Claude Code
-
-Every line of code in this project was written by **[Claude Code](https://claude.ai/code)** — Anthropic's AI coding agent. No human wrote any source code. Features were described in natural language; Claude Code planned, implemented, debugged, and verified each one end-to-end using its built-in preview tool.
-
-The complete build included: database schema design, Next.js App Router architecture, MUI component library integration, PowerSchool scraping with Puppeteer, role-based auth, grade analytics engine, iOS companion app (SwiftUI), and Vercel deployment — all from conversation.
