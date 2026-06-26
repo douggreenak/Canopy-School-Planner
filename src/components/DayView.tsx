@@ -32,6 +32,10 @@ interface Props {
   schedule: DaySchedule;
   date: string;
   onClassClick?: (entry: ScheduleEntry) => void;
+  // Whether the user has any classes configured at all. Lets the empty state
+  // tell "you haven't added classes yet" apart from "no class meets today"
+  // (a weekend, a day off, or a date outside the semester).
+  hasClasses?: boolean;
 }
 
 function NowIndicator() {
@@ -175,7 +179,7 @@ const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug, index
 
 ClassBlock.displayName = 'ClassBlock';
 
-export default function DayView({ schedule, date, onClassClick }: Props) {
+export default function DayView({ schedule, date, onClassClick, hasClasses = false }: Props) {
   const theme = useTheme();
   const debug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debugSchedule') === '1';
 
@@ -194,13 +198,18 @@ export default function DayView({ schedule, date, onClassClick }: Props) {
   }, [schedule.classes]);
 
   if (schedule.classes.length === 0) {
+    const isWeekend = [0, 6].includes(dayjs(date).day());
     return (
       <Box sx={{ textAlign: 'center', py: 8 }}>
         <Typography variant="body1" color="text.secondary">
           No classes scheduled for {dayjs(date).format('dddd, MMMM D')}
         </Typography>
         <Typography variant="body2" color="text.disabled" sx={{ mt: 1 }}>
-          Set up your classes via PowerSchool sync or the Classes page.
+          {hasClasses
+            ? isWeekend
+              ? 'Enjoy your weekend!'
+              : 'None of your classes meet on this day, or it falls outside your semester dates.'
+            : 'Set up your classes via PowerSchool sync or the Classes page.'}
         </Typography>
       </Box>
     );

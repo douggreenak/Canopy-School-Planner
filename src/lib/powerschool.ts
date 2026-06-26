@@ -1537,6 +1537,9 @@ export async function scrapePowerSchool(
     // stored on SchoolClass (frns change per term).
     const classTermFrns = new Map<string, TermFrn[]>();
     const matrixByScrapedClassId: Record<string, { days: number[]; startTime?: string; endTime?: string } | undefined> = {};
+    // Tracks how each class's meeting days were resolved so we can post-process
+    // a known misparse (see the day-collapse guard after this map).
+    const dayResolution: { cls: SchoolClass; source: string }[] = [];
     const classes: SchoolClass[] = rawClasses.map((c, i) => {
       // Default bell times; overridden by the matrix if we found one.
       const bell = defaultBellTime(c.period || (i + 1));
@@ -1649,11 +1652,37 @@ export async function scrapePowerSchool(
         matrixByScrapedClassId[cls.id] = undefined;
       }
       if (c.termFrns.length > 0) classTermFrns.set(cls.id, c.termFrns);
+      dayResolution.push({ cls, source: daysSource });
       if (best) {
         log.push(`  - ${c.name}: grade from ${best.term || best.termType} column (${best.grade || ''}${best.gradePercent !== null ? ` ${best.gradePercent}%` : ''})`);
       }
       return cls;
     });
+
+    // ---- Day-collapse guard ---------------------------------------------------
+    // Some PowerSchool installs put a constant track/term code (e.g. "(A)") in
+    // the period expression where a day-of-week pattern would normally appear.
+    // parseDaysFromExpression maps a lone "A" to Monday, which collapses EVERY
+    // class onto the same single weekday. No real timetable has all classes
+    // meeting on one identical day, so when the only day signal came from those
+    // expressions (no matrix data) and every class landed on the same single
+    // weekday, we treat the codes as a non-day constant and fall back to the
+    // standard Mon–Fri schedule instead of hiding all classes on six of seven
+    // days.
+    const exprResolved = dayResolution.filter((d) => d.source.startsWith('expression'));
+    const matrixResolved = dayResolution.filter((d) => d.source === 'matrix');
+    if (
+      matrixResolved.length === 0 &&
+      exprResolved.length >= 2 &&
+      exprResolved.every((d) => d.cls.days.length === 1) &&
+      new Set(exprResolved.map((d) => d.cls.days[0])).size === 1
+    ) {
+      const collapsed = exprResolved[0].cls.days[0];
+      log.push(
+        `Day guard: all ${exprResolved.length} classes collapsed onto weekday ${collapsed} from ambiguous expression codes — treating as a constant term code and falling back to Mon–Fri.`,
+      );
+      for (const d of exprResolved) d.cls.days = [1, 2, 3, 4, 5];
+    }
 
     log.push(`Imported ${classes.length} classes after filtering menu items`);
 

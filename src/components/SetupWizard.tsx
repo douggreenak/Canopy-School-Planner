@@ -234,6 +234,10 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 />
               </Stack>
 
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                Your Dashboard and Schedule only show classes that fall within these dates — so outside the semester (e.g. over summer) they&apos;ll look empty. You can change these anytime in Settings.
+              </Alert>
+
               <TimezonePicker
                 value={timezone}
                 onChange={setTimezone}

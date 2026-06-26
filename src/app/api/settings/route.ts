@@ -23,7 +23,12 @@ function validateSetting(key: string, value: string): string | null {
 export async function GET(request: Request) {
   try {
     const userId = await getSessionUserId(request);
-    if (!userId) return unauth();
+    // Settings are non-sensitive per-user UI prefs (theme, accent, semester
+    // dates). ThemeRegistry reads them on the login screen before a session
+    // exists, so respond with empty defaults rather than a 401 — this avoids a
+    // spurious console error on every logged-out page load. Writes (POST/PUT)
+    // still require an authenticated session.
+    if (!userId) return Response.json({});
     const settings = await getSettings(userId);
     return Response.json(settings);
   } catch {

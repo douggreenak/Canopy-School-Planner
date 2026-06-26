@@ -98,9 +98,13 @@ export async function POST(request: NextRequest) {
       for (const line of log) console.log(`[ps] ${line}`);
       console.log('=== end sync ===');
     }
-    const msg = (error as Error).message ?? '';
-    const safeMsg = msg.includes('PowerSchool') || msg.includes('credentials') || msg.includes('timeout')
-      ? msg : 'Sync failed due to an internal error.';
+    // The scraper appends its full debug log to the thrown message. That log is
+    // returned separately below (and shown in a collapsible panel in the UI),
+    // so strip it here to keep the user-facing alert clean and readable.
+    const rawMsg = (error as Error).message ?? '';
+    const cleanMsg = rawMsg.split('\n\nLog:')[0].replace(/^PowerSchool scrape failed:\s*/i, '').trim();
+    const isKnown = /PowerSchool|credential|password|username|timeout|login/i.test(cleanMsg);
+    const safeMsg = isKnown && cleanMsg ? cleanMsg : 'Sync failed due to an internal error.';
     return Response.json({
       success: false,
       error: safeMsg,

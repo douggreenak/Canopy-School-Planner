@@ -668,6 +668,11 @@ function SettingsInner() {
               <Grid size={12}>
                 <TextField fullWidth label="School Name" value={schoolName} onChange={(e) => setSchoolName(e.target.value)} placeholder="e.g., Lincoln High School" />
               </Grid>
+              <Grid size={12}>
+                <Typography variant="caption" color="text.secondary">
+                  Your Dashboard and Schedule only show classes within these dates. Outside the semester (e.g. over summer) they will appear empty.
+                </Typography>
+              </Grid>
               <Grid size={6}>
                 <TextField fullWidth label="Semester Start" type="date" value={semesterStart} onChange={(e) => setSemesterStart(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
               </Grid>

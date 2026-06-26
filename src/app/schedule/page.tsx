@@ -315,6 +315,7 @@ function SchedulePageInner() {
                 schedule={daySchedule}
                 date={selectedDate.format('YYYY-MM-DD')}
                 onClassClick={handleDayClick}
+                hasClasses={!!classes && classes.length > 0}
               />
             )}
             {view === 'week' && weekSchedule && (

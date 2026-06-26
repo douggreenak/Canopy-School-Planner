@@ -68,6 +68,26 @@ export function buildDaySchedule(
   const timeToMinutes = parseMinutes;
   entries.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 
+  // The synthetic "Lunch" block uses generic default times that won't line up
+  // with every school's bell schedule. When it lands on top of a real class,
+  // drop it instead of rendering two overlapping blocks the user can't read.
+  // A lunch period that sits in a genuine gap is left untouched.
+  const lunchIdx = entries.findIndex((e) => e.classInfo.id === '__lunch__');
+  if (lunchIdx !== -1) {
+    const lunch = entries[lunchIdx];
+    const ls = timeToMinutes(lunch.startTime);
+    const le = timeToMinutes(lunch.endTime);
+    const overlapsRealClass = entries.some(
+      (e, i) =>
+        i !== lunchIdx &&
+        e.classInfo.id !== '__lunch__' &&
+        !e.cancelled &&
+        ls < timeToMinutes(e.endTime) &&
+        timeToMinutes(e.startTime) < le,
+    );
+    if (overlapsRealClass) entries.splice(lunchIdx, 1);
+  }
+
   return { date, classes: entries, disruption };
 }
 

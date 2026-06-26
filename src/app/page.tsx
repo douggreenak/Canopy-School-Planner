@@ -107,6 +107,13 @@ export default function Dashboard() {
     [homework],
   );
 
+  // PowerSchool assignments live on the Grades tab, not here. Track whether any
+  // exist so the dashboard can point the user there instead of looking empty.
+  const hasPowerschoolHomework = useMemo(
+    () => (homework || []).some((h) => h.source === 'powerschool'),
+    [homework],
+  );
+
   const upcomingHomework = useMemo(() => {
     return manualHomework
       .filter((h) => !h.completed && dayjs(h.dueDate).isAfter(dayjs().subtract(1, 'day')))
@@ -293,7 +300,7 @@ export default function Dashboard() {
         </Tabs>
         <Box sx={{ p: 2 }}>
           {tab === 0 && todaySchedule && (
-            <DayView schedule={todaySchedule} date={selectedDate.format('YYYY-MM-DD')} />
+            <DayView schedule={todaySchedule} date={selectedDate.format('YYYY-MM-DD')} hasClasses={!!classes && classes.length > 0} />
           )}
           {tab === 0 && !todaySchedule && (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
@@ -391,6 +398,11 @@ export default function Dashboard() {
               </Typography>
               {upcomingHomework.length === 0 && (
                 <Typography variant="body2" color="text.secondary">No homework due soon. Add some on the Tasks page.</Typography>
+              )}
+              {hasPowerschoolHomework && (
+                <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: upcomingHomework.length === 0 ? 0.5 : 1 }}>
+                  Your synced PowerSchool assignments live on the <Box component="a" href="/grades" sx={{ color: 'primary.main', textDecoration: 'none', fontWeight: 500 }}>Grades</Box> page.
+                </Typography>
               )}
               <Stack spacing={1}>
                 {upcomingHomework.map((h) => (
