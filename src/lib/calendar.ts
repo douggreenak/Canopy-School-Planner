@@ -127,6 +127,20 @@ export function generateCalendarFeed(
 
   const disruptionDates = new Set(disruptions.map((d) => d.date));
 
+  // The synthetic "Lunch" block uses generic default times that won't line up
+  // with every school's bell schedule. On any weekday where it would overlap a
+  // real class, skip the lunch event for that day so the feed doesn't show two
+  // events stacked on top of each other (mirrors buildDaySchedule's behavior).
+  const realClasses = classes.filter((c) => c.id !== '__lunch__');
+  const lunchOverlapsRealClass = (dow: number, sMin: number, eMin: number): boolean =>
+    realClasses.some((c) => {
+      if (!c.days?.includes(dow)) return false;
+      const cs = c.dayTimes?.[dow]?.startTime || c.startTime;
+      const ce = c.dayTimes?.[dow]?.endTime || c.endTime;
+      if (!cs || !ce) return false;
+      return sMin < parseMinutes(ce) && parseMinutes(cs) < eMin;
+    });
+
   for (const cls of classes) {
     if (!cls.days || cls.days.length === 0) continue;
 
@@ -137,6 +151,8 @@ export function generateCalendarFeed(
 
       const sMin = parseMinutes(startTime);
       const eMin = parseMinutes(endTime);
+
+      if (cls.id === '__lunch__' && lunchOverlapsRealClass(dow, sMin, eMin)) continue;
 
       let firstDate = semStart;
       while (firstDate.day() !== dow && firstDate.isBefore(semEnd)) {

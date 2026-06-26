@@ -43,7 +43,31 @@ export async function GET(request: NextRequest) {
     const semesterEnd = freshSettings.semesterEnd || defaultEnd;
     const schoolName = freshSettings.schoolName || 'School';
 
-    // Inject a synthetic Lunch class into the calendar feed
+    // Inject a synthetic Lunch class into the calendar feed using the user's
+    // configured lunch times (Settings → Bell Schedule). The feed must match
+    // what the Dashboard/Schedule show, so we read the saved `lunchTimes`
+    // setting instead of hardcoding generic times. generateCalendarFeed drops
+    // the lunch block on any day where it would overlap a real class.
+    const DEFAULT_LUNCH_TIMES: Record<number, { startTime: string; endTime: string }> = {
+      1: { startTime: '10:26', endTime: '10:57' },
+      2: { startTime: '10:50', endTime: '11:20' },
+      3: { startTime: '10:50', endTime: '11:20' },
+      4: { startTime: '10:50', endTime: '11:20' },
+      5: { startTime: '10:26', endTime: '10:57' },
+    };
+    let savedLunch: Record<number, { startTime: string; endTime: string }> = {};
+    const rawLunch = (freshSettings as Record<string, unknown>).lunchTimes;
+    if (rawLunch) {
+      try {
+        const parsed = typeof rawLunch === 'string' ? JSON.parse(rawLunch) : rawLunch;
+        for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+          savedLunch[Number(k)] = v as { startTime: string; endTime: string };
+        }
+      } catch {
+        savedLunch = {};
+      }
+    }
+    const lunchTimes = { ...DEFAULT_LUNCH_TIMES, ...savedLunch };
     const lunchClass = {
       id: '__lunch__',
       name: 'Lunch',
@@ -51,11 +75,11 @@ export async function GET(request: NextRequest) {
       room: '',
       color: '#9E9E9E',
       period: 0,
-      startTime: '12:00',
-      endTime: '12:30',
+      startTime: lunchTimes[1]?.startTime || '10:26',
+      endTime: lunchTimes[1]?.endTime || '10:57',
       days: [1, 2, 3, 4, 5],
       semester: '',
-      dayTimes: { 1: { startTime: '12:00', endTime: '12:30' }, 2: { startTime: '12:00', endTime: '12:30' }, 3: { startTime: '12:00', endTime: '12:30' }, 4: { startTime: '12:00', endTime: '12:30' }, 5: { startTime: '12:00', endTime: '12:30' } },
+      dayTimes: lunchTimes,
     };
     const classesWithLunch = classes.find((c) => c.id === '__lunch__') ? classes : [...classes, lunchClass];
 
