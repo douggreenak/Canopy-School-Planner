@@ -1,7 +1,7 @@
 // ============================================================
 // Neon (PostgreSQL) Database Layer
 // ============================================================
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryPromise } from '@neondatabase/serverless';
 import crypto from 'crypto';
 import type {
   SchoolClass,
@@ -16,8 +16,32 @@ import type {
 } from '@/types';
 import { v4 as uuid } from 'uuid';
 
-function getDb() {
-  return neon(process.env.DATABASE_URL!);
+// The Neon HTTP driver is stateless (each query is an independent fetch, no
+// socket to pool), so a single client can be reused across requests/invocations
+// instead of reconstructing it on every call.
+type Sql = ReturnType<typeof neon<false, false>>;
+let _sql: Sql | null = null;
+function getDb(): Sql {
+  if (!_sql) _sql = neon(process.env.DATABASE_URL!);
+  return _sql;
+}
+
+// Neon's HTTP driver issues one round trip per query. For write-heavy paths
+// (sync imports, bulk log/grade inserts) we collect the per-row query objects
+// and submit them as non-interactive transactions, collapsing N round trips
+// into ceil(N / chunkSize). Chunking keeps individual request payloads bounded.
+type WriteQuery = NeonQueryPromise<false, false>;
+async function runBatchedWrites(
+  sql: ReturnType<typeof getDb>,
+  queries: WriteQuery[],
+  chunkSize = 100,
+): Promise<void> {
+  for (let i = 0; i < queries.length; i += chunkSize) {
+    const chunk = queries.slice(i, i + chunkSize);
+    if (chunk.length === 0) continue;
+    if (chunk.length === 1) await chunk[0];
+    else await sql.transaction(chunk);
+  }
 }
 
 // ---- Schema initialization ----
@@ -134,6 +158,18 @@ export async function initializeDatabase() {
   await sql`ALTER TABLE exams ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE disruptions ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
+
+  // Per-user lookup indexes. Every data query filters by user_id; without these
+  // Postgres seq-scans the whole table and filters in memory, which degrades as
+  // total rows across all users grow. Composite (user_id, source, class_id) on
+  // homework matches the sync delete/merge scan in syncHomeworkFromSource.
+  await sql`CREATE INDEX IF NOT EXISTS idx_classes_user ON classes (user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_homework_user ON homework (user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_homework_user_source_class ON homework (user_id, source, class_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_exams_user ON exams (user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks (user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_disruptions_user ON disruptions (user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)`;
 
   // Migration: category weights (what-if calculator, exam stakes, missing-work triage)
   await sql`ALTER TABLE classes ADD COLUMN IF NOT EXISTS category_weights JSONB`;
@@ -680,6 +716,15 @@ export async function setSetting(key: string, value: string, userId: string): Pr
   `;
 }
 
+export async function setSettingsBatch(entries: [string, string][], userId: string): Promise<void> {
+  if (entries.length === 0) return;
+  const sql = getDb();
+  await runBatchedWrites(sql, entries.map(([key, value]) => sql`
+    INSERT INTO settings (user_id, key, value) VALUES (${userId}, ${key}, ${value})
+    ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value
+  `));
+}
+
 export async function deleteSetting(key: string, userId: string): Promise<void> {
   const sql = getDb();
   await sql`DELETE FROM settings WHERE user_id = ${userId} AND key = ${key}`;
@@ -764,15 +809,25 @@ export async function setPowerSchoolCredentials(
   username: string,
   password: string,
 ): Promise<void> {
-  await setSetting('powerschoolUrl', url, userId);
-  await setSetting('powerschoolUsername', username, userId);
-  await setSetting('powerschoolPassword', encryptCredential(password), userId);
+  const sql = getDb();
+  const upsert = (key: string, value: string) => sql`
+    INSERT INTO settings (user_id, key, value) VALUES (${userId}, ${key}, ${value})
+    ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value
+  `;
+  await sql.transaction([
+    upsert('powerschoolUrl', url),
+    upsert('powerschoolUsername', username),
+    upsert('powerschoolPassword', encryptCredential(password)),
+  ]);
 }
 
 export async function clearPowerSchoolCredentials(userId: string): Promise<void> {
-  await deleteSetting('powerschoolUrl', userId);
-  await deleteSetting('powerschoolUsername', userId);
-  await deleteSetting('powerschoolPassword', userId);
+  const sql = getDb();
+  await sql`
+    DELETE FROM settings
+    WHERE user_id = ${userId}
+      AND key IN ('powerschoolUrl', 'powerschoolUsername', 'powerschoolPassword')
+  `;
 }
 
 // ---- Grade history & sync log ----
@@ -799,6 +854,18 @@ export async function addGradeHistoryEntry(
   `;
 }
 
+export async function addGradeHistoryEntries(
+  userId: string,
+  entries: { classId: string; gradePercent: number | undefined; letter: string | undefined; semester: string }[],
+): Promise<void> {
+  if (entries.length === 0) return;
+  const sql = getDb();
+  await runBatchedWrites(sql, entries.map((e) => sql`
+    INSERT INTO grade_history (id, user_id, class_id, grade_percent, letter, semester)
+    VALUES (${uuid()}, ${userId}, ${e.classId}, ${e.gradePercent ?? null}, ${e.letter ?? null}, ${e.semester})
+  `));
+}
+
 export async function getSyncLog(
   userId: string,
   opts?: { classId?: string; limit?: number },
@@ -820,12 +887,10 @@ export async function addSyncLogEntries(
 ): Promise<void> {
   if (entries.length === 0) return;
   const sql = getDb();
-  for (const e of entries) {
-    await sql`
-      INSERT INTO sync_log (id, user_id, sync_id, entity_type, entity_id, class_id, label, change_type, detail)
-      VALUES (${uuid()}, ${userId}, ${e.syncId}, ${e.entityType}, ${e.entityId}, ${e.classId ?? null}, ${e.label}, ${e.changeType}, ${e.detail})
-    `;
-  }
+  await runBatchedWrites(sql, entries.map((e) => sql`
+    INSERT INTO sync_log (id, user_id, sync_id, entity_type, entity_id, class_id, label, change_type, detail)
+    VALUES (${uuid()}, ${userId}, ${e.syncId}, ${e.entityType}, ${e.entityId}, ${e.classId ?? null}, ${e.label}, ${e.changeType}, ${e.detail})
+  `));
 }
 
 // ---- Sync helpers (PowerSchool / Classroom imports) ----
@@ -841,6 +906,10 @@ export async function syncClassesFromSource(
 ): Promise<{ added: number; updated: number; removed: number; idMap: Map<string, string>; logEntries: Omit<SyncLogEntry, 'id' | 'occurredAt'>[] }> {
   const sql = getDb();
   const logEntries: Omit<SyncLogEntry, 'id' | 'occurredAt'>[] = [];
+  // Collect all row writes and flush them in batched transactions at the end.
+  // Nothing in the merge loop reads back its own writes (lookup maps are built
+  // up front from `all`), so deferring execution is behavior-preserving.
+  const writeQueries: WriteQuery[] = [];
 
   const allRows = await sql`SELECT * FROM classes WHERE user_id = ${userId}`;
   const all = allRows.map((r) => dbToClass(r as Record<string, unknown>));
@@ -917,7 +986,7 @@ export async function syncClassesFromSource(
           });
         }
 
-        await sql`
+        writeQueries.push(sql`
           UPDATE classes SET
             name = ${merged.name}, teacher = ${merged.teacher}, room = ${merged.room},
             color = ${merged.color}, period = ${merged.period},
@@ -930,12 +999,12 @@ export async function syncClassesFromSource(
             category_weights = ${merged.categoryWeights ? JSON.stringify(merged.categoryWeights) : null}::jsonb,
             weight_source = ${merged.weightSource ?? null}
           WHERE id = ${merged.id} AND user_id = ${userId}
-        `;
+        `);
         idMap.set(cls.id, prior.id);
         keptIds.add(prior.id);
         updated++;
       } else {
-        await sql`
+        writeQueries.push(sql`
           INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source)
           VALUES (
             ${cls.id}, ${userId}, ${cls.name}, ${cls.teacher}, ${cls.room}, ${cls.color}, ${cls.period},
@@ -946,7 +1015,7 @@ export async function syncClassesFromSource(
             ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
             ${cls.weightSource ?? null}
           )
-        `;
+        `);
         idMap.set(cls.id, cls.id);
         keptIds.add(cls.id);
         if (syncId) {
@@ -985,15 +1054,16 @@ export async function syncClassesFromSource(
       }
     }
     if (toDeleteIds.length > 0) {
-      await sql`DELETE FROM classes WHERE id = ANY(${toDeleteIds}) AND user_id = ${userId}`;
+      writeQueries.push(sql`DELETE FROM classes WHERE id = ANY(${toDeleteIds}) AND user_id = ${userId}`);
     }
+    await runBatchedWrites(sql, writeQueries);
     return { added, updated, removed: toDeleteIds.length, idMap, logEntries };
   }
 
   // Classroom (and future sources)
   for (const cls of incoming) {
     if (!cls.sourceId) {
-      await sql`
+      writeQueries.push(sql`
         INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source)
         VALUES (
           ${cls.id}, ${userId}, ${cls.name}, ${cls.teacher}, ${cls.room}, ${cls.color}, ${cls.period},
@@ -1004,7 +1074,7 @@ export async function syncClassesFromSource(
           ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
           ${cls.weightSource ?? null}
         )
-      `;
+      `);
       idMap.set(cls.id, cls.id);
       added++;
       continue;
@@ -1035,7 +1105,7 @@ export async function syncClassesFromSource(
       if (prior.dayTimes && Object.keys(prior.dayTimes).length > 0) merged.dayTimes = prior.dayTimes;
       if (prior.period && Number(prior.period) > 0) merged.period = prior.period;
 
-      await sql`
+      writeQueries.push(sql`
         UPDATE classes SET
           name = ${merged.name}, teacher = ${merged.teacher}, room = ${merged.room},
           color = ${merged.color}, period = ${merged.period},
@@ -1048,12 +1118,12 @@ export async function syncClassesFromSource(
           category_weights = ${merged.categoryWeights ? JSON.stringify(merged.categoryWeights) : null}::jsonb,
           weight_source = ${merged.weightSource ?? null}
         WHERE id = ${merged.id} AND user_id = ${userId}
-      `;
+      `);
       idMap.set(cls.id, prior.id);
       keptIds.add(prior.id);
       updated++;
     } else {
-      await sql`
+      writeQueries.push(sql`
         INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source)
         VALUES (
           ${cls.id}, ${userId}, ${cls.name}, ${cls.teacher}, ${cls.room}, ${cls.color}, ${cls.period},
@@ -1064,7 +1134,7 @@ export async function syncClassesFromSource(
           ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
           ${cls.weightSource ?? null}
         )
-      `;
+      `);
       idMap.set(cls.id, cls.id);
       added++;
     }
@@ -1072,8 +1142,9 @@ export async function syncClassesFromSource(
 
   const toDelete = fromSource.filter((c) => !keptIds.has(c.id)).map((c) => c.id);
   if (toDelete.length > 0) {
-    await sql`DELETE FROM classes WHERE id = ANY(${toDelete}) AND user_id = ${userId}`;
+    writeQueries.push(sql`DELETE FROM classes WHERE id = ANY(${toDelete}) AND user_id = ${userId}`);
   }
+  await runBatchedWrites(sql, writeQueries);
   return { added, updated, removed: toDelete.length, idMap, logEntries };
 }
 
@@ -1085,6 +1156,10 @@ export async function syncHomeworkFromSource(
 ): Promise<{ added: number; updated: number; removed: number; logEntries: Omit<SyncLogEntry, 'id' | 'occurredAt'>[] }> {
   const sql = getDb();
   const logEntries: Omit<SyncLogEntry, 'id' | 'occurredAt'>[] = [];
+  // Defer row writes and flush as batched transactions (the merge loop never
+  // reads back its own writes), collapsing one HTTP round trip per assignment
+  // into ceil(N / chunkSize) — the dominant cost on large PowerSchool syncs.
+  const writeQueries: WriteQuery[] = [];
 
   // Scope to only class IDs in the incoming batch — avoids deleting prior-semester homework.
   const incomingClassIds = [...new Set(incoming.map((h) => h.classId))];
@@ -1104,14 +1179,14 @@ export async function syncHomeworkFromSource(
 
   for (const hw of incoming) {
     if (!hw.sourceId) {
-      await sql`
+      writeQueries.push(sql`
         INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, score_percent)
         VALUES (
           ${hw.id}, ${userId}, ${hw.classId}, ${hw.title}, ${hw.description}, ${hw.dueDate},
           ${hw.completed}, ${hw.priority}, ${source}, ${null},
           ${hw.score ?? null}, ${hw.category ?? null}, ${hw.flags ?? null}, ${hw.scorePercent ?? null}
         )
-      `;
+      `);
       added++;
       continue;
     }
@@ -1151,7 +1226,7 @@ export async function syncHomeworkFromSource(
         }
       }
 
-      await sql`
+      writeQueries.push(sql`
         UPDATE homework SET
           class_id = ${merged.classId}, title = ${merged.title},
           description = ${merged.description}, due_date = ${merged.dueDate},
@@ -1160,18 +1235,18 @@ export async function syncHomeworkFromSource(
           score = ${merged.score ?? null}, category = ${merged.category ?? null},
           flags = ${merged.flags ?? null}, score_percent = ${merged.scorePercent ?? null}
         WHERE id = ${merged.id} AND user_id = ${userId}
-      `;
+      `);
       keptIds.add(prior.id);
       updated++;
     } else {
-      await sql`
+      writeQueries.push(sql`
         INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, score_percent)
         VALUES (
           ${hw.id}, ${userId}, ${hw.classId}, ${hw.title}, ${hw.description}, ${hw.dueDate},
           ${hw.completed}, ${hw.priority}, ${source}, ${hw.sourceId ?? null},
           ${hw.score ?? null}, ${hw.category ?? null}, ${hw.flags ?? null}, ${hw.scorePercent ?? null}
         )
-      `;
+      `);
       if (syncId) {
         logEntries.push({
           syncId,
@@ -1189,7 +1264,8 @@ export async function syncHomeworkFromSource(
 
   const toDelete = existing.filter((hw) => !keptIds.has(hw.id)).map((hw) => hw.id);
   if (toDelete.length > 0) {
-    await sql`DELETE FROM homework WHERE id = ANY(${toDelete}) AND user_id = ${userId}`;
+    writeQueries.push(sql`DELETE FROM homework WHERE id = ANY(${toDelete}) AND user_id = ${userId}`);
   }
+  await runBatchedWrites(sql, writeQueries);
   return { added, updated, removed: toDelete.length, logEntries };
 }

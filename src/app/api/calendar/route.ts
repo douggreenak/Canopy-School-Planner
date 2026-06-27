@@ -20,18 +20,17 @@ export async function GET(request: NextRequest) {
       return new Response('Missing userId parameter', { status: 400 });
     }
 
-    const savedSettings = await getSettings(userId);
-    const validToken = savedSettings.calendarToken as string | undefined;
+    const freshSettings = await getSettings(userId);
+    const validToken = freshSettings.calendarToken as string | undefined;
     if (!validToken || !token || !safeTokenCompare(token, validToken)) {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    const [classes, exams, homework, disruptions, freshSettings] = await Promise.all([
+    const [classes, exams, homework, disruptions] = await Promise.all([
       getClasses(userId),
       getExams(userId),
       getHomework(userId),
       getDisruptions(userId),
-      getSettings(userId),
     ]);
 
     const now = new Date();

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getSettings, setSetting, initializeDatabase } from '@/lib/db';
+import { getSettings, setSetting, setSettingsBatch, initializeDatabase } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 
 const ALLOWED_KEYS = new Set([
@@ -43,13 +43,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     if (body.batch && typeof body.batch === 'object') {
-      const entries = Object.entries(body.batch) as [string, string][];
-      for (const [k, v] of entries) {
+      const normalized: [string, string][] = [];
+      for (const [k, v] of Object.entries(body.batch)) {
         const strVal = typeof v === 'string' ? v : JSON.stringify(v);
         const err = validateSetting(k, strVal);
         if (err) return Response.json({ error: err }, { status: 400 });
+        normalized.push([k, strVal]);
       }
-      await Promise.all(entries.map(([k, v]) => setSetting(k, typeof v === 'string' ? v : JSON.stringify(v), userId)));
+      await setSettingsBatch(normalized, userId);
       return Response.json({ success: true });
     }
 

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { v4 as uuid } from 'uuid';
 import { scrapePowerSchool, type ScrapedSchedule } from '@/lib/powerschool';
-import { syncClassesFromSource, syncHomeworkFromSource, addSyncLogEntries, addGradeHistoryEntry, getPowerSchoolCredentials } from '@/lib/db';
+import { syncClassesFromSource, syncHomeworkFromSource, addSyncLogEntries, addGradeHistoryEntries, getPowerSchoolCredentials } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
@@ -66,12 +66,15 @@ export async function POST(request: NextRequest) {
     if (allLogEntries.length > 0) {
       await addSyncLogEntries(userId, allLogEntries);
     }
-    for (const cls of result.classes) {
-      const persistedId = classStats.idMap.get(cls.id) ?? cls.id;
-      if (cls.gradePercent !== undefined || cls.grade) {
-        await addGradeHistoryEntry(userId, persistedId, cls.gradePercent, cls.grade, cls.semester);
-      }
-    }
+    const gradeSnapshots = result.classes
+      .filter((cls) => cls.gradePercent !== undefined || cls.grade)
+      .map((cls) => ({
+        classId: classStats.idMap.get(cls.id) ?? cls.id,
+        gradePercent: cls.gradePercent,
+        letter: cls.grade,
+        semester: cls.semester,
+      }));
+    await addGradeHistoryEntries(userId, gradeSnapshots);
 
     console.log('=== PowerSchool sync ===');
     for (const line of result.log) console.log(`[ps] ${line}`);
