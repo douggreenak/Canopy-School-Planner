@@ -104,8 +104,14 @@ export interface Task {
 
 export interface ScheduleDisruption {
   id: string;
-  date: string;          // ISO date
+  date: string;          // ISO date — start date (inclusive)
+  // ISO date — end date (inclusive). Omitted/equal to `date` means a
+  // single-day disruption. When set, the disruption applies to every day
+  // in [date, endDate].
+  endDate?: string;
   type: 'early_out' | 'late_start' | 'no_school' | 'assembly' | '1_6' | 'custom';
+  // May be '' — an unnamed disruption falls back to displaying its type's
+  // label everywhere it's shown (see DISRUPTION_TYPES).
   label: string;
   periodOverrides: PeriodOverride[];
 }

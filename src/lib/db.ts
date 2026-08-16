@@ -136,6 +136,7 @@ export async function initializeDatabase() {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
       date TEXT NOT NULL DEFAULT '',
+      end_date TEXT NOT NULL DEFAULT '',
       type TEXT NOT NULL DEFAULT '',
       label TEXT NOT NULL DEFAULT '',
       period_overrides JSONB NOT NULL DEFAULT '[]'
@@ -158,6 +159,7 @@ export async function initializeDatabase() {
   await sql`ALTER TABLE exams ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE disruptions ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE disruptions ADD COLUMN IF NOT EXISTS end_date TEXT NOT NULL DEFAULT ''`;
 
   // Per-user lookup indexes. Every data query filters by user_id; without these
   // Postgres seq-scans the whole table and filters in memory, which degrades as
@@ -326,9 +328,14 @@ function dbToTask(row: Record<string, unknown>): Task {
 }
 
 function dbToDisruption(row: Record<string, unknown>): ScheduleDisruption {
+  const date = (row.date as string) || '';
+  const endDate = (row.end_date as string) || '';
   return {
     id: row.id as string,
-    date: (row.date as string) || '',
+    date,
+    // Only surface endDate when it's an actual multi-day span — keeps
+    // single-day disruptions (endDate === date, or unset) clean.
+    endDate: endDate && endDate !== date ? endDate : undefined,
     type: (row.type as ScheduleDisruption['type']),
     label: (row.label as string) || '',
     periodOverrides: (row.period_overrides as PeriodOverride[]) || [],
@@ -664,8 +671,8 @@ export async function getDisruptions(userId: string): Promise<ScheduleDisruption
 export async function addDisruption(d: ScheduleDisruption, userId: string): Promise<void> {
   const sql = getDb();
   await sql`
-    INSERT INTO disruptions (id, user_id, date, type, label, period_overrides)
-    VALUES (${d.id}, ${userId}, ${d.date}, ${d.type}, ${d.label}, ${JSON.stringify(d.periodOverrides)}::jsonb)
+    INSERT INTO disruptions (id, user_id, date, end_date, type, label, period_overrides)
+    VALUES (${d.id}, ${userId}, ${d.date}, ${d.endDate || d.date}, ${d.type}, ${d.label}, ${JSON.stringify(d.periodOverrides)}::jsonb)
   `;
 }
 
@@ -673,7 +680,7 @@ export async function updateDisruption(d: ScheduleDisruption, userId: string): P
   const sql = getDb();
   await sql`
     UPDATE disruptions SET
-      date = ${d.date}, type = ${d.type}, label = ${d.label},
+      date = ${d.date}, end_date = ${d.endDate || d.date}, type = ${d.type}, label = ${d.label},
       period_overrides = ${JSON.stringify(d.periodOverrides)}::jsonb
     WHERE id = ${d.id} AND user_id = ${userId}
   `;

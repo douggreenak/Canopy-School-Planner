@@ -192,6 +192,63 @@ export function generateLateStartOverrides(
   }));
 }
 
+/**
+ * Generate "1-6 Schedule" overrides.
+ *
+ * A straight 1-6 day runs every period once, in numeric order, using each
+ * class's canonical period time (`startTime`/`endTime`) rather than any
+ * day-specific block-schedule time. This overrides the normal A/B block
+ * pattern, so it deliberately does NOT filter by the disruption's weekday —
+ * a class that doesn't normally meet on that day (e.g. a period that's only
+ * part of the Tue/Thu block) still gets an override so it shows up.
+ *
+ * Also places a Lunch override (period 0, matching the synthetic Lunch
+ * class) in the largest gap between two consecutive periods. The normal
+ * weekday-keyed lunch time is tied to the block schedule's period times, so
+ * on a straight 1-6 day it usually lands on top of a period that now starts
+ * earlier — buildDaySchedule silently drops Lunch when that happens. Reading
+ * the gap directly off the bell schedule instead means Lunch always lands
+ * somewhere real classes aren't.
+ */
+export function generateOneToSixOverrides(
+  classes: SchoolClass[],
+): { period: number; startTime: string; endTime: string; cancelled: boolean }[] {
+  const byPeriod = new Map<number, SchoolClass>();
+  let hasLunch = false;
+  for (const c of classes) {
+    if (c.id === '__lunch__') { hasLunch = true; continue; }
+    if (!byPeriod.has(c.period)) byPeriod.set(c.period, c);
+  }
+  const periods = [...byPeriod.values()].sort((a, b) => a.period - b.period);
+  const overrides = periods.map((c) => ({
+    period: c.period,
+    startTime: c.startTime,
+    endTime: c.endTime,
+    cancelled: false,
+  }));
+
+  if (hasLunch && periods.length >= 2) {
+    let gapIdx = -1;
+    let gapSize = 0;
+    for (let i = 0; i < periods.length - 1; i++) {
+      const gap = timeToMinutes(periods[i + 1].startTime) - timeToMinutes(periods[i].endTime);
+      if (gap > gapSize) { gapSize = gap; gapIdx = i; }
+    }
+    // Only treat it as a lunch break if the gap is meaningfully longer than
+    // a passing period — otherwise leave Lunch out rather than guess.
+    if (gapIdx !== -1 && gapSize >= 20) {
+      overrides.push({
+        period: 0,
+        startTime: periods[gapIdx].endTime,
+        endTime: periods[gapIdx + 1].startTime,
+        cancelled: false,
+      });
+    }
+  }
+
+  return overrides;
+}
+
 function timeToMinutes(time: string): number {
   return parseMinutes(time);
 }

@@ -35,13 +35,13 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import { useClasses, useDisruptions, apiPost, apiPut, apiDelete } from '@/lib/hooks';
-import { generateEarlyOutOverrides, generateLateStartOverrides, getWeekSchedule, buildLathropEarlyOutTemplate } from '@/lib/schedule';
+import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, getWeekSchedule, buildLathropEarlyOutTemplate } from '@/lib/schedule';
 import DayView from '@/components/DayView';
 import WeekView from '@/components/WeekView';
 import YearView from '@/components/YearView';
 import ClassDetailDialog from '@/components/ClassDetailDialog';
 import DisruptionCalendar, { DISRUPTION_TYPES } from '@/components/DisruptionCalendar';
-import { buildDaySchedule } from '@/lib/calendar';
+import { buildDaySchedule, disruptionCoversDate } from '@/lib/calendar';
 import type { ScheduleDisruption, PeriodOverride, ScheduleEntry } from '@/types';
 import { v4 as uuid } from 'uuid';
 
@@ -152,7 +152,7 @@ function SchedulePageInner() {
 
   const detailDisruption = useMemo(() => {
     if (!detailDate || !disruptions) return undefined;
-    return disruptions.find((d) => d.date === detailDate);
+    return disruptions.find((d) => disruptionCoversDate(d, detailDate));
   }, [detailDate, disruptions]);
 
   const navigateDate = (dir: number) => {
@@ -191,7 +191,12 @@ function SchedulePageInner() {
   const handleMove = async (id: string, newDate: string) => {
     const dis = disruptions?.find((d) => d.id === id);
     if (!dis) return;
-    await apiPut('/api/disruptions', { ...dis, date: newDate });
+    // Preserve the span length: shift endDate by the same number of days
+    // the start date moves.
+    const endDate = dis.endDate
+      ? dayjs(newDate).add(dayjs(dis.endDate).diff(dayjs(dis.date), 'day'), 'day').format('YYYY-MM-DD')
+      : undefined;
+    await apiPut('/api/disruptions', { ...dis, date: newDate, endDate });
     refetch();
   };
 
@@ -211,6 +216,12 @@ function SchedulePageInner() {
         endTime: (dayOfWeek >= 0 && c.dayTimes?.[dayOfWeek]?.endTime) || c.endTime,
         cancelled: true,
       }));
+    } else if (form.type === '1_6') {
+      // A straight 1-6 day overrides the normal A/B block pattern, so every
+      // period meets regardless of which days the class is normally
+      // scheduled — use the full class list (not the day-filtered one), and
+      // include the synthetic Lunch class so a Lunch override gets generated.
+      overrides = generateOneToSixOverrides(classesForSchedule);
     }
     setForm({ ...form, periodOverrides: overrides });
   };
@@ -367,9 +378,15 @@ function SchedulePageInner() {
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid size={12}>
-              <TextField fullWidth label="Label" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="e.g., Early Release — Teacher PD" />
+              <TextField
+                fullWidth
+                label="Label (optional)"
+                value={form.label}
+                onChange={(e) => setForm({ ...form, label: e.target.value })}
+                placeholder="e.g., Early Release — Teacher PD — leave blank to just show the type"
+              />
             </Grid>
-            <Grid size={6}>
+            <Grid size={4}>
               <FormControl fullWidth size="small">
                 <InputLabel>Type</InputLabel>
                 <Select value={form.type} label="Type" onChange={(e) => setForm({ ...form, type: e.target.value as ScheduleDisruption['type'] })}>
@@ -377,24 +394,51 @@ function SchedulePageInner() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={6}>
-              <TextField fullWidth label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} />
+            <Grid size={4}>
+              <TextField
+                fullWidth
+                label="Date"
+                type="date"
+                value={form.date}
+                onChange={(e) => {
+                  const date = e.target.value;
+                  // Keep endDate valid — an end before the new start makes no sense.
+                  const endDate = form.endDate && form.endDate < date ? date : form.endDate;
+                  setForm({ ...form, date, endDate });
+                }}
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+            </Grid>
+            <Grid size={4}>
+              <TextField
+                fullWidth
+                label="End Date (optional)"
+                type="date"
+                value={form.endDate || ''}
+                onChange={(e) => setForm({ ...form, endDate: e.target.value || undefined })}
+                slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: form.date } }}
+                helperText="Leave blank for a single day"
+              />
             </Grid>
 
-            {(form.type === 'early_out' || form.type === 'late_start') && (
+            {(form.type === 'early_out' || form.type === 'late_start' || form.type === '1_6') && (
               <Grid size={12}>
                 <Alert severity="info" sx={{ mb: 1 }}>
-                  Auto-generate adjusted times: set the {form.type === 'early_out' ? 'new end time' : 'new start time'} and periods will be proportionally adjusted.
+                  {form.type === '1_6'
+                    ? 'Auto-generate a straight 1-6 schedule: every period meets once, in order, using each class’s standard period time — overriding the normal A/B block pattern for this day.'
+                    : `Auto-generate adjusted times: set the ${form.type === 'early_out' ? 'new end time' : 'new start time'} and periods will be proportionally adjusted.`}
                 </Alert>
                 <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                  <TextField
-                    label={form.type === 'early_out' ? 'Early End Time' : 'Late Start Time'}
-                    type="time"
-                    size="small"
-                    value={autoTime}
-                    onChange={(e) => setAutoTime(e.target.value)}
-                    slotProps={{ inputLabel: { shrink: true } }}
-                  />
+                  {form.type !== '1_6' && (
+                    <TextField
+                      label={form.type === 'early_out' ? 'Early End Time' : 'Late Start Time'}
+                      type="time"
+                      size="small"
+                      value={autoTime}
+                      onChange={(e) => setAutoTime(e.target.value)}
+                      slotProps={{ inputLabel: { shrink: true } }}
+                    />
+                  )}
                   <Button variant="outlined" startIcon={<AutoFixHighIcon />} onClick={handleAutoGenerate}>
                     Auto Generate
                   </Button>
@@ -408,7 +452,7 @@ function SchedulePageInner() {
                 <Stack spacing={1}>
                   {form.periodOverrides.map((o, i) => (
                     <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                      <Chip label={`P${o.period}`} size="small" />
+                      <Chip label={o.period === 0 ? 'Lunch' : `P${o.period}`} size="small" />
                       <TextField
                         size="small"
                         type="time"
@@ -457,7 +501,7 @@ function SchedulePageInner() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave} disabled={!form.label}>
+          <Button variant="contained" onClick={handleSave} disabled={!form.date}>
             {editing ? 'Save' : 'Add'}
           </Button>
         </DialogActions>

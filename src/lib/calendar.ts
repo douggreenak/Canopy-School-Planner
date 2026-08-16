@@ -7,6 +7,17 @@ import type { SchoolClass, Exam, Homework, ScheduleDisruption, DaySchedule, Sche
 import { parseMinutes } from './calendarMetrics';
 
 /**
+ * Whether a disruption's date range covers a given ISO date. Single-day
+ * disruptions have no `endDate` (or one equal to `date`); multi-day ones
+ * apply to every day in [date, endDate] inclusive. Relies on 'YYYY-MM-DD'
+ * strings sorting lexicographically the same as chronologically.
+ */
+export function disruptionCoversDate(disruption: ScheduleDisruption, date: string): boolean {
+  const end = disruption.endDate || disruption.date;
+  return date >= disruption.date && date <= end;
+}
+
+/**
  * Build the full day schedule for a given date, accounting for disruptions.
  * If semesterStart/semesterEnd are provided, days outside that range return
  * an empty class list so the schedule doesn't run forever.
@@ -21,7 +32,7 @@ export function buildDaySchedule(
   const d = dayjs(date);
   const dayOfWeek = d.day(); // 0=Sun
 
-  const disruption = disruptions.find((dis) => dis.date === date);
+  const disruption = disruptions.find((dis) => disruptionCoversDate(dis, date));
 
   if (semesterStart && d.isBefore(dayjs(semesterStart), 'day')) {
     return { date, classes: [], disruption };
@@ -30,7 +41,16 @@ export function buildDaySchedule(
     return { date, classes: [], disruption };
   }
 
-  const dayClasses = classes.filter((c) => c.days.includes(dayOfWeek));
+  // A "1-6 Schedule" disruption overrides the normal A/B block pattern —
+  // every period in its overrides meets that day even if the class doesn't
+  // normally meet on this weekday (e.g. a period that's only part of the
+  // Tue/Thu block still runs on a straight 1-6 day).
+  const oneToSixPeriods = disruption?.type === '1_6'
+    ? new Set(disruption.periodOverrides.map((o) => o.period))
+    : null;
+  const dayClasses = classes.filter(
+    (c) => c.days.includes(dayOfWeek) || (oneToSixPeriods?.has(c.period) ?? false)
+  );
 
   const entries: ScheduleEntry[] = dayClasses.map((classInfo) => {
     if (disruption) {
@@ -125,8 +145,6 @@ export function generateCalendarFeed(
   const semEnd = dayjs(semesterEnd);
   const semStart = dayjs(semesterStart);
 
-  const disruptionDates = new Set(disruptions.map((d) => d.date));
-
   // The synthetic "Lunch" block uses generic default times that won't line up
   // with every school's bell schedule. On any weekday where it would overlap a
   // real class, skip the lunch event for that day so the feed doesn't show two
@@ -163,11 +181,10 @@ export function generateCalendarFeed(
       const exDates: string[] = [];
       let scan = firstDate;
       while (scan.isBefore(semEnd) || scan.isSame(semEnd, 'day')) {
-        if (disruptionDates.has(scan.format('YYYY-MM-DD'))) {
-          const d = disruptions.find((dis) => dis.date === scan.format('YYYY-MM-DD'));
-          if (d?.type === 'no_school' || d?.periodOverrides.some((o) => o.period === cls.period && o.cancelled)) {
-            exDates.push(localDT(scan, sMin));
-          }
+        const scanDate = scan.format('YYYY-MM-DD');
+        const d = disruptions.find((dis) => disruptionCoversDate(dis, scanDate));
+        if (d?.type === 'no_school' || d?.periodOverrides.some((o) => o.period === cls.period && o.cancelled)) {
+          exDates.push(localDT(scan, sMin));
         }
         scan = scan.add(7, 'day');
       }
@@ -234,9 +251,12 @@ export function generateCalendarFeed(
   // -- Disruptions --
   for (const d of disruptions) {
     if (d.type === 'no_school') {
+      // All-day multi-day events use an exclusive DTEND — the day *after*
+      // the last covered day — per iCalendar convention.
+      const endExclusive = dayjs(d.endDate || d.date).add(1, 'day').format('YYYY-MM-DD');
       cal.createEvent({
         start: `${d.date}T00:00:00`,
-        end: `${d.date}T00:00:00`,
+        end: `${endExclusive}T00:00:00`,
         summary: d.label || 'No School',
         allDay: true,
         categories: [{ name: 'Disruption' }],

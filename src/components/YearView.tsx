@@ -24,7 +24,14 @@ export default function YearView({ year, classes, disruptions, onDateClick, seme
 
   const disruptionDates = useMemo(() => {
     const map = new Map<string, ScheduleDisruption>();
-    for (const d of disruptions) map.set(d.date, d);
+    for (const d of disruptions) {
+      let cur = dayjs(d.date);
+      const end = dayjs(d.endDate || d.date);
+      while (cur.isBefore(end) || cur.isSame(end, 'day')) {
+        map.set(cur.format('YYYY-MM-DD'), d);
+        cur = cur.add(1, 'day');
+      }
+    }
     return map;
   }, [disruptions]);
 
@@ -82,7 +89,7 @@ export default function YearView({ year, classes, disruptions, onDateClick, seme
                 }
 
                 const label = disruption
-                  ? `${dayjs(cell.date).format('MMM D')}: ${disruption.label}`
+                  ? `${dayjs(cell.date).format('MMM D')}: ${disruption.label || disruption.type.replace(/_/g, ' ')}`
                   : dayjs(cell.date).format('ddd, MMM D');
 
                 return (

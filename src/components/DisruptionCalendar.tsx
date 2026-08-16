@@ -36,6 +36,10 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
   const theme = useTheme();
   const [month, setMonth]       = useState(() => dayjs().startOf('month'));
   const [dragId, setDragId]     = useState<string | null>(null);
+  // The specific date-cell a multi-day disruption's chip was picked up
+  // from — needed so dropping preserves the span length regardless of
+  // which day within the span was dragged (see onDrop below).
+  const [dragAnchor, setDragAnchor] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [hoverDate, setHoverDate] = useState<string | null>(null);
 
@@ -49,10 +53,16 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
     cur = cur.add(1, 'day');
   }
 
-  // Index disruptions by date
+  // Index disruptions by date — a multi-day disruption is indexed under
+  // every date in [date, endDate] so its chip appears on each covered day.
   const byDate: Record<string, ScheduleDisruption[]> = {};
   for (const d of disruptions) {
-    (byDate[d.date] ??= []).push(d);
+    let cur = dayjs(d.date);
+    const end = dayjs(d.endDate || d.date);
+    while (cur.isBefore(end) || cur.isSame(end, 'day')) {
+      (byDate[cur.format('YYYY-MM-DD')] ??= []).push(d);
+      cur = cur.add(1, 'day');
+    }
   }
 
   const typeInfo = (type: ScheduleDisruption['type']) =>
@@ -114,9 +124,19 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                if (dragId && inMonth) onMove(dragId, dateStr);
+                if (dragId && inMonth) {
+                  const dragged = disruptions.find((d) => d.id === dragId);
+                  // Shift by the offset between the dropped cell and the exact
+                  // cell that was dragged, so grabbing a chip from day 2 of a
+                  // 3-day span still lands correctly (span length preserved
+                  // in the parent's onMove handler).
+                  const offsetDays = dragged && dragAnchor ? dayjs(dateStr).diff(dayjs(dragAnchor), 'day') : 0;
+                  const newStart = dragged ? dayjs(dragged.date).add(offsetDays, 'day').format('YYYY-MM-DD') : dateStr;
+                  onMove(dragId, newStart);
+                }
                 setDragId(null);
                 setDragOver(null);
+                setDragAnchor(null);
               }}
               onClick={() => { if (inMonth && dayDisruptions.length === 0) onAdd(dateStr); }}
               onMouseEnter={() => setHoverDate(dateStr)}
@@ -177,9 +197,10 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
                     onDragStart={(e) => {
                       e.stopPropagation();
                       setDragId(dis.id);
+                      setDragAnchor(dateStr);
                       e.dataTransfer.effectAllowed = 'move';
                     }}
-                    onDragEnd={() => { setDragId(null); setDragOver(null); }}
+                    onDragEnd={() => { setDragId(null); setDragOver(null); setDragAnchor(null); }}
                     onClick={(e) => { e.stopPropagation(); onEdit(dis); }}
                     sx={{
                       fontSize: '0.62rem',

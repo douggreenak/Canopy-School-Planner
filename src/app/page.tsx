@@ -31,6 +31,7 @@ import { buildHeatmap } from '@/lib/heatmap';
 import DayView from '@/components/DayView';
 import WeekView from '@/components/WeekView';
 import YearView from '@/components/YearView';
+import { DISRUPTION_TYPES } from '@/components/DisruptionCalendar';
 import WhatshotIcon from '@mui/icons-material/Whatshot';
 
 dayjs.extend(isoWeek);
@@ -224,7 +225,9 @@ export default function Dashboard() {
       {/* Disruption Alert */}
       {todaySchedule?.disruption && (
         <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mb: 2, borderRadius: 2 }}>
-          <Box component="span" sx={{ fontWeight: 600 }}>{todaySchedule.disruption.label}</Box>
+          <Box component="span" sx={{ fontWeight: 600 }}>
+            {todaySchedule.disruption.label || DISRUPTION_TYPES.find((t) => t.value === todaySchedule.disruption!.type)?.label}
+          </Box>
           {' — Schedule has been modified for today.'}
         </Alert>
       )}
