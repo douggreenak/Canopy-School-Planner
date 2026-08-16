@@ -19,6 +19,7 @@ export const DISRUPTION_TYPES: { value: ScheduleDisruption['type']; label: strin
   { value: 'late_start', label: 'Late Start',  color: '#1a73e8' },
   { value: 'no_school',  label: 'No School',   color: '#d93025' },
   { value: 'assembly',   label: 'Assembly',    color: '#7BAAF7' },
+  { value: '1_6',        label: '1-6 Schedule', color: '#34a853' },
   { value: 'custom',     label: 'Custom',      color: '#9aa0a6' },
 ];
 

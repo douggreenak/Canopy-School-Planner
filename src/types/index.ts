@@ -105,7 +105,7 @@ export interface Task {
 export interface ScheduleDisruption {
   id: string;
   date: string;          // ISO date
-  type: 'early_out' | 'late_start' | 'no_school' | 'assembly' | 'custom';
+  type: 'early_out' | 'late_start' | 'no_school' | 'assembly' | '1_6' | 'custom';
   label: string;
   periodOverrides: PeriodOverride[];
 }
