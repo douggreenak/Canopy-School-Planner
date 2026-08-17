@@ -29,6 +29,7 @@
     "react": "19.2.4",
     "react-big-calendar": "^1.19.4",
     "react-dom": "19.2.4",
+    "timezones-ical-library": "^2.3.1",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

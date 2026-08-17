@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import type { SchoolClass, Exam, Homework, ScheduleDisruption, DaySchedule, ScheduleEntry } from '@/types';
 import { parseMinutes } from './calendarMetrics';
 import { disruptionTypeLabel } from './disruptionTypes';
+import { tzlib_get_ical_block } from 'timezones-ical-library';
 
 /**
  * Whether a disruption's date range covers a given ISO date. Single-day
@@ -129,7 +130,21 @@ export function generateCalendarFeed(
     name: `${schoolName || 'School'} Schedule`,
     method: ICalCalendarMethod.PUBLISH,
     prodId: { company: 'SchoolPlanner', product: 'ClassSchedule' },
-    timezone,
+    // ical-generator does NOT ship a timezone database — without an explicit
+    // VTIMEZONE generator here, every DTSTART/DTEND/EXDATE that references
+    // TZID=America/Anchorage points at a timezone the file never defines.
+    // Lenient clients (Google Calendar) guess correctly from the IANA name;
+    // stricter ones (Outlook, many corporate calendars) can misread the
+    // times or drop the events outright. This is the actual root cause of
+    // "the calendar is still messed up" — the schedule logic itself
+    // (buildDaySchedule, disruption handling) was already correct.
+    timezone: { name: timezone, generator: (tz) => tzlib_get_ical_block(tz)[0] },
+    // Hints how often subscribers should re-poll. Apple Calendar and Outlook
+    // largely respect this; Google Calendar mostly ignores it and refreshes
+    // external ICS subscriptions on its own schedule (often 12-24h+)
+    // regardless of what we send — there's no server-side way to force that.
+    // Set it anyway since it's free and helps the clients that do honor it.
+    ttl: 60 * 60,
   });
 
   // Build a local-time ISO string for the given date + HH:mm minutes.
@@ -223,10 +238,20 @@ export function generateCalendarFeed(
         categories: [{ name: 'Class' }],
       });
 
+      // Use COUNT instead of UNTIL. ical-generator's UNTIL formatting only
+      // ever emits local-format wall-clock digits (see formatDate in its
+      // source) with no 'Z' suffix and no TZID parameter, whenever a
+      // calendar timezone is set — regardless of what's passed in. RFC5545
+      // requires UNTIL to be UTC when DTSTART carries a TZID, so that output
+      // is spec-invalid; strict parsers can reject the whole RRULE. COUNT
+      // has no timezone/UTC semantics at all, so it sidesteps the bug
+      // entirely rather than depending on the library fixing it.
+      const occurrenceCount = Math.floor(semEnd.diff(firstDate, 'day') / 7) + 1;
+
       event.repeating({
         freq: ICalEventRepeatingFreq.WEEKLY,
         byDay: [icalDays[dow]],
-        until: localDT(semEnd, 23 * 60 + 59),
+        count: occurrenceCount,
         exclude: exDates.length > 0 ? exDates : undefined,
       });
     }
