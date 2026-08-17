@@ -192,23 +192,34 @@ export function generateLateStartOverrides(
   }));
 }
 
+// The six periods a straight "1-6" day actually runs. Anything else on a
+// student's normal schedule — a period-9 Extension/Advisory block, a zero
+// period, etc. — does not meet at all on a 1-6 day.
+const ONE_TO_SIX_CORE_PERIODS = new Set([1, 2, 3, 4, 5, 6]);
+
 /**
  * Generate "1-6 Schedule" overrides.
  *
- * A straight 1-6 day runs every period once, in numeric order, using each
- * class's canonical period time (`startTime`/`endTime`) rather than any
+ * A straight 1-6 day runs periods 1-6 once each, in numeric order, using
+ * each class's canonical period time (`startTime`/`endTime`) rather than any
  * day-specific block-schedule time. This overrides the normal A/B block
- * pattern, so it deliberately does NOT filter by the disruption's weekday —
- * a class that doesn't normally meet on that day (e.g. a period that's only
- * part of the Tue/Thu block) still gets an override so it shows up.
+ * pattern, so it deliberately does NOT filter core periods by the
+ * disruption's weekday — a class that doesn't normally meet on that day
+ * (e.g. a period that's only part of the Tue/Thu block) still gets an
+ * override so it shows up.
+ *
+ * Any OTHER period the student has (outside 1-6 — e.g. a period-9 Extension
+ * block) is explicitly cancelled rather than left alone: buildDaySchedule
+ * would otherwise show it running at its normal time whenever that period
+ * happens to fall on this weekday, since nothing else overrides it.
  *
  * Also places a Lunch override (period 0, matching the synthetic Lunch
- * class) in the largest gap between two consecutive periods. The normal
- * weekday-keyed lunch time is tied to the block schedule's period times, so
- * on a straight 1-6 day it usually lands on top of a period that now starts
- * earlier — buildDaySchedule silently drops Lunch when that happens. Reading
- * the gap directly off the bell schedule instead means Lunch always lands
- * somewhere real classes aren't.
+ * class) in the largest gap between two consecutive CORE periods. The
+ * normal weekday-keyed lunch time is tied to the block schedule's period
+ * times, so on a straight 1-6 day it usually lands on top of a period that
+ * now starts earlier — buildDaySchedule silently drops Lunch when that
+ * happens. Reading the gap directly off the bell schedule instead means
+ * Lunch always lands somewhere real classes aren't.
  */
 export function generateOneToSixOverrides(
   classes: SchoolClass[],
@@ -219,19 +230,20 @@ export function generateOneToSixOverrides(
     if (c.id === '__lunch__') { hasLunch = true; continue; }
     if (!byPeriod.has(c.period)) byPeriod.set(c.period, c);
   }
-  const periods = [...byPeriod.values()].sort((a, b) => a.period - b.period);
-  const overrides = periods.map((c) => ({
-    period: c.period,
-    startTime: c.startTime,
-    endTime: c.endTime,
-    cancelled: false,
-  }));
+  const allPeriods = [...byPeriod.values()].sort((a, b) => a.period - b.period);
+  const corePeriods = allPeriods.filter((c) => ONE_TO_SIX_CORE_PERIODS.has(c.period));
+  const otherPeriods = allPeriods.filter((c) => !ONE_TO_SIX_CORE_PERIODS.has(c.period));
 
-  if (hasLunch && periods.length >= 2) {
+  const overrides = [
+    ...corePeriods.map((c) => ({ period: c.period, startTime: c.startTime, endTime: c.endTime, cancelled: false })),
+    ...otherPeriods.map((c) => ({ period: c.period, startTime: c.startTime, endTime: c.endTime, cancelled: true })),
+  ];
+
+  if (hasLunch && corePeriods.length >= 2) {
     let gapIdx = -1;
     let gapSize = 0;
-    for (let i = 0; i < periods.length - 1; i++) {
-      const gap = timeToMinutes(periods[i + 1].startTime) - timeToMinutes(periods[i].endTime);
+    for (let i = 0; i < corePeriods.length - 1; i++) {
+      const gap = timeToMinutes(corePeriods[i + 1].startTime) - timeToMinutes(corePeriods[i].endTime);
       if (gap > gapSize) { gapSize = gap; gapIdx = i; }
     }
     // Only treat it as a lunch break if the gap is meaningfully longer than
@@ -239,8 +251,8 @@ export function generateOneToSixOverrides(
     if (gapIdx !== -1 && gapSize >= 20) {
       overrides.push({
         period: 0,
-        startTime: periods[gapIdx].endTime,
-        endTime: periods[gapIdx + 1].startTime,
+        startTime: corePeriods[gapIdx].endTime,
+        endTime: corePeriods[gapIdx + 1].startTime,
         cancelled: false,
       });
     }

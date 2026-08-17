@@ -110,6 +110,28 @@ export function buildDaySchedule(
     if (overlapsRealClass) entries.splice(lunchIdx, 1);
   }
 
+  // A cancelled entry (e.g. a period-9 Extension block that doesn't run on a
+  // 1-6 day) is shown crossed-out at its normal fallback time purely as
+  // information. But when a disruption's override shifts a DIFFERENT,
+  // still-running class into that same slot — which a 1-6 day's straight
+  // schedule can do — the two blocks visually collide and become
+  // unreadable. Drop the cancelled one in that case; the class actually
+  // happening takes priority in the grid.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (!e.cancelled) continue;
+    const es = timeToMinutes(e.startTime);
+    const ee = timeToMinutes(e.endTime);
+    const collidesWithActive = entries.some(
+      (other, j) =>
+        j !== i &&
+        !other.cancelled &&
+        es < timeToMinutes(other.endTime) &&
+        timeToMinutes(other.startTime) < ee,
+    );
+    if (collidesWithActive) entries.splice(i, 1);
+  }
+
   return { date, classes: entries, disruption };
 }
 
