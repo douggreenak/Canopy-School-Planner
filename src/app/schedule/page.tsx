@@ -14,6 +14,7 @@ import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
 import DialogActions from '@mui/material/DialogActions';
 import TextField from '@mui/material/TextField';
 import Grid from '@mui/material/Grid';
@@ -28,6 +29,7 @@ import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
 import LinearProgress from '@mui/material/LinearProgress';
 import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -116,6 +118,7 @@ function SchedulePageInner() {
     id: '', date: '', type: 'early_out', label: '', periodOverrides: [],
   });
   const [autoTime, setAutoTime] = useState('13:00');
+  const [confirmDelete, setConfirmDelete] = useState<ScheduleDisruption | null>(null);
 
   const lunchClass = useMemo(() => {
     const dt = { ...DEFAULT_LUNCH_TIMES, ...lunchTimes };
@@ -235,6 +238,8 @@ function SchedulePageInner() {
 
   const handleDelete = async (id: string) => {
     await apiDelete(`/api/disruptions?id=${id}`);
+    setConfirmDelete(null);
+    setDialogOpen(false);
     refetch();
   };
 
@@ -499,10 +504,43 @@ function SchedulePageInner() {
             )}
           </Grid>
         </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, justifyContent: editing ? 'space-between' : 'flex-end' }}>
+          {editing && (
+            <Button color="error" startIcon={<DeleteIcon />} onClick={() => setConfirmDelete(editing)}>
+              Delete
+            </Button>
+          )}
+          <Stack direction="row" spacing={1}>
+            <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="contained" onClick={handleSave} disabled={!form.date}>
+              {editing ? 'Save' : 'Add'}
+            </Button>
+          </Stack>
+        </DialogActions>
+      </Dialog>
+
+      {/* ===== Delete disruption confirmation ===== */}
+      <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete disruption?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Remove{' '}
+            <strong>
+              {confirmDelete?.label || DISRUPTION_TYPES.find((t) => t.value === confirmDelete?.type)?.label}
+            </strong>
+            {confirmDelete && (
+              <>
+                {' '}on {dayjs(confirmDelete.date).format('MMM D, YYYY')}
+                {confirmDelete.endDate ? ` – ${dayjs(confirmDelete.endDate).format('MMM D, YYYY')}` : ''}
+              </>
+            )}
+            ? This can&apos;t be undone.
+          </DialogContentText>
+        </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave} disabled={!form.date}>
-            {editing ? 'Save' : 'Add'}
+          <Button onClick={() => setConfirmDelete(null)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={() => handleDelete(confirmDelete!.id)}>
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

@@ -5,6 +5,7 @@ import ical, { ICalCalendarMethod, ICalWeekday, ICalEventRepeatingFreq } from 'i
 import dayjs from 'dayjs';
 import type { SchoolClass, Exam, Homework, ScheduleDisruption, DaySchedule, ScheduleEntry } from '@/types';
 import { parseMinutes } from './calendarMetrics';
+import { disruptionTypeLabel } from './disruptionTypes';
 
 /**
  * Whether a disruption's date range covers a given ISO date. Single-day
@@ -159,6 +160,23 @@ export function generateCalendarFeed(
       return sMin < parseMinutes(ce) && parseMinutes(cs) < eMin;
     });
 
+  // Every date any disruption covers, clipped to the semester range. The
+  // recurring weekly events below are suppressed on these dates and replaced
+  // with one-off events computed from buildDaySchedule — the same function
+  // the in-app Day/Week views use — so early-outs, late-starts, 1-6 days,
+  // and cancellations all show up in the subscribed calendar exactly as they
+  // do in the app, not just as a skipped occurrence.
+  const disruptedDates = new Set<string>();
+  for (const d of disruptions) {
+    const end = d.endDate || d.date;
+    let cur = dayjs(d.date).isAfter(semStart) ? dayjs(d.date) : semStart;
+    const rangeEnd = dayjs(end).isBefore(semEnd) ? dayjs(end) : semEnd;
+    while (cur.isBefore(rangeEnd) || cur.isSame(rangeEnd, 'day')) {
+      disruptedDates.add(cur.format('YYYY-MM-DD'));
+      cur = cur.add(1, 'day');
+    }
+  }
+
   for (const cls of classes) {
     if (!cls.days || cls.days.length === 0) continue;
 
@@ -172,8 +190,16 @@ export function generateCalendarFeed(
 
       if (cls.id === '__lunch__' && lunchOverlapsRealClass(dow, sMin, eMin)) continue;
 
+      // Anchor DTSTART on the first NON-disrupted matching weekday — EXDATE
+      // is meant to suppress later occurrences, and calendar clients vary in
+      // whether they honor an EXDATE that coincides with DTSTART itself. If
+      // the semester (or class) starts on a disrupted day, this avoids
+      // relying on that and just picks a clean anchor instead.
       let firstDate = semStart;
-      while (firstDate.day() !== dow && firstDate.isBefore(semEnd)) {
+      while (
+        (firstDate.day() !== dow || disruptedDates.has(firstDate.format('YYYY-MM-DD'))) &&
+        firstDate.isBefore(semEnd)
+      ) {
         firstDate = firstDate.add(1, 'day');
       }
       if (firstDate.isAfter(semEnd)) continue;
@@ -181,9 +207,7 @@ export function generateCalendarFeed(
       const exDates: string[] = [];
       let scan = firstDate;
       while (scan.isBefore(semEnd) || scan.isSame(semEnd, 'day')) {
-        const scanDate = scan.format('YYYY-MM-DD');
-        const d = disruptions.find((dis) => disruptionCoversDate(dis, scanDate));
-        if (d?.type === 'no_school' || d?.periodOverrides.some((o) => o.period === cls.period && o.cancelled)) {
+        if (disruptedDates.has(scan.format('YYYY-MM-DD'))) {
           exDates.push(localDT(scan, sMin));
         }
         scan = scan.add(7, 'day');
@@ -204,6 +228,30 @@ export function generateCalendarFeed(
         byDay: [icalDays[dow]],
         until: localDT(semEnd, 23 * 60 + 59),
         exclude: exDates.length > 0 ? exDates : undefined,
+      });
+    }
+  }
+
+  // -- One-off events for disrupted days --
+  // Recompute each disrupted day's actual schedule (adjusted times,
+  // cancellations, and — for a 1-6 day — periods that don't normally meet
+  // that weekday at all) and emit it as one-off events, replacing the
+  // recurring occurrence suppressed above.
+  for (const dateStr of disruptedDates) {
+    const day = buildDaySchedule(dateStr, classes, disruptions, semesterStart, semesterEnd);
+    for (const entry of day.classes) {
+      if (entry.cancelled) continue;
+      const sMin = parseMinutes(entry.startTime);
+      const eMin = parseMinutes(entry.endTime);
+      const disruptionNote = day.disruption ? `\n${day.disruption.label || disruptionTypeLabel(day.disruption.type)}` : '';
+      cal.createEvent({
+        start: localDT(dayjs(dateStr), sMin),
+        end: localDT(dayjs(dateStr), eMin),
+        timezone,
+        summary: entry.classInfo.name,
+        location: entry.classInfo.room ? `Room ${entry.classInfo.room}` : '',
+        description: `Teacher: ${entry.classInfo.teacher}\nPeriod ${entry.classInfo.period}${disruptionNote}`,
+        categories: [{ name: 'Class' }],
       });
     }
   }
@@ -249,19 +297,20 @@ export function generateCalendarFeed(
   }
 
   // -- Disruptions --
+  // An all-day marker event for every disruption (not just no_school) so
+  // it's visible in the calendar app itself, in addition to the shifted
+  // class times above.
   for (const d of disruptions) {
-    if (d.type === 'no_school') {
-      // All-day multi-day events use an exclusive DTEND — the day *after*
-      // the last covered day — per iCalendar convention.
-      const endExclusive = dayjs(d.endDate || d.date).add(1, 'day').format('YYYY-MM-DD');
-      cal.createEvent({
-        start: `${d.date}T00:00:00`,
-        end: `${endExclusive}T00:00:00`,
-        summary: d.label || 'No School',
-        allDay: true,
-        categories: [{ name: 'Disruption' }],
-      });
-    }
+    // All-day multi-day events use an exclusive DTEND — the day *after*
+    // the last covered day — per iCalendar convention.
+    const endExclusive = dayjs(d.endDate || d.date).add(1, 'day').format('YYYY-MM-DD');
+    cal.createEvent({
+      start: `${d.date}T00:00:00`,
+      end: `${endExclusive}T00:00:00`,
+      summary: d.label || disruptionTypeLabel(d.type),
+      allDay: true,
+      categories: [{ name: 'Disruption' }],
+    });
   }
 
   return cal.toString();

@@ -7,6 +7,7 @@ import { alpha, useTheme } from '@mui/material/styles';
 import dayjs from 'dayjs';
 import type { SchoolClass, ScheduleDisruption } from '@/types';
 import { buildDaySchedule } from '@/lib/calendar';
+import { disruptionTypeLabel } from '@/lib/disruptionTypes';
 
 interface Props {
   year: number;
@@ -89,7 +90,7 @@ export default function YearView({ year, classes, disruptions, onDateClick, seme
                 }
 
                 const label = disruption
-                  ? `${dayjs(cell.date).format('MMM D')}: ${disruption.label || disruption.type.replace(/_/g, ' ')}`
+                  ? `${dayjs(cell.date).format('MMM D')}: ${disruption.label || disruptionTypeLabel(disruption.type)}`
                   : dayjs(cell.date).format('ddd, MMM D');
 
                 return (

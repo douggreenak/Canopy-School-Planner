@@ -14,6 +14,7 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { DAY_START_MIN, DAY_END_MIN, TOTAL_HEIGHT, PX_PER_HOUR, TIME_GUTTER, hourTop, halfHourTop, topForMinutes, heightForMinutes, parseMinutes } from '@/lib/calendarMetrics';
 import dayjs from 'dayjs';
 import type { DaySchedule, ScheduleEntry } from '@/types';
+import { disruptionTypeLabel } from '@/lib/disruptionTypes';
 
 interface Props {
   schedule: DaySchedule[];
@@ -366,7 +367,7 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
                   <Chip
                     key={i}
                     size="small"
-                    label={`${DAY_LABELS[i]}: ${day.disruption.label || day.disruption.type.replace(/_/g, ' ')}`}
+                    label={`${DAY_LABELS[i]}: ${day.disruption.label || disruptionTypeLabel(day.disruption.type)}`}
                     color="warning"
                     variant="outlined"
                   />

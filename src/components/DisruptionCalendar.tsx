@@ -13,15 +13,9 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
 import AddIcon from '@mui/icons-material/Add';
 import type { ScheduleDisruption } from '@/types';
+import { DISRUPTION_TYPES } from '@/lib/disruptionTypes';
 
-export const DISRUPTION_TYPES: { value: ScheduleDisruption['type']; label: string; color: string }[] = [
-  { value: 'early_out',  label: 'Early Out',  color: '#f9ab00' },
-  { value: 'late_start', label: 'Late Start',  color: '#1a73e8' },
-  { value: 'no_school',  label: 'No School',   color: '#d93025' },
-  { value: 'assembly',   label: 'Assembly',    color: '#7BAAF7' },
-  { value: '1_6',        label: '1-6 Schedule', color: '#34a853' },
-  { value: 'custom',     label: 'Custom',      color: '#9aa0a6' },
-];
+export { DISRUPTION_TYPES };
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
