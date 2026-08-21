@@ -23,6 +23,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import Stack from '@mui/material/Stack';
+import Divider from '@mui/material/Divider';
 import Alert from '@mui/material/Alert';
 import Snackbar from '@mui/material/Snackbar';
 import LinearProgress from '@mui/material/LinearProgress';
@@ -38,15 +39,32 @@ import ChecklistIcon from '@mui/icons-material/Checklist';
 import { useHomework, useTasks, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import { nextMeetingDate } from '@/lib/schedule';
 import { suggestRebalancing } from '@/lib/heatmap';
+import { completedForStage, loadLastStageTemplate, saveLastStageTemplate } from '@/lib/stages';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
-import TaskDetailDialog from '@/components/TaskDetailDialog';
-import type { Homework, Task, SchoolClass } from '@/types';
+import ItemDetailDialog, { type DetailItem } from '@/components/ItemDetailDialog';
+import StageListEditor from '@/components/StageListEditor';
+import type { Homework, Task, SchoolClass, TaskStage } from '@/types';
 import { v4 as uuid } from 'uuid';
 
 const CATEGORIES = ['General', 'Ask', 'Homework', 'Study', 'Project', 'Reading', 'Practice', 'Other'];
 
 type ItemKind = 'homework' | 'task';
 type ListItem = { kind: 'homework'; data: Homework } | { kind: 'task'; data: Task };
+
+// Small pill showing where a row sits in its OWN pipeline, when it's mid-way
+// through one — a glance-able hint without opening the detail dialog. Once
+// the final stage is reached the row already shows as done (strikethrough +
+// checked box), so no chip is needed then. Each item's stages are its own —
+// two rows can be on entirely different pipelines.
+function stageChip(item: { stages?: TaskStage[]; stageId?: string; completed: boolean }) {
+  const stages = item.stages ?? [];
+  if (stages.length === 0 || !item.stageId || item.completed) return null;
+  const stage = stages.find((s) => s.id === item.stageId);
+  if (!stage) return null;
+  return (
+    <Chip size="small" label={stage.label} color="info" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+  );
+}
 
 export default function TasksPage() {
   const { data: homework, refetch: refetchHw, mutate: mutateHw } = useHomework();
@@ -70,8 +88,32 @@ export default function TasksPage() {
     id: '', title: '', description: '', dueDate: '', completed: false, priority: 'medium', category: 'General',
   });
 
-  // Task detail dialog
-  const [detailTask, setDetailTask] = useState<Task | null>(null);
+  // Item detail dialog — tracks which row (task or homework) is open by
+  // kind+id rather than a snapshot, so the dialog always reflects live data
+  // (e.g. after a stage change) without a separate re-sync step.
+  const [detailItem, setDetailItem] = useState<{ kind: ItemKind; id: string } | null>(null);
+  const detailData: DetailItem | null = useMemo(() => {
+    if (!detailItem) return null;
+    if (detailItem.kind === 'task') {
+      const t = (tasks || []).find((x) => x.id === detailItem.id);
+      if (!t) return null;
+      return { id: t.id, title: t.title, description: t.description, dueDate: t.dueDate, completed: t.completed, stages: t.stages ?? [], stageId: t.stageId, priority: t.priority, category: t.category, classId: t.classId };
+    }
+    const h = (homework || []).find((x) => x.id === detailItem.id);
+    if (!h) return null;
+    return { id: h.id, title: h.title, description: h.description, dueDate: h.dueDate, completed: h.completed, stages: h.stages ?? [], stageId: h.stageId, priority: h.priority, category: 'Homework', classId: h.classId };
+  }, [detailItem, tasks, homework]);
+  // Runs a callback with the live Task/Homework backing the open detail dialog.
+  const dispatchDetail = (onTask: (t: Task) => void, onHw: (h: Homework) => void) => {
+    if (!detailItem) return;
+    if (detailItem.kind === 'task') {
+      const t = (tasks || []).find((x) => x.id === detailItem.id);
+      if (t) onTask(t);
+    } else {
+      const h = (homework || []).find((x) => x.id === detailItem.id);
+      if (h) onHw(h);
+    }
+  };
 
   // Clear done confirmation
   const [clearDoneOpen, setClearDoneOpen] = useState(false);
@@ -127,8 +169,12 @@ export default function TasksPage() {
     setEditingTask(null);
     const k = kind ?? 'task';
     setAddKind(k);
-    setHwForm({ id: uuid(), classId: sortedClasses[0]?.id ?? '', title: '', description: '', dueDate: dayjs().format('YYYY-MM-DD'), completed: false, priority: 'medium', source: 'manual' });
-    setTaskForm({ id: uuid(), title: '', description: '', dueDate: dayjs().format('YYYY-MM-DD'), completed: false, priority: 'medium', category: 'General', classId: undefined });
+    // Prefill with whichever stage pipeline was last used on this browser —
+    // a convenience default only, not an enforced setting: it's fully
+    // editable/clearable right here, per item.
+    const template = loadLastStageTemplate();
+    setHwForm({ id: uuid(), classId: sortedClasses[0]?.id ?? '', title: '', description: '', dueDate: dayjs().format('YYYY-MM-DD'), completed: false, priority: 'medium', source: 'manual', stages: template });
+    setTaskForm({ id: uuid(), title: '', description: '', dueDate: dayjs().format('YYYY-MM-DD'), completed: false, priority: 'medium', category: 'General', classId: undefined, stages: template });
     setDialogOpen(true);
   };
 
@@ -154,6 +200,7 @@ export default function TasksPage() {
     if (addKind === 'homework') {
       const draft = hwForm;
       const isEdit = !!editingHw;
+      if (draft.stages?.length) saveLastStageTemplate(draft.stages);
       const snapshot = homework;
       if (isEdit) mutateHw((prev) => prev ? prev.map((h) => h.id === draft.id ? draft : h) : prev);
       else mutateHw((prev) => prev ? [draft, ...prev] : [draft]);
@@ -169,6 +216,7 @@ export default function TasksPage() {
     } else {
       const draft = taskForm;
       const isEdit = !!editingTask;
+      if (draft.stages?.length) saveLastStageTemplate(draft.stages);
       const snapshot = tasks;
       if (isEdit) mutateTasks((prev) => prev ? prev.map((t) => t.id === draft.id ? draft : t) : prev);
       else mutateTasks((prev) => prev ? [draft, ...prev] : [draft]);
@@ -185,27 +233,63 @@ export default function TasksPage() {
   };
 
   // ---- Toggle complete ----
+  // With no stages on this item, this is a plain boolean flip, same as
+  // always. With stages on this item, the checkbox is a quick shortcut that
+  // jumps straight to "not started" or that item's final stage — the detail
+  // dialog's tracker is where in-between stages get set.
 
   const toggleHw = async (hw: Homework) => {
     const next = !hw.completed;
-    mutateHw((prev) => prev ? prev.map((h) => h.id === hw.id ? { ...h, completed: next } : h) : prev);
+    const stages = hw.stages ?? [];
+    const nextStageId = stages.length > 0 ? (next ? stages[stages.length - 1].id : undefined) : hw.stageId;
+    mutateHw((prev) => prev ? prev.map((h) => h.id === hw.id ? { ...h, completed: next, stageId: nextStageId } : h) : prev);
     try {
-      await apiPut('/api/homework', { ...hw, completed: next });
+      await apiPut('/api/homework', { ...hw, completed: next, stageId: nextStageId });
       refetchHw();
     } catch (e) {
-      mutateHw((prev) => prev ? prev.map((h) => h.id === hw.id ? { ...h, completed: !next } : h) : prev);
+      mutateHw((prev) => prev ? prev.map((h) => h.id === hw.id ? hw : h) : prev);
       setErrorMsg(`Couldn't update: ${(e as Error).message}`);
     }
   };
 
   const toggleTask = async (task: Task) => {
     const next = !task.completed;
-    mutateTasks((prev) => prev ? prev.map((t) => t.id === task.id ? { ...t, completed: next } : t) : prev);
+    const stages = task.stages ?? [];
+    const nextStageId = stages.length > 0 ? (next ? stages[stages.length - 1].id : undefined) : task.stageId;
+    mutateTasks((prev) => prev ? prev.map((t) => t.id === task.id ? { ...t, completed: next, stageId: nextStageId } : t) : prev);
     try {
-      await apiPut('/api/tasks', { ...task, completed: next });
+      await apiPut('/api/tasks', { ...task, completed: next, stageId: nextStageId });
       refetchTasks();
     } catch (e) {
-      mutateTasks((prev) => prev ? prev.map((t) => t.id === task.id ? { ...t, completed: !next } : t) : prev);
+      mutateTasks((prev) => prev ? prev.map((t) => t.id === task.id ? task : t) : prev);
+      setErrorMsg(`Couldn't update: ${(e as Error).message}`);
+    }
+  };
+
+  // ---- Set a specific pipeline stage (from the detail dialog's tracker) ----
+
+  const setHwStage = async (hw: Homework, stageId: string | undefined) => {
+    const completed = completedForStage(hw.stages ?? [], stageId);
+    const next = { ...hw, stageId, completed };
+    mutateHw((prev) => prev ? prev.map((h) => h.id === hw.id ? next : h) : prev);
+    try {
+      await apiPut('/api/homework', next);
+      refetchHw();
+    } catch (e) {
+      mutateHw((prev) => prev ? prev.map((h) => h.id === hw.id ? hw : h) : prev);
+      setErrorMsg(`Couldn't update: ${(e as Error).message}`);
+    }
+  };
+
+  const setTaskStage = async (task: Task, stageId: string | undefined) => {
+    const completed = completedForStage(task.stages ?? [], stageId);
+    const next = { ...task, stageId, completed };
+    mutateTasks((prev) => prev ? prev.map((t) => t.id === task.id ? next : t) : prev);
+    try {
+      await apiPut('/api/tasks', next);
+      refetchTasks();
+    } catch (e) {
+      mutateTasks((prev) => prev ? prev.map((t) => t.id === task.id ? task : t) : prev);
       setErrorMsg(`Couldn't update: ${(e as Error).message}`);
     }
   };
@@ -254,7 +338,7 @@ export default function TasksPage() {
 
   const quickAddHomework = async (cls: SchoolClass) => {
     const due = nextMeetingDate(cls.days || []) || dayjs().add(1, 'day').format('YYYY-MM-DD');
-    const task: Task = { id: uuid(), title: 'Homework', description: '', dueDate: due, completed: false, priority: 'medium', category: 'Homework', classId: cls.id };
+    const task: Task = { id: uuid(), title: 'Homework', description: '', dueDate: due, completed: false, priority: 'medium', category: 'Homework', classId: cls.id, stages: loadLastStageTemplate() };
     mutateTasks((prev) => prev ? [task, ...prev] : [task]);
     try {
       await apiPost('/api/tasks', task);
@@ -369,7 +453,12 @@ export default function TasksPage() {
                     onChange={() => toggleHw(hw)}
                     sx={{ color: cls?.color, '&.Mui-checked': { color: cls?.color } }}
                   />
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box
+                    role="button" tabIndex={0}
+                    onClick={() => setDetailItem({ kind: 'homework', id: hw.id })}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailItem({ kind: 'homework', id: hw.id }); } }}
+                    sx={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, my: -0.25, transition: 'background-color 0.12s', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
+                  >
                     <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: hw.completed ? 'line-through' : 'none' }}>
                       {hw.title}
                     </Typography>
@@ -379,6 +468,7 @@ export default function TasksPage() {
                       {cls && (
                         <Chip size="small" label={cls.name} sx={{ backgroundColor: cls.color + '18', color: cls.color, fontWeight: 500, fontSize: '0.7rem' }} />
                       )}
+                      {stageChip(hw)}
                       <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
                         {overdue ? 'OVERDUE • ' : ''}Due {dayjs(hw.dueDate).format('MMM D, YYYY')}
                       </Typography>
@@ -410,8 +500,8 @@ export default function TasksPage() {
                 <Checkbox checked={task.completed} onChange={() => toggleTask(task)} color="success" />
                 <Box
                   role="button" tabIndex={0}
-                  onClick={() => setDetailTask(task)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailTask(task); } }}
+                  onClick={() => setDetailItem({ kind: 'task', id: task.id })}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailItem({ kind: 'task', id: task.id }); } }}
                   sx={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, my: -0.25, transition: 'background-color 0.12s', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
                 >
                   <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: task.completed ? 'line-through' : 'none' }}>
@@ -423,6 +513,7 @@ export default function TasksPage() {
                     {taskCls && (
                       <Chip size="small" label={taskCls.name} variant="outlined" sx={{ fontSize: '0.7rem', borderLeft: `3px solid ${taskCls.color}`, pl: 0.25 }} />
                     )}
+                    {stageChip(task)}
                     {task.dueDate && (
                       <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
                         {overdue ? 'OVERDUE • ' : ''}Due {dayjs(task.dueDate).format('MMM D')}
@@ -563,6 +654,23 @@ export default function TasksPage() {
               )}
             </Grid>
           )}
+
+          {/* Per-item completion pipeline — deliberately lives here, not in
+              Settings: every task/homework defines its own, so two items can
+              use completely different stages (or none). */}
+          <Divider sx={{ my: 2.5 }} />
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Completion Stages (optional)</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            Track this item&apos;s own progress — e.g. <strong>Done</strong> then <strong>Turned In</strong> —
+            instead of a plain checkbox. Applies only to this item.
+          </Typography>
+          <StageListEditor
+            stages={(addKind === 'homework' ? hwForm.stages : taskForm.stages) ?? []}
+            onChange={(stages) => {
+              if (addKind === 'homework') setHwForm({ ...hwForm, stages });
+              else setTaskForm({ ...taskForm, stages });
+            }}
+          />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
@@ -588,15 +696,17 @@ export default function TasksPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Task detail dialog */}
-      <TaskDetailDialog
-        open={!!detailTask}
-        task={detailTask}
-        linkedClass={detailTask?.classId ? classMap.get(detailTask.classId) || null : null}
-        onClose={() => setDetailTask(null)}
-        onToggleComplete={toggleTask}
-        onEdit={(t) => openEditTask(t)}
-        onDelete={deleteTask}
+      {/* Item detail dialog — shared by tasks and manual homework */}
+      <ItemDetailDialog
+        open={!!detailItem}
+        item={detailData}
+        kind={detailItem?.kind ?? 'task'}
+        linkedClass={detailData?.classId ? classMap.get(detailData.classId) || null : null}
+        onClose={() => setDetailItem(null)}
+        onToggleComplete={() => dispatchDetail(toggleTask, toggleHw)}
+        onSetStage={(_, stageId) => dispatchDetail((t) => setTaskStage(t, stageId), (h) => setHwStage(h, stageId))}
+        onEdit={() => dispatchDetail(openEditTask, openEditHw)}
+        onDelete={() => dispatchDetail((t) => deleteTask(t.id), (h) => deleteHw(h.id))}
       />
 
       <Snackbar open={!!errorMsg} autoHideDuration={5000} onClose={() => setErrorMsg(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>

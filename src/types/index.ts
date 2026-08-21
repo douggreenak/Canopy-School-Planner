@@ -29,6 +29,16 @@ export interface SchoolClass {
   weightSource?: 'scraped' | 'manual';
 }
 
+// One step in a completion pipeline (e.g. "Done" -> "Turned In"). Each
+// Task/Homework carries its own `stages` array — this is per-assignment,
+// not a site-wide setting, so different items can define completely
+// different pipelines (or none, for a plain checkbox). `id` is stable
+// across renames/reorders so that item's `stageId` never dangles.
+export interface TaskStage {
+  id: string;
+  label: string;
+}
+
 export interface Homework {
   id: string;
   classId: string;
@@ -36,6 +46,13 @@ export interface Homework {
   description: string;
   dueDate: string;   // ISO date
   completed: boolean;
+  // This item's own completion pipeline. Empty/undefined = plain checkbox.
+  stages?: TaskStage[];
+  // Current step in `stages`, when this item has any. undefined = not
+  // started yet. Whenever this is set/cleared, `completed` is kept in sync
+  // (true iff stageId is `stages`' last entry) so every existing "done"
+  // filter/count keeps working without change.
+  stageId?: string;
   priority: 'low' | 'medium' | 'high';
   source: 'manual' | 'powerschool' | 'classroom';
   sourceId?: string;
@@ -94,6 +111,9 @@ export interface Task {
   description: string;
   dueDate: string;
   completed: boolean;
+  // This task's own completion pipeline and current step — see Homework.stages/stageId.
+  stages?: TaskStage[];
+  stageId?: string;
   priority: 'low' | 'medium' | 'high';
   category: string;
   // Optional link to a SchoolClass — set by the Quick Add Homework feature

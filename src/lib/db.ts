@@ -15,6 +15,7 @@ import type {
   SyncLogEntry,
 } from '@/types';
 import { v4 as uuid } from 'uuid';
+import { parseStages } from '@/lib/stages';
 
 // The Neon HTTP driver is stateless (each query is an independent fetch, no
 // socket to pool), so a single client can be reused across requests/invocations
@@ -214,6 +215,17 @@ export async function initializeDatabase() {
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`;
   await sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`;
 
+  // Migration: per-assignment completion pipeline. `stages` is that one
+  // item's own ordered stage list (e.g. Done -> Turned In) — this is NOT a
+  // site-wide setting; every task/homework row defines its own, and most
+  // rows just leave it NULL/empty for the classic single checkbox. `stage_id`
+  // is that item's current position in its own `stages`. `completed` remains
+  // the authoritative done/not-done flag either way.
+  await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS stage_id TEXT`;
+  await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS stages JSONB`;
+  await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stage_id TEXT`;
+  await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stages JSONB`;
+
   // Migrate settings table PK from single-column (key) to composite (user_id, key)
   await sql`
     DO $$
@@ -262,6 +274,8 @@ function dbToHomework(row: Record<string, unknown>): Homework {
     description: (row.description as string) || '',
     dueDate: (row.due_date as string) || '',
     completed: Boolean(row.completed),
+    stages: (() => { const s = parseStages(row.stages); return s.length > 0 ? s : undefined; })(),
+    stageId: (row.stage_id as string) || undefined,
     priority: (row.priority as Homework['priority']) || 'medium',
     source: (row.source as Homework['source']) || 'manual',
     sourceId: (row.source_id as string) || undefined,
@@ -321,6 +335,8 @@ function dbToTask(row: Record<string, unknown>): Task {
     description: (row.description as string) || '',
     dueDate: (row.due_date as string) || '',
     completed: Boolean(row.completed),
+    stages: (() => { const s = parseStages(row.stages); return s.length > 0 ? s : undefined; })(),
+    stageId: (row.stage_id as string) || undefined,
     priority: (row.priority as Task['priority']) || 'medium',
     category: (row.category as string) || 'General',
     classId: (row.class_id as string) || undefined,
@@ -554,10 +570,11 @@ export async function getHomework(userId: string): Promise<Homework[]> {
 export async function addHomework(h: Homework, userId: string): Promise<void> {
   const sql = getDb();
   await sql`
-    INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, score_percent)
+    INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, stage_id, stages, priority, source, source_id, score, category, flags, score_percent)
     VALUES (
       ${h.id}, ${userId}, ${h.classId}, ${h.title}, ${h.description}, ${h.dueDate},
-      ${h.completed}, ${h.priority}, ${h.source}, ${h.sourceId ?? null},
+      ${h.completed}, ${h.stageId ?? null}, ${h.stages?.length ? JSON.stringify(h.stages) : null}::jsonb,
+      ${h.priority}, ${h.source}, ${h.sourceId ?? null},
       ${h.score ?? null}, ${h.category ?? null}, ${h.flags ?? null},
       ${h.scorePercent ?? null}
     )
@@ -569,7 +586,8 @@ export async function updateHomework(h: Homework, userId: string): Promise<void>
   await sql`
     UPDATE homework SET
       class_id = ${h.classId}, title = ${h.title}, description = ${h.description},
-      due_date = ${h.dueDate}, completed = ${h.completed}, priority = ${h.priority},
+      due_date = ${h.dueDate}, completed = ${h.completed}, stage_id = ${h.stageId ?? null},
+      stages = ${h.stages?.length ? JSON.stringify(h.stages) : null}::jsonb, priority = ${h.priority},
       source = ${h.source}, source_id = ${h.sourceId ?? null}, score = ${h.score ?? null},
       category = ${h.category ?? null}, flags = ${h.flags ?? null},
       score_percent = ${h.scorePercent ?? null}
@@ -632,8 +650,11 @@ export async function getTasks(userId: string): Promise<Task[]> {
 export async function addTask(t: Task, userId: string): Promise<void> {
   const sql = getDb();
   await sql`
-    INSERT INTO tasks (id, user_id, title, description, due_date, completed, priority, category, class_id)
-    VALUES (${t.id}, ${userId}, ${t.title}, ${t.description}, ${t.dueDate}, ${t.completed}, ${t.priority}, ${t.category}, ${t.classId ?? null})
+    INSERT INTO tasks (id, user_id, title, description, due_date, completed, stage_id, stages, priority, category, class_id)
+    VALUES (
+      ${t.id}, ${userId}, ${t.title}, ${t.description}, ${t.dueDate}, ${t.completed}, ${t.stageId ?? null},
+      ${t.stages?.length ? JSON.stringify(t.stages) : null}::jsonb, ${t.priority}, ${t.category}, ${t.classId ?? null}
+    )
   `;
 }
 
@@ -642,7 +663,9 @@ export async function updateTask(t: Task, userId: string): Promise<void> {
   await sql`
     UPDATE tasks SET
       title = ${t.title}, description = ${t.description}, due_date = ${t.dueDate},
-      completed = ${t.completed}, priority = ${t.priority}, category = ${t.category},
+      completed = ${t.completed}, stage_id = ${t.stageId ?? null},
+      stages = ${t.stages?.length ? JSON.stringify(t.stages) : null}::jsonb,
+      priority = ${t.priority}, category = ${t.category},
       class_id = ${t.classId ?? null}
     WHERE id = ${t.id} AND user_id = ${userId}
   `;

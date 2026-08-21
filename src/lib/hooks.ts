@@ -105,7 +105,17 @@ function useFetch<T>(url: string) {
     setData((prev) => {
       const updated = typeof next === 'function' ? (next as (p: T | null) => T | null)(prev) : next;
       globalCache.set(url, { data: updated, timestamp: Date.now() });
-      notifySubscribers(url);
+      // Defer to a microtask: notifySubscribers synchronously fires every other
+      // useFetch(url) instance's setState (via useSyncExternalStore), and doing
+      // that from inside this component's own setState updater — while React is
+      // still processing this update — trips "Cannot update a component while
+      // rendering a different component". A page that mounts several of these
+      // hooks (e.g. Tasks: homework + tasks + classes + settings) and calls
+      // mutate() from an event handler hits this every time; deferring one tick
+      // lets this update finish first without changing anything mutate() callers
+      // observe (they only ever await the follow-up API call, never read the
+      // cache synchronously).
+      queueMicrotask(() => notifySubscribers(url));
       return updated;
     });
   }, [url]);
