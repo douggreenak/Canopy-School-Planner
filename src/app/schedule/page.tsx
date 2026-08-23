@@ -36,6 +36,9 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import CloseIcon from '@mui/icons-material/Close';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import { useClasses, useDisruptions, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, getWeekSchedule, buildLathropEarlyOutTemplate } from '@/lib/schedule';
 import DayView from '@/components/DayView';
@@ -72,6 +75,8 @@ export default function SchedulePage() {
 
 function SchedulePageInner() {
   const router = useRouter();
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   // Calendar state
   const [view, setView] = useState<ViewMode>('day');
@@ -378,8 +383,15 @@ function SchedulePageInner() {
       </Paper>
 
       {/* ===== Disruption add/edit dialog ===== */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{editing ? 'Edit Disruption' : 'Add Disruption'}</DialogTitle>
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ flex: 1 }}>{editing ? 'Edit Disruption' : 'Add Disruption'}</Box>
+          {fullScreen && (
+            <IconButton onClick={() => setDialogOpen(false)} aria-label="Close" edge="end">
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          )}
+        </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid size={12}>
@@ -391,7 +403,7 @@ function SchedulePageInner() {
                 placeholder="e.g., Early Release — Teacher PD — leave blank to just show the type"
               />
             </Grid>
-            <Grid size={4}>
+            <Grid size={{ xs: 12, sm: 4 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Type</InputLabel>
                 <Select value={form.type} label="Type" onChange={(e) => setForm({ ...form, type: e.target.value as ScheduleDisruption['type'] })}>
@@ -399,7 +411,7 @@ function SchedulePageInner() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={4}>
+            <Grid size={{ xs: 6, sm: 4 }}>
               <TextField
                 fullWidth
                 label="Date"
@@ -414,7 +426,7 @@ function SchedulePageInner() {
                 slotProps={{ inputLabel: { shrink: true } }}
               />
             </Grid>
-            <Grid size={4}>
+            <Grid size={{ xs: 6, sm: 4 }}>
               <TextField
                 fullWidth
                 label="End Date (optional)"
@@ -456,7 +468,7 @@ function SchedulePageInner() {
                 <Typography variant="subtitle2" sx={{ mb: 1 }}>Period Overrides</Typography>
                 <Stack spacing={1}>
                   {form.periodOverrides.map((o, i) => (
-                    <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <Box key={i} sx={{ display: 'flex', gap: 1, rowGap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
                       <Chip label={o.period === 0 ? 'Lunch' : `P${o.period}`} size="small" />
                       <TextField
                         size="small"

@@ -29,13 +29,15 @@ import Snackbar from '@mui/material/Snackbar';
 import LinearProgress from '@mui/material/LinearProgress';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import { alpha } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { alpha, useTheme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import EditIcon from '@mui/icons-material/Edit';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import ChecklistIcon from '@mui/icons-material/Checklist';
+import CloseIcon from '@mui/icons-material/Close';
 import { useHomework, useTasks, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import { nextMeetingDate } from '@/lib/schedule';
 import { suggestRebalancing } from '@/lib/heatmap';
@@ -67,6 +69,8 @@ function stageChip(item: { stages?: TaskStage[]; stageId?: string; completed: bo
 }
 
 export default function TasksPage() {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const { data: homework, refetch: refetchHw, mutate: mutateHw } = useHomework();
   const { data: tasks, loading, refetch: refetchTasks, mutate: mutateTasks } = useTasks();
   const { data: classes } = useClasses();
@@ -447,44 +451,57 @@ export default function TasksPage() {
             const overdue = !hw.completed && dayjs(hw.dueDate).isBefore(dayjs(), 'day');
             return (
               <Card key={`hw-${hw.id}`} sx={{ opacity: hw.completed ? 0.7 : 1, ...(overdue ? { borderLeft: '3px solid', borderColor: 'error.main', bgcolor: (t) => alpha(t.palette.error.main, 0.04) } : {}) }}>
-                <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                  <Checkbox
-                    checked={hw.completed}
-                    onChange={() => toggleHw(hw)}
-                    sx={{ color: cls?.color, '&.Mui-checked': { color: cls?.color } }}
-                  />
-                  <Box
-                    role="button" tabIndex={0}
-                    onClick={() => setDetailItem({ kind: 'homework', id: hw.id })}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailItem({ kind: 'homework', id: hw.id }); } }}
-                    sx={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, my: -0.25, transition: 'background-color 0.12s', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
-                  >
-                    <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: hw.completed ? 'line-through' : 'none' }}>
-                      {hw.title}
-                    </Typography>
-                    {hw.description && <Typography variant="body2" color="text.secondary" noWrap>{hw.description}</Typography>}
-                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <Chip size="small" label="Homework" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
-                      {cls && (
-                        <Chip size="small" label={cls.name} sx={{ backgroundColor: cls.color + '18', color: cls.color, fontWeight: 500, fontSize: '0.7rem' }} />
-                      )}
-                      {stageChip(hw)}
-                      <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
-                        {overdue ? 'OVERDUE • ' : ''}Due {dayjs(hw.dueDate).format('MMM D, YYYY')}
+                <CardContent
+                  sx={{
+                    display: 'flex',
+                    flexDirection: { xs: 'column', sm: 'row' },
+                    alignItems: { xs: 'stretch', sm: 'center' },
+                    gap: { xs: 0.5, sm: 2 },
+                    py: 1.5,
+                    '&:last-child': { pb: 1.5 },
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, minWidth: 0 }}>
+                    <Checkbox
+                      checked={hw.completed}
+                      onChange={() => toggleHw(hw)}
+                      sx={{ color: cls?.color, '&.Mui-checked': { color: cls?.color }, flexShrink: 0 }}
+                    />
+                    <Box
+                      role="button" tabIndex={0}
+                      onClick={() => setDetailItem({ kind: 'homework', id: hw.id })}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailItem({ kind: 'homework', id: hw.id }); } }}
+                      sx={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, my: -0.25, transition: 'background-color 0.12s', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
+                    >
+                      <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: hw.completed ? 'line-through' : 'none' }}>
+                        {hw.title}
                       </Typography>
-                      {rebalancingByHwId.get(hw.id) && !hw.completed && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                          <SwapHorizIcon sx={{ fontSize: 12, color: 'warning.main' }} />
-                          <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 500 }}>
-                            Start by {dayjs(rebalancingByHwId.get(hw.id)!.startBy).format('ddd MMM D')} — {rebalancingByHwId.get(hw.id)!.reason}
-                          </Typography>
-                        </Box>
-                      )}
+                      {hw.description && <Typography variant="body2" color="text.secondary" noWrap>{hw.description}</Typography>}
+                      <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <Chip size="small" label="Homework" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
+                        {cls && (
+                          <Chip size="small" label={cls.name} sx={{ backgroundColor: cls.color + '18', color: cls.color, fontWeight: 500, fontSize: '0.7rem' }} />
+                        )}
+                        {stageChip(hw)}
+                        <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
+                          {overdue ? 'OVERDUE • ' : ''}Due {dayjs(hw.dueDate).format('MMM D, YYYY')}
+                        </Typography>
+                        {rebalancingByHwId.get(hw.id) && !hw.completed && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                            <SwapHorizIcon sx={{ fontSize: 12, color: 'warning.main' }} />
+                            <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 500 }}>
+                              Start by {dayjs(rebalancingByHwId.get(hw.id)!.startBy).format('ddd MMM D')} — {rebalancingByHwId.get(hw.id)!.reason}
+                            </Typography>
+                          </Box>
+                        )}
+                      </Box>
                     </Box>
                   </Box>
-                  <Chip size="small" label={hw.priority} color={hw.priority === 'high' ? 'error' : hw.priority === 'medium' ? 'warning' : 'default'} sx={{ fontSize: '0.7rem' }} />
-                  <IconButton size="small" onClick={() => openEditHw(hw)}><EditIcon fontSize="small" /></IconButton>
-                  <IconButton size="small" color="error" onClick={() => deleteHw(hw.id)}><DeleteIcon fontSize="small" /></IconButton>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: { xs: 'flex-end', sm: 'flex-start' }, pl: { xs: 7, sm: 0 } }}>
+                    <Chip size="small" label={hw.priority} color={hw.priority === 'high' ? 'error' : hw.priority === 'medium' ? 'warning' : 'default'} sx={{ fontSize: '0.7rem' }} />
+                    <IconButton size="small" onClick={() => openEditHw(hw)}><EditIcon fontSize="small" /></IconButton>
+                    <IconButton size="small" color="error" onClick={() => deleteHw(hw.id)}><DeleteIcon fontSize="small" /></IconButton>
+                  </Box>
                 </CardContent>
               </Card>
             );
@@ -496,34 +513,47 @@ export default function TasksPage() {
           const taskCls = task.classId ? classMap.get(task.classId) : undefined;
           return (
             <Card key={`task-${task.id}`} sx={{ opacity: task.completed ? 0.7 : 1, ...(overdue ? { borderLeft: '3px solid', borderColor: 'error.main', bgcolor: (t) => alpha(t.palette.error.main, 0.04) } : {}) }}>
-              <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                <Checkbox checked={task.completed} onChange={() => toggleTask(task)} color="success" />
-                <Box
-                  role="button" tabIndex={0}
-                  onClick={() => setDetailItem({ kind: 'task', id: task.id })}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailItem({ kind: 'task', id: task.id }); } }}
-                  sx={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, my: -0.25, transition: 'background-color 0.12s', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
-                >
-                  <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: task.completed ? 'line-through' : 'none' }}>
-                    {task.title}
-                  </Typography>
-                  {task.description && <Typography variant="body2" color="text.secondary" noWrap>{task.description}</Typography>}
-                  <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <Chip size="small" label={task.category} variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                    {taskCls && (
-                      <Chip size="small" label={taskCls.name} variant="outlined" sx={{ fontSize: '0.7rem', borderLeft: `3px solid ${taskCls.color}`, pl: 0.25 }} />
-                    )}
-                    {stageChip(task)}
-                    {task.dueDate && (
-                      <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
-                        {overdue ? 'OVERDUE • ' : ''}Due {dayjs(task.dueDate).format('MMM D')}
-                      </Typography>
-                    )}
+              <CardContent
+                sx={{
+                  display: 'flex',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  alignItems: { xs: 'stretch', sm: 'center' },
+                  gap: { xs: 0.5, sm: 2 },
+                  py: 1.5,
+                  '&:last-child': { pb: 1.5 },
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, minWidth: 0 }}>
+                  <Checkbox checked={task.completed} onChange={() => toggleTask(task)} color="success" sx={{ flexShrink: 0 }} />
+                  <Box
+                    role="button" tabIndex={0}
+                    onClick={() => setDetailItem({ kind: 'task', id: task.id })}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailItem({ kind: 'task', id: task.id }); } }}
+                    sx={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, my: -0.25, transition: 'background-color 0.12s', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
+                  >
+                    <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: task.completed ? 'line-through' : 'none' }}>
+                      {task.title}
+                    </Typography>
+                    {task.description && <Typography variant="body2" color="text.secondary" noWrap>{task.description}</Typography>}
+                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Chip size="small" label={task.category} variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                      {taskCls && (
+                        <Chip size="small" label={taskCls.name} variant="outlined" sx={{ fontSize: '0.7rem', borderLeft: `3px solid ${taskCls.color}`, pl: 0.25 }} />
+                      )}
+                      {stageChip(task)}
+                      {task.dueDate && (
+                        <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
+                          {overdue ? 'OVERDUE • ' : ''}Due {dayjs(task.dueDate).format('MMM D')}
+                        </Typography>
+                      )}
+                    </Box>
                   </Box>
                 </Box>
-                <Chip size="small" label={task.priority} color={task.priority === 'high' ? 'error' : task.priority === 'medium' ? 'warning' : 'default'} sx={{ fontSize: '0.7rem' }} />
-                <IconButton size="small" onClick={() => openEditTask(task)} aria-label="Edit"><EditIcon fontSize="small" /></IconButton>
-                <IconButton size="small" color="error" onClick={() => deleteTask(task.id)} aria-label="Delete"><DeleteIcon fontSize="small" /></IconButton>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: { xs: 'flex-end', sm: 'flex-start' }, pl: { xs: 7, sm: 0 } }}>
+                  <Chip size="small" label={task.priority} color={task.priority === 'high' ? 'error' : task.priority === 'medium' ? 'warning' : 'default'} sx={{ fontSize: '0.7rem' }} />
+                  <IconButton size="small" onClick={() => openEditTask(task)} aria-label="Edit"><EditIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" color="error" onClick={() => deleteTask(task.id)} aria-label="Delete"><DeleteIcon fontSize="small" /></IconButton>
+                </Box>
               </CardContent>
             </Card>
           );
@@ -542,9 +572,16 @@ export default function TasksPage() {
       </Stack>
 
       {/* ===== Add / Edit dialog ===== */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          {editingHw ? 'Edit Homework' : editingTask ? 'Edit Task' : addKind === 'homework' ? 'Add Homework' : 'Add Task'}
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ flex: 1 }}>
+            {editingHw ? 'Edit Homework' : editingTask ? 'Edit Task' : addKind === 'homework' ? 'Add Homework' : 'Add Task'}
+          </Box>
+          {fullScreen && (
+            <IconButton onClick={() => setDialogOpen(false)} aria-label="Close" edge="end">
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          )}
         </DialogTitle>
         <DialogContent>
           {/* Type toggle — only shown when adding, not editing */}

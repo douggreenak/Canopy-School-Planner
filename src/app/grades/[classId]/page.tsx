@@ -276,51 +276,58 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
 
   return (
     <Box>
-      {/* ===== Top nav ===== */}
-      <Stack direction="row" spacing={1} sx={{ mb: 2, alignItems: 'center' }}>
-        <IconButton onClick={() => router.push('/grades')} aria-label="Back to grades" sx={{ minWidth: 44, minHeight: 44 }}>
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography
-          variant="body2"
-          color="text.secondary"
-          sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-          onClick={() => router.push('/grades')}
-        >
-          Grades
-        </Typography>
-        <Typography variant="body2" color="text.disabled">/</Typography>
-        <Tooltip title={cls.name} placement="bottom">
-          <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>{cls.name}</Typography>
-        </Tooltip>
-        <Box sx={{ flex: 1 }} />
-        {cls?.categoryWeights && Object.keys(cls.categoryWeights).length > 0 && (
+      {/* ===== Top nav =====
+          Two independent flex rows so it can go side-by-side on desktop
+          (breadcrumb flex:1, buttons pinned right) or stack on mobile
+          (breadcrumb row, then a wrapping button row) without either
+          overflowing a phone-width viewport. */}
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2, alignItems: { xs: 'stretch', sm: 'center' } }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
+          <IconButton onClick={() => router.push('/grades')} aria-label="Back to grades" sx={{ minWidth: 44, minHeight: 44, flexShrink: 0 }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ cursor: 'pointer', flexShrink: 0, '&:hover': { textDecoration: 'underline' } }}
+            onClick={() => router.push('/grades')}
+          >
+            Grades
+          </Typography>
+          <Typography variant="body2" color="text.disabled" sx={{ flexShrink: 0 }}>/</Typography>
+          <Tooltip title={cls.name} placement="bottom">
+            <Typography variant="body2" sx={{ fontWeight: 500, minWidth: 0, flex: 1 }} noWrap>{cls.name}</Typography>
+          </Tooltip>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: { xs: 'flex-start', sm: 'flex-end' } }}>
+          {cls?.categoryWeights && Object.keys(cls.categoryWeights).length > 0 && (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<CalculateIcon />}
+              onClick={() => setWhatIfOpen(true)}
+            >
+              What if?
+            </Button>
+          )}
           <Button
             variant="outlined"
             size="small"
-            startIcon={<CalculateIcon />}
-            onClick={() => setWhatIfOpen(true)}
+            startIcon={<GradingIcon />}
+            onClick={() => setFinalCalcOpen(true)}
           >
-            What if?
+            Final Calc
           </Button>
-        )}
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={<GradingIcon />}
-          onClick={() => setFinalCalcOpen(true)}
-        >
-          Final Calc
-        </Button>
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={syncing ? <CircularProgress size={14} color="inherit" /> : <SyncIcon />}
-          onClick={syncNow}
-          disabled={syncing}
-        >
-          {syncing ? 'Syncing…' : 'Sync'}
-        </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={syncing ? <CircularProgress size={14} color="inherit" /> : <SyncIcon />}
+            onClick={syncNow}
+            disabled={syncing}
+          >
+            {syncing ? 'Syncing…' : 'Sync'}
+          </Button>
+        </Box>
       </Stack>
 
       {/* ===== Class header card =====

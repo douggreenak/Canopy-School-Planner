@@ -212,6 +212,8 @@ export default function AdminPage() {
                         display: 'flex',
                         alignItems: 'center',
                         gap: 1.5,
+                        rowGap: 0.5,
+                        flexWrap: 'wrap',
                         px: 2,
                         py: 1,
                         borderBottom: i < stats.userList.length - 1 ? '1px solid' : 'none',
@@ -219,7 +221,7 @@ export default function AdminPage() {
                       }}
                     >
                       <AccountCircleIcon sx={{ color: 'text.disabled', fontSize: 20, flexShrink: 0 }} />
-                      <Typography variant="body2" sx={{ fontWeight: 500, flex: 1 }}>{u.username}</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 500, flex: '1 1 120px', minWidth: 0 }} noWrap>{u.username}</Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
                         Joined {registeredAt}
                       </Typography>

@@ -26,6 +26,9 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import RoomIcon from '@mui/icons-material/Room';
+import CloseIcon from '@mui/icons-material/Close';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import { useExams, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import { letterFromPercent } from '@/lib/grades';
 import type { Exam, SchoolClass } from '@/types';
@@ -70,6 +73,8 @@ function formatTime(t: string | undefined): string {
 }
 
 export default function ExamsPage() {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const { data: exams, loading, refetch } = useExams();
   const { data: classes } = useClasses();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -238,8 +243,15 @@ export default function ExamsPage() {
         <AddIcon />
       </Fab>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{editing ? 'Edit Exam' : 'Add Exam'}</DialogTitle>
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ flex: 1 }}>{editing ? 'Edit Exam' : 'Add Exam'}</Box>
+          {fullScreen && (
+            <IconButton onClick={() => setDialogOpen(false)} aria-label="Close" edge="end">
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          )}
+        </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid size={12}><TextField fullWidth label="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></Grid>

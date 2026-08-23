@@ -673,10 +673,10 @@ function SettingsInner() {
                   Your Dashboard and Schedule only show classes within these dates. Outside the semester (e.g. over summer) they will appear empty.
                 </Typography>
               </Grid>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField fullWidth label="Semester Start" type="date" value={semesterStart} onChange={(e) => setSemesterStart(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
               </Grid>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   fullWidth
                   label="Semester End"
@@ -737,7 +737,7 @@ function SettingsInner() {
                   const period = Number(periodStr);
                   const matchingClass = importedClasses?.find((c) => c.period === period);
                   return (
-                    <Box key={period} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box key={period} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', rowGap: 0.5 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 56 }}>
                         P{period}
                         {matchingClass && (
@@ -753,7 +753,7 @@ function SettingsInner() {
                         value={times.startTime}
                         onChange={(e) => updateEarlyOutTime(period, 'startTime', e.target.value)}
                         slotProps={{ inputLabel: { shrink: true } }}
-                        sx={{ width: 130 }}
+                        sx={{ width: { xs: 118, sm: 130 } }}
                       />
                       <Typography variant="body2" color="text.secondary">–</Typography>
                       <TextField
@@ -763,7 +763,7 @@ function SettingsInner() {
                         value={times.endTime}
                         onChange={(e) => updateEarlyOutTime(period, 'endTime', e.target.value)}
                         slotProps={{ inputLabel: { shrink: true } }}
-                        sx={{ width: 130 }}
+                        sx={{ width: { xs: 118, sm: 130 } }}
                       />
                       <IconButton size="small" onClick={() => removeEarlyOutPeriod(period)} color="error">
                         <DeleteForeverIcon fontSize="small" />
@@ -833,10 +833,10 @@ function SettingsInner() {
                   helperText="Any URL from your school's PowerSchool portal — the domain will be extracted automatically"
                 />
               </Grid>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField fullWidth label="Student Username" value={psUser} onChange={(e) => setPsUser(e.target.value)} />
               </Grid>
-              <Grid size={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   fullWidth
                   label={setupStatus?.hasPowerschool ? 'Password (leave blank to use saved)' : 'Student Password'}
@@ -1000,7 +1000,7 @@ function SettingsInner() {
                         { label: 'Mon', day: 1 }, { label: 'Tue', day: 2 }, { label: 'Wed', day: 3 },
                         { label: 'Thu', day: 4 }, { label: 'Fri', day: 5 },
                       ] as { label: string; day: number }[]).map(({ label, day }) => (
-                        <Grid size={2.4} key={day}>
+                        <Grid size={{ xs: 6, sm: 2.4 }} key={day}>
                           <Stack spacing={0.5}>
                             <Typography variant="caption" sx={{ fontWeight: 600, textAlign: 'center' }}>{label}</Typography>
                             <TextField size="small" type="time" label="Start" value={lunchTimes[day]?.startTime || ''} onChange={(e) => updateLunchTime(day, 'startTime', e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
@@ -1100,7 +1100,7 @@ function SettingsInner() {
                             const dt = editableClass.dayTimes && editableClass.dayTimes[weekdayNum];
                             const overrideChecked = !!dt;
                             return (
-                              <Box key={d} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              <Box key={d} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap', rowGap: 0.5 }}>
                                 <FormControlLabel
                                   control={<Checkbox checked={overrideChecked} onChange={(e) => {
                                     const dayTimes = { ...(editableClass.dayTimes || {}) } as Record<number, { startTime: string; endTime: string }>;

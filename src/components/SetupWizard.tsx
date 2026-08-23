@@ -9,6 +9,7 @@ import TextField from '@mui/material/TextField';
 import Stack from '@mui/material/Stack';
 import Alert from '@mui/material/Alert';
 import CircularProgress from '@mui/material/CircularProgress';
+import LinearProgress from '@mui/material/LinearProgress';
 import Stepper from '@mui/material/Stepper';
 import Step from '@mui/material/Step';
 import StepLabel from '@mui/material/StepLabel';
@@ -27,6 +28,9 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import StorageIcon from '@mui/icons-material/Storage';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import CloseIcon from '@mui/icons-material/Close';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import TimezonePicker from '@/components/TimezonePicker';
 
 const STEPS = ['Welcome', 'School Info', 'PowerSchool', 'Done'];
@@ -38,6 +42,8 @@ interface Props {
 }
 
 export default function SetupWizard({ open, onClose, required = false }: Props) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -130,32 +136,61 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
       open={open}
       maxWidth="sm"
       fullWidth
+      fullScreen={fullScreen}
       onClose={required ? undefined : handleClose}
-      sx={{ '& .MuiDialog-paper': { borderRadius: 3 } }}
+      sx={{ '& .MuiDialog-paper': { borderRadius: fullScreen ? 0 : 3 } }}
     >
       <DialogContent sx={{ p: 0 }}>
         {/* Header */}
-        <Box sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', px: 3, pt: 3, pb: 2 }}>
+        <Box sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', px: 3, pt: 3, pb: 2, position: 'relative' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
             <SchoolIcon sx={{ fontSize: 32 }} />
-            <Typography variant="h5" sx={{ fontWeight: 600 }}>Setup Wizard</Typography>
+            <Typography variant="h5" sx={{ fontWeight: 600, flex: 1 }}>Setup Wizard</Typography>
+            {!required && (
+              <IconButton onClick={handleClose} aria-label="Close" sx={{ color: 'primary.contrastText', mr: -1 }}>
+                <CloseIcon />
+              </IconButton>
+            )}
           </Box>
-          <Stepper
-            activeStep={step}
-            alternativeLabel
-            sx={{
-              '& .MuiStepLabel-label': { color: 'primary.contrastText', opacity: 0.7 },
-              '& .MuiStepLabel-label.Mui-active': { opacity: 1, fontWeight: 600 },
-              '& .MuiStepIcon-root': { color: 'rgba(255,255,255,0.3)' },
-              '& .MuiStepIcon-root.Mui-active': { color: 'white' },
-              '& .MuiStepIcon-root.Mui-completed': { color: 'rgba(255,255,255,0.8)' },
-              '& .MuiStepConnector-line': { borderColor: 'rgba(255,255,255,0.3)' },
-            }}
-          >
-            {STEPS.map((label) => (
-              <Step key={label}><StepLabel>{label}</StepLabel></Step>
-            ))}
-          </Stepper>
+          {/* Mobile: compact "Step X of Y" progress bar — a full labeled
+              stepper doesn't fit a phone width without labels wrapping and
+              throwing off the connector lines. Desktop keeps the classic
+              Material stepper. */}
+          {fullScreen ? (
+            <Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.75 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{STEPS[step]}</Typography>
+                <Typography variant="caption" sx={{ opacity: 0.8 }}>Step {step + 1} of {STEPS.length}</Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={((step + 1) / STEPS.length) * 100}
+                sx={{
+                  height: 4,
+                  borderRadius: 2,
+                  bgcolor: 'rgba(255,255,255,0.25)',
+                  '& .MuiLinearProgress-bar': { bgcolor: 'white', borderRadius: 2 },
+                }}
+              />
+            </Box>
+          ) : (
+            <Stepper
+              activeStep={step}
+              alternativeLabel
+              sx={{
+                '& .MuiStepLabel-label': { color: 'primary.contrastText', opacity: 0.7 },
+                '& .MuiStepLabel-label.Mui-active': { opacity: 1, fontWeight: 600 },
+                '& .MuiStepIcon-root': { color: 'rgba(255,255,255,0.3)' },
+                '& .MuiStepIcon-root.Mui-active': { color: 'white' },
+                '& .MuiStepIcon-root.Mui-completed': { color: 'rgba(255,255,255,0.8)' },
+                '& .MuiStepConnector-line': { borderColor: 'rgba(255,255,255,0.3)' },
+              }}
+            >
+              {STEPS.map((label) => (
+                <Step key={label}><StepLabel>{label}</StepLabel></Step>
+              ))}
+            </Stepper>
+          )}
         </Box>
 
         {/* Body */}
@@ -213,7 +248,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 helperText="Shown as a label throughout the app"
               />
 
-              <Stack direction="row" spacing={2}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField
                   fullWidth
                   label="Semester Start Date"
@@ -246,26 +281,51 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 helperText="Used for calendar feed and schedule display"
               />
 
-              <Stack direction="row" spacing={1.5}>
-                <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy}>
-                  Back
-                </Button>
-                <Button
-                  variant="contained"
-                  size="large"
-                  sx={{ flex: 1 }}
-                  startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <ArrowForwardIcon />}
-                  onClick={saveSchoolInfo}
-                  disabled={busy}
-                >
-                  Save &amp; Continue
-                </Button>
-                {!required && (
-                  <Button variant="outlined" onClick={() => setStep(2)} disabled={busy}>
-                    Skip
+              {fullScreen ? (
+                <Stack spacing={1.5}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    fullWidth
+                    startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <ArrowForwardIcon />}
+                    onClick={saveSchoolInfo}
+                    disabled={busy}
+                  >
+                    Save &amp; Continue
                   </Button>
-                )}
-              </Stack>
+                  <Stack direction="row" spacing={1.5}>
+                    <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy} sx={{ flex: 1 }}>
+                      Back
+                    </Button>
+                    {!required && (
+                      <Button variant="outlined" onClick={() => setStep(2)} disabled={busy} sx={{ flex: 1 }}>
+                        Skip
+                      </Button>
+                    )}
+                  </Stack>
+                </Stack>
+              ) : (
+                <Stack direction="row" spacing={1.5}>
+                  <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy}>
+                    Back
+                  </Button>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    sx={{ flex: 1 }}
+                    startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <ArrowForwardIcon />}
+                    onClick={saveSchoolInfo}
+                    disabled={busy}
+                  >
+                    Save &amp; Continue
+                  </Button>
+                  {!required && (
+                    <Button variant="outlined" onClick={() => setStep(2)} disabled={busy}>
+                      Skip
+                    </Button>
+                  )}
+                </Stack>
+              )}
             </Stack>
           )}
 
@@ -292,7 +352,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 helperText="Any URL from your school's PowerSchool portal"
               />
 
-              <Stack direction="row" spacing={2}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField
                   fullWidth
                   label="Student Username"
@@ -335,24 +395,47 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 </Accordion>
               )}
 
-              <Stack direction="row" spacing={1.5}>
-                <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy}>
-                  Back
-                </Button>
-                <Button
-                  variant="contained"
-                  size="large"
-                  sx={{ flex: 1 }}
-                  startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <SyncIcon />}
-                  onClick={syncPowerSchool}
-                  disabled={!canSyncPS || busy}
-                >
-                  {busy ? 'Syncing…' : 'Connect & Sync'}
-                </Button>
-                <Button variant="outlined" onClick={() => setStep(3)} disabled={busy}>
-                  Skip
-                </Button>
-              </Stack>
+              {fullScreen ? (
+                <Stack spacing={1.5}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    fullWidth
+                    startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <SyncIcon />}
+                    onClick={syncPowerSchool}
+                    disabled={!canSyncPS || busy}
+                  >
+                    {busy ? 'Syncing…' : 'Connect & Sync'}
+                  </Button>
+                  <Stack direction="row" spacing={1.5}>
+                    <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy} sx={{ flex: 1 }}>
+                      Back
+                    </Button>
+                    <Button variant="outlined" onClick={() => setStep(3)} disabled={busy} sx={{ flex: 1 }}>
+                      Skip
+                    </Button>
+                  </Stack>
+                </Stack>
+              ) : (
+                <Stack direction="row" spacing={1.5}>
+                  <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy}>
+                    Back
+                  </Button>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    sx={{ flex: 1 }}
+                    startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <SyncIcon />}
+                    onClick={syncPowerSchool}
+                    disabled={!canSyncPS || busy}
+                  >
+                    {busy ? 'Syncing…' : 'Connect & Sync'}
+                  </Button>
+                  <Button variant="outlined" onClick={() => setStep(3)} disabled={busy}>
+                    Skip
+                  </Button>
+                </Stack>
+              )}
               <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>
                 You can always sync PowerSchool later from the Settings page.
               </Typography>

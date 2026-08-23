@@ -17,6 +17,7 @@ import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Divider from '@mui/material/Divider';
 import { alpha, useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import CloseIcon from '@mui/icons-material/Close';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import RoomIcon from '@mui/icons-material/Room';
@@ -64,6 +65,7 @@ function durationMinutes(start: string, end: string): number {
 export default function ClassDetailDialog({ open, onClose, entry, date, disruption }: Props) {
   const router = useRouter();
   const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   if (!entry) return null;
   const { classInfo, startTime, endTime, cancelled } = entry;
@@ -92,7 +94,7 @@ export default function ClassDetailDialog({ open, onClose, entry, date, disrupti
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
       {/* Colored top stripe — same pattern as the Grades pages, ties the
           dialog visually to the class block the user clicked. */}
       <Box sx={{ height: 6, bgcolor: classInfo.color }} />

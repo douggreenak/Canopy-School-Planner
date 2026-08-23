@@ -13,6 +13,9 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
+import CloseIcon from '@mui/icons-material/Close';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import type { SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
 
@@ -66,6 +69,8 @@ function rowsToWeights(rows: WeightRow[]): Record<string, number> | undefined {
 }
 
 export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const [form, setForm] = useState<SchoolClass>(empty);
   const [weightRows, setWeightRows] = useState<WeightRow[]>([]);
   const [showWeights, setShowWeights] = useState(false);
@@ -129,8 +134,15 @@ export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{initial ? 'Edit Class' : 'Add Class'}</DialogTitle>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ flex: 1 }}>{initial ? 'Edit Class' : 'Add Class'}</Box>
+        {fullScreen && (
+          <IconButton onClick={onClose} aria-label="Close" edge="end">
+            <CloseIcon />
+          </IconButton>
+        )}
+      </DialogTitle>
       <DialogContent>
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Grid size={12}>
@@ -142,13 +154,13 @@ export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
           <Grid size={6}>
             <TextField fullWidth label="Room" value={form.room} onChange={(e) => update('room', e.target.value)} />
           </Grid>
-          <Grid size={4}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <TextField fullWidth label="Period" type="number" value={form.period} onChange={(e) => update('period', parseInt(e.target.value) || 1)} />
           </Grid>
-          <Grid size={4}>
+          <Grid size={{ xs: 6, sm: 4 }}>
             <TextField fullWidth label="Start Time" type="time" value={form.startTime} onChange={(e) => update('startTime', e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
           </Grid>
-          <Grid size={4}>
+          <Grid size={{ xs: 6, sm: 4 }}>
             <TextField fullWidth label="End Time" type="time" value={form.endTime} onChange={(e) => update('endTime', e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
           </Grid>
           <Grid size={12}>

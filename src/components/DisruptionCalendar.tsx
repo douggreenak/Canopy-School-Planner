@@ -6,6 +6,7 @@ import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import Button from '@mui/material/Button';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { alpha, useTheme } from '@mui/material/styles';
 import dayjs from 'dayjs';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -28,6 +29,9 @@ interface Props {
 
 export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove }: Props) {
   const theme = useTheme();
+  // Native HTML5 drag-and-drop (used for "drag to move" below) doesn't fire
+  // from touch input, so don't advertise it on phone-width / touch screens.
+  const isTouch = useMediaQuery('(pointer: coarse)');
   const [month, setMonth]       = useState(() => dayjs().startOf('month'));
   const [dragId, setDragId]     = useState<string | null>(null);
   // The specific date-cell a multi-day disruption's chip was picked up
@@ -269,7 +273,9 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
           />
         ))}
         <Typography variant="caption" color="text.disabled" sx={{ ml: 'auto', fontStyle: 'italic' }}>
-          Click a day to add · Drag to move · Click event to edit
+          {isTouch
+            ? 'Tap a day to add · Tap an event to edit'
+            : 'Click a day to add · Drag to move · Click event to edit'}
         </Typography>
       </Box>
     </Box>

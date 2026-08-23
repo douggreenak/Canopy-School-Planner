@@ -6,6 +6,7 @@ import Typography from '@mui/material/Typography';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Table from '@mui/material/Table';
+import TableContainer from '@mui/material/TableContainer';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
@@ -221,6 +222,7 @@ export default function TranscriptPage() {
                 </Box>
                 <Divider />
               </CardContent>
+              <TableContainer sx={{ overflowX: 'auto' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -267,6 +269,7 @@ export default function TranscriptPage() {
                   })}
                 </TableBody>
               </Table>
+              </TableContainer>
             </Card>
           );
         })}

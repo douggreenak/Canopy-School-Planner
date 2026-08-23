@@ -21,6 +21,7 @@ import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Divider from '@mui/material/Divider';
 import { alpha, useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -91,6 +92,7 @@ const PRIORITY_COLOR: Record<DetailItem['priority'], 'error' | 'warning' | 'defa
 
 export default function ItemDetailDialog({ open, item, kind, linkedClass, onClose, onToggleComplete, onSetStage, onEdit, onDelete }: Props) {
   const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   if (!item) return null;
 
   const due = item.dueDate ? dayjs(item.dueDate) : null;
@@ -126,7 +128,7 @@ export default function ItemDetailDialog({ open, item, kind, linkedClass, onClos
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
       {/* Priority-colored top stripe — subtle visual link to the list row. */}
       <Box sx={{ height: 6, bgcolor: stripeColor }} />
 

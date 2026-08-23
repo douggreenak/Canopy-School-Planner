@@ -136,6 +136,7 @@ export default function SyncLogPage() {
           value={changeFilter}
           exclusive
           onChange={(_, v) => v && setChangeFilter(v)}
+          sx={{ flexWrap: 'wrap', gap: 0.5, '& .MuiToggleButtonGroup-grouped': { borderRadius: '20px !important', borderLeft: '1px solid !important', borderColor: 'divider' } }}
         >
           <ToggleButton value="all">All</ToggleButton>
           <ToggleButton value="added">Added</ToggleButton>
