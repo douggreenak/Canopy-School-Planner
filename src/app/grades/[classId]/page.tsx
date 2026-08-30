@@ -13,8 +13,14 @@
 import { use, useMemo, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
-import WhatIfDialog from '@/components/WhatIfDialog';
-import FinalGradeDialog from '@/components/FinalGradeDialog';
+import dynamic from 'next/dynamic';
+// Both only needed once their respective button is clicked — deferred to
+// their own chunks. Both are mounted unconditionally below (open={...}, to
+// preserve MUI's close transition), so ssr:false is what actually keeps
+// them out of the hydration-critical path — default ssr:true would still
+// ship them on load.
+const WhatIfDialog = dynamic(() => import('@/components/WhatIfDialog'), { ssr: false });
+const FinalGradeDialog = dynamic(() => import('@/components/FinalGradeDialog'), { ssr: false });
 import { mostImpactfulAssignment } from '@/lib/gradeEngine';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';

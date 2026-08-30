@@ -29,9 +29,13 @@ import { useClasses, useHomework, useExams, useTasks, useDisruptions, useSetting
 import { buildDaySchedule } from '@/lib/calendar';
 import { getWeekSchedule, weekViewStart } from '@/lib/schedule';
 import { buildHeatmap } from '@/lib/heatmap';
-import DayView from '@/components/DayView';
-import WeekView from '@/components/WeekView';
-import YearView from '@/components/YearView';
+import dynamic from 'next/dynamic';
+// Only one of Day/Week/Year is ever visible at once (tab-switched) — deferring
+// the other two to their own chunks means a visit that never touches the
+// Week or Year tab never pays for their JS at all.
+const DayView = dynamic(() => import('@/components/DayView'));
+const WeekView = dynamic(() => import('@/components/WeekView'));
+const YearView = dynamic(() => import('@/components/YearView'));
 import { disruptionTypeLabel } from '@/lib/disruptionTypes';
 import WhatshotIcon from '@mui/icons-material/Whatshot';
 

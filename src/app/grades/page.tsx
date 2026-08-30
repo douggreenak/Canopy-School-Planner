@@ -64,8 +64,13 @@ import {
   VELOCITY_THRESHOLD,
 } from '@/lib/grades';
 import type { SchoolClass, Homework } from '@/types';
-import TranscriptPage from '@/app/transcript/page';
-import SyncLogPage from '@/app/sync-log/page';
+import dynamic from 'next/dynamic';
+// Both are full sibling pages embedded here as tabs — the default tab is
+// "grades", so most visits never touch either. Deferring them to their own
+// chunks keeps their JS out of the (already substantial) Grades page bundle
+// until the Transcript/Sync Log tab is actually clicked.
+const TranscriptPage = dynamic(() => import('@/app/transcript/page'));
+const SyncLogPage = dynamic(() => import('@/app/sync-log/page'));
 
 // ---- Reusable stat tile for the "at a glance" strip ----
 // Each tile renders a big number on a subtly-colored card so the most important

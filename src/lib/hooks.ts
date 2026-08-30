@@ -224,6 +224,19 @@ export function useSettings() {
   return useFetch<Partial<AppSettings>>('/api/settings');
 }
 
+/**
+ * Read-through GET for use outside a hook (e.g. a component that needs a
+ * one-off value on mount rather than a live-updating subscription). Shares
+ * the same cache + in-flight request dedup as useFetch/useSettings/etc., so
+ * a raw fetch('/api/settings') that used to fire independently — and
+ * duplicate whatever useSettings() elsewhere on the page just requested —
+ * now collapses into that same request when one is already in flight, or
+ * returns the still-fresh cached value.
+ */
+export async function apiGet<T>(url: string, forceRefresh = false): Promise<T> {
+  return fetchWithDeduplication<T>(url, forceRefresh);
+}
+
 // Mutation helpers
 export async function apiPost<T>(url: string, body: T) {
   const res = await fetch(url, {

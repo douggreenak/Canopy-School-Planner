@@ -40,7 +40,13 @@ import { useHomework, useTasks, useClasses, apiPost, apiPut, apiDelete } from '@
 import { nextMeetingDate } from '@/lib/schedule';
 import { suggestRebalancing } from '@/lib/heatmap';
 import { completedForStage, loadLastStageTemplate, saveLastStageTemplate } from '@/lib/stages';
-import ItemDetailDialog, { type DetailItem } from '@/components/ItemDetailDialog';
+import dynamic from 'next/dynamic';
+import type { DetailItem } from '@/components/ItemDetailDialog';
+// Only needed once a row is actually clicked open — deferred to its own
+// chunk. Mounted unconditionally below (open={!!detailItem}, to preserve
+// MUI's close transition), so ssr:false is what actually keeps it out of
+// the hydration-critical path — default ssr:true would still ship it on load.
+const ItemDetailDialog = dynamic(() => import('@/components/ItemDetailDialog'), { ssr: false });
 import StageListEditor from '@/components/StageListEditor';
 import TaskRow, { TASK_ROW_COLUMNS, TASK_ROW_GRID_TEMPLATE } from '@/components/TaskRow';
 import type { Homework, Task, SchoolClass, TaskStage, DueTiming } from '@/types';

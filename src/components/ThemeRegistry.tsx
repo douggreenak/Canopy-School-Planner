@@ -3,6 +3,8 @@ import { createContext, useContext, useState, useEffect, useMemo, useCallback } 
 import { ThemeProvider, useMediaQuery } from '@mui/material';
 import CssBaseline from '@mui/material/CssBaseline';
 import { getTheme, DEFAULT_ACCENT, type ThemeMode } from '@/lib/theme';
+import { apiGet } from '@/lib/hooks';
+import type { AppSettings } from '@/types';
 
 // ---- Context ----
 
@@ -50,10 +52,13 @@ export default function ThemeRegistry({ children }: { children: React.ReactNode 
     if (storedAccent) setAccentState(storedAccent);
   }, []);
 
-  // Also sync from DB on mount (cross-device)
+  // Also sync from DB on mount (cross-device). Goes through apiGet's shared
+  // cache/dedup rather than a raw fetch — pages using useSettings() (or
+  // another apiGet('/api/settings') caller, e.g. the Settings page's own
+  // initial load) mount around the same tick, and this collapses what would
+  // otherwise be several concurrent requests for the same data into one.
   useEffect(() => {
-    fetch('/api/settings')
-      .then((r) => r.json())
+    apiGet<Partial<AppSettings>>('/api/settings')
       .then((s) => {
         if (s.themeMode && !localStorage.getItem(MODE_KEY)) {
           setModeState(s.themeMode);

@@ -42,23 +42,34 @@ const IDLE_POLL_MS = 15000;
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let refCount = 0;
-let inFlight = false;
+// Shared in-flight promise (rather than a plain boolean) so a concurrent
+// caller — e.g. a page's own mount-time fetchPowerSchoolStatusNow() firing
+// in the same tick as the store's own subscribe-triggered poll() — awaits
+// the SAME request instead of firing a second, redundant one.
+let inFlightRequest: Promise<PowerSchoolStatus> | null = null;
+
+async function fetchStatus(): Promise<PowerSchoolStatus> {
+  if (inFlightRequest) return inFlightRequest;
+  inFlightRequest = (async () => {
+    try {
+      const res = await fetch('/api/powerschool/status');
+      if (res.ok) {
+        const data: PowerSchoolStatus = await res.json();
+        current = data;
+        emit();
+      }
+    } catch {
+      // Transient failure — keep last known status, try again next tick.
+    } finally {
+      inFlightRequest = null;
+    }
+    return current;
+  })();
+  return inFlightRequest;
+}
 
 async function poll() {
-  if (inFlight) return;
-  inFlight = true;
-  try {
-    const res = await fetch('/api/powerschool/status');
-    if (res.ok) {
-      const data: PowerSchoolStatus = await res.json();
-      current = data;
-      emit();
-    }
-  } catch {
-    // Transient failure — keep last known status, try again next tick.
-  } finally {
-    inFlight = false;
-  }
+  await fetchStatus();
   if (refCount > 0) {
     timer = setTimeout(poll, current.status === 'running' ? RUNNING_POLL_MS : IDLE_POLL_MS);
   }
@@ -110,14 +121,5 @@ export function pokePowerSchoolStatus() {
 
 /** One-off check outside the hook — used on mount to decide whether to resume a "syncing" UI state, without waiting for the poll cadence. */
 export async function fetchPowerSchoolStatusNow(): Promise<PowerSchoolStatus> {
-  try {
-    const res = await fetch('/api/powerschool/status');
-    if (!res.ok) return current;
-    const data: PowerSchoolStatus = await res.json();
-    current = data;
-    emit();
-    return data;
-  } catch {
-    return current;
-  }
+  return fetchStatus();
 }

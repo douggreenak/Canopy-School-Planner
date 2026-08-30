@@ -29,7 +29,13 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import RoomIcon from '@mui/icons-material/Room';
 import PersonIcon from '@mui/icons-material/Person';
 import { useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
-import ClassDialog from '@/components/ClassDialog';
+import dynamic from 'next/dynamic';
+// Only needed once the Add/Edit dialog actually opens — deferring it to its
+// own chunk keeps it out of this page's initial JS. It's mounted
+// unconditionally below (open={dialogOpen}, to preserve MUI's close
+// transition), so ssr:false is what actually keeps its chunk out of the
+// hydration-critical path — with default ssr:true it'd still ship on load.
+const ClassDialog = dynamic(() => import('@/components/ClassDialog'), { ssr: false });
 import type { SchoolClass } from '@/types';
 // (No synthetic lunch button here — Lunch is added to the schedule view only.)
 

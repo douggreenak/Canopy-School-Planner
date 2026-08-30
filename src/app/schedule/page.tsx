@@ -41,10 +41,18 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import { useClasses, useDisruptions, useSettings, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, getWeekSchedule, buildLathropEarlyOutTemplate, weekViewStart } from '@/lib/schedule';
-import DayView from '@/components/DayView';
-import WeekView from '@/components/WeekView';
-import YearView from '@/components/YearView';
-import ClassDetailDialog from '@/components/ClassDetailDialog';
+import dynamic from 'next/dynamic';
+// Only one of Day/Week/Year is ever visible at once (tab-switched) — deferring
+// the other two to their own chunks means a visit that never touches the
+// Week or Year tab never pays for their JS at all.
+const DayView = dynamic(() => import('@/components/DayView'));
+const WeekView = dynamic(() => import('@/components/WeekView'));
+const YearView = dynamic(() => import('@/components/YearView'));
+// Only needed once a class block is actually clicked — deferred to its own
+// chunk. Mounted unconditionally below (open={!!detailEntry}, to preserve
+// MUI's close transition), so ssr:false is what actually keeps it out of
+// the hydration-critical path — default ssr:true would still ship it on load.
+const ClassDetailDialog = dynamic(() => import('@/components/ClassDetailDialog'), { ssr: false });
 import DisruptionCalendar, { DISRUPTION_TYPES } from '@/components/DisruptionCalendar';
 import { buildDaySchedule, disruptionCoversDate } from '@/lib/calendar';
 import type { ScheduleDisruption, PeriodOverride, ScheduleEntry } from '@/types';

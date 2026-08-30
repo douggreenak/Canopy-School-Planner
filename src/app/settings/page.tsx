@@ -47,7 +47,8 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import PaletteIcon from '@mui/icons-material/Palette';
-import { useClasses } from '@/lib/hooks';
+import { useClasses, apiGet } from '@/lib/hooks';
+import type { AppSettings } from '@/types';
 import { buildLathropEarlyOutTemplate } from '@/lib/schedule';
 import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
 import { fetchPowerSchoolStatusNow } from '@/lib/powerschoolStatusStore';
@@ -106,8 +107,14 @@ function SettingsInner() {
   const refreshLiveHealth = async (force = false) => {
     setLiveHealth((prev) => ({ ...prev, checking: true }));
     try {
-      const res = await fetch(`/api/setup/health${force ? '?force=1' : ''}`);
-      const data = await res.json();
+      // Non-forced call shares apiGet's cache/dedup with AppShell's own
+      // /api/setup/health check (same URL, both mount around page load) —
+      // forced (the "Recheck" button) always hits the server fresh, same as
+      // before, and its distinct ?force=1 URL naturally skips the cache too.
+      const data = await apiGet<{ ok: boolean; error?: string; checkedAt?: number }>(
+        `/api/setup/health${force ? '?force=1' : ''}`,
+        force,
+      );
       setLiveHealth({ checking: false, ok: !!data.ok, error: data.error, checkedAt: data.checkedAt });
     } catch (e) {
       setLiveHealth({ checking: false, ok: false, error: (e as Error).message });
@@ -223,10 +230,13 @@ function SettingsInner() {
     }
   }, [calendarToken, currentUserId, calendarReady]);
 
-  // Load setup status + saved settings
+  // Load setup status + saved settings. /api/auth and /api/settings go
+  // through apiGet so they share the cache/dedup layer with AppShell's own
+  // currentUser lookup and ThemeRegistry's settings sync — both mount around
+  // the same tick when a user lands directly on /settings, so this collapses
+  // what would otherwise be duplicate concurrent requests into one.
   useEffect(() => {
-    fetch('/api/auth')
-      .then((r) => r.json())
+    apiGet<{ user?: { id: string } }>('/api/auth')
       .then((data) => { if (data.user?.id) setCurrentUserId(data.user.id); })
       .catch(() => {});
 
@@ -240,8 +250,7 @@ function SettingsInner() {
       })
       .catch(() => {});
 
-    fetch('/api/settings')
-      .then((r) => r.json())
+    apiGet<Partial<AppSettings>>('/api/settings')
       .then((s) => {
         if (s.schoolName) setSchoolName(s.schoolName);
         if (s.semesterStart) setSemesterStart(s.semesterStart);
@@ -1061,7 +1070,13 @@ function SettingsInner() {
               </Button>
             </Box>
 
-            <Collapse in={wizardOpen}>
+            {/* mountOnEnter + unmountOnExit: this block is a large, rarely-
+                opened editing UI (~225 lines of JSX) — without these, MUI's
+                Collapse still fully mounts/renders its children even while
+                visually collapsed to 0 height, paying the render cost on
+                every Settings page load whether or not the wizard is ever
+                opened. */}
+            <Collapse in={wizardOpen} mountOnEnter unmountOnExit>
               <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Typography variant="subtitle1">Step {wizardIndex + 1} of {importedClasses ? importedClasses.length + 1 : 1}</Typography>

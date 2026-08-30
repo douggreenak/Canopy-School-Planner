@@ -30,10 +30,36 @@ import TimelineIcon from '@mui/icons-material/Timeline';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import Button from '@mui/material/Button';
-import SetupWizard from '@/components/SetupWizard';
-import LoginScreen from '@/components/LoginScreen';
+import dynamic from 'next/dynamic';
+import CircularProgress from '@mui/material/CircularProgress';
+
+// Both are conditionally rendered (SetupWizard: only for a first-time/
+// incomplete setup; LoginScreen: only when logged out) but AppShell wraps
+// EVERY route, so importing them eagerly shipped their JS on every single
+// page load regardless of whether either was ever shown. Deferring them to
+// separate chunks — fetched only when actually needed — was one of the
+// highest-value trims found in a JS-coverage audit (~40% of shipped JS was
+// unused per page). LoginScreen still needs `ssr: true` (default) since an
+// anonymous visit should render it on the server, not flash blank first.
+// ssr:false — SetupWizard is mounted unconditionally with `open={wizardOpen}`
+// (so MUI's own close transition still plays), so with the default ssr:true
+// its chunk would still ship as part of every page's hydration bundle even
+// though it renders nothing until opened. ssr:false defers the fetch to
+// after hydration instead, with zero visual difference (Modal already
+// renders null while closed either way).
+const SetupWizard = dynamic(() => import('@/components/SetupWizard'), { ssr: false });
+const LoginScreen = dynamic(() => import('@/components/LoginScreen'), {
+  // Only matters for a client-side-only mount (e.g. right after Sign Out,
+  // with no fresh server render to source HTML from) — the far more common
+  // case, a fresh/anonymous page load, is still fully server-rendered.
+  loading: () => (
+    <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.default' }}>
+      <CircularProgress />
+    </Box>
+  ),
+});
 import SaveStatusIndicator, { SaveStatusIcon } from '@/components/SaveStatusIndicator';
-import { clearClientCache } from '@/lib/hooks';
+import { clearClientCache, apiGet } from '@/lib/hooks';
 
 const DRAWER_WIDTH   = 256;
 const COLLAPSED_WIDTH = 64;
@@ -212,8 +238,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null | false>(null);
 
   useEffect(() => {
-    fetch('/api/auth')
-      .then((r) => r.json())
+    // apiGet — shares the cache/dedup layer with any other apiGet('/api/auth')
+    // caller mounting around the same tick (e.g. the Settings page's own
+    // currentUserId lookup), so this doesn't fire as a separate request.
+    apiGet<{ user: CurrentUser | null }>('/api/auth')
       .then((data) => setCurrentUser(data.user ?? false))
       .catch(() => setCurrentUser(false));
   }, []);
@@ -234,8 +262,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!currentUser) return;
-    fetch('/api/setup/health')
-      .then((r) => r.json())
+    // apiGet — shares the cache/dedup layer with the Settings page's own
+    // health check (refreshLiveHealth), which often mounts around the same
+    // tick when a user lands directly on /settings.
+    apiGet<{ ok: boolean }>('/api/setup/health')
       .then((data) => {
         if (!data.ok && !localStorage.getItem('sp-wizard-dismissed')) {
           setWizardOpen(true);
