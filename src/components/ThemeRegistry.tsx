@@ -2,8 +2,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { ThemeProvider, useMediaQuery } from '@mui/material';
 import CssBaseline from '@mui/material/CssBaseline';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { getTheme, DEFAULT_ACCENT, type ThemeMode } from '@/lib/theme';
 
 // ---- Context ----
@@ -38,9 +36,11 @@ export default function ThemeRegistry({ children }: { children: React.ReactNode 
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
   const [mode, setModeState] = useState<ThemeMode>('system');
   const [accentColor, setAccentState] = useState<string>(DEFAULT_ACCENT);
-  const [mounted, setMounted] = useState(false);
 
-  // Read both prefs from localStorage on mount
+  // Read both prefs from localStorage on mount. No longer gates rendering —
+  // the page paints immediately with the default theme, then re-renders once
+  // the stored mode/accent are read (a brief, acceptable color swap, not a
+  // blank screen) so navigation always feels instant.
   useEffect(() => {
     const storedMode = localStorage.getItem(MODE_KEY) as ThemeMode | null;
     if (storedMode === 'light' || storedMode === 'dark' || storedMode === 'system') {
@@ -48,7 +48,6 @@ export default function ThemeRegistry({ children }: { children: React.ReactNode 
     }
     const storedAccent = localStorage.getItem(ACCENT_KEY);
     if (storedAccent) setAccentState(storedAccent);
-    setMounted(true);
   }, []);
 
   // Also sync from DB on mount (cross-device)
@@ -100,11 +99,7 @@ export default function ThemeRegistry({ children }: { children: React.ReactNode 
     <ThemeModeContext.Provider value={ctx}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <LocalizationProvider dateAdapter={AdapterDayjs}>
-          <div style={{ visibility: mounted ? 'visible' : 'hidden' }}>
-            {children}
-          </div>
-        </LocalizationProvider>
+        {children}
       </ThemeProvider>
     </ThemeModeContext.Provider>
   );

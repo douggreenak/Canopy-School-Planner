@@ -32,8 +32,10 @@ import LabelOutlinedIcon from '@mui/icons-material/LabelOutlined';
 import FlagIcon from '@mui/icons-material/Flag';
 import NotesIcon from '@mui/icons-material/Notes';
 import SchoolIcon from '@mui/icons-material/School';
+import MeetingRoomOutlinedIcon from '@mui/icons-material/MeetingRoomOutlined';
+import LaptopOutlinedIcon from '@mui/icons-material/LaptopOutlined';
 import StageTracker from '@/components/StageTracker';
-import type { SchoolClass, TaskStage } from '@/types';
+import type { SchoolClass, TaskStage, DueTiming } from '@/types';
 
 // Common shape both Task and Homework satisfy (Homework is adapted to it —
 // see tasks/page.tsx — with `category` filled in as "Homework"). `stages` is
@@ -50,6 +52,7 @@ export interface DetailItem {
   priority: 'low' | 'medium' | 'high';
   category: string;
   classId?: string;
+  dueTiming?: DueTiming;
 }
 
 interface Props {
@@ -213,6 +216,16 @@ export default function ItemDetailDialog({ open, item, kind, linkedClass, onClos
             <LabelOutlinedIcon sx={{ color: 'text.secondary', fontSize: 20 }} />
             <Chip label={item.category || 'General'} size="small" variant="outlined" />
           </Stack>
+
+          {/* Due timing — in class vs. after class/online */}
+          {item.dueTiming && (
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+              {item.dueTiming === 'in_class'
+                ? <MeetingRoomOutlinedIcon sx={{ color: 'text.secondary', fontSize: 20 }} />
+                : <LaptopOutlinedIcon sx={{ color: 'text.secondary', fontSize: 20 }} />}
+              <Chip label={item.dueTiming === 'in_class' ? 'Due in class' : 'Due after class / online'} size="small" variant="outlined" />
+            </Stack>
+          )}
 
           {/* Linked class (only when the item has a classId AND we resolved it
               to an actual class — orphaned classIds just don't show). */}

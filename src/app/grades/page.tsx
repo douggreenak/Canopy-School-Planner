@@ -9,7 +9,7 @@
 //   5. Sort toggle
 //   6. Class cards with smart dates, status chips, and flagged-row tinting
 // ============================================================
-import { useState, useMemo, useEffect, type ReactNode } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
 import Box from '@mui/material/Box';
@@ -36,21 +36,18 @@ import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import Tooltip from '@mui/material/Tooltip';
 import { alpha, useTheme } from '@mui/material/styles';
-import Accordion from '@mui/material/Accordion';
-import AccordionSummary from '@mui/material/AccordionSummary';
-import AccordionDetails from '@mui/material/AccordionDetails';
 import LinearProgress from '@mui/material/LinearProgress';
 import SchoolIcon from '@mui/icons-material/School';
 import SyncIcon from '@mui/icons-material/Sync';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import GradingIcon from '@mui/icons-material/Grading';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlined';
 import EventIcon from '@mui/icons-material/Event';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
-import { useClasses, useHomework, useGradeHistory } from '@/lib/hooks';
+import { useClasses, useHomework, useGradeHistory, useSettings } from '@/lib/hooks';
+import { syncPowerSchoolAndWait } from '@/lib/powerschoolClient';
 import { missingWorkImpact } from '@/lib/gradeEngine';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
@@ -138,28 +135,19 @@ export default function GradesPage() {
   const { data: classes, loading: loadingClasses, refetch: refetchClasses } = useClasses();
   const { data: homework, loading: loadingHomework, refetch: refetchHomework } = useHomework();
   const { data: gradeHistory } = useGradeHistory();
+  const { data: settingsData } = useSettings();
   const [syncing, setSyncing] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
   const [sortMode, setSortMode] = useState<'period' | 'grade'>('period');
   const [activeTab, setActiveTab] = useState<'grades' | 'transcript' | 'sync-log'>('grades');
-  // Keeps the full server-side sync log + stats after each sync so the user
-  // can see exactly what the scraper did. Without this the "no assignments
-  // showed up" case is a black box.
-  const [lastSync, setLastSync] = useState<{
-    at: string;
-    ok: boolean;
-    summary: string;
-    log: string[];
-  } | null>(null);
-
-  useEffect(() => {
-    fetch('/api/settings')
-      .then((r) => r.json())
-      .then((s) => {
-        if (s.lastSyncAt) setLastSync({ at: s.lastSyncAt, ok: true, summary: '', log: [] });
-      })
-      .catch(() => {});
-  }, []);
+  // Last-synced timestamp, shown next to the Sync button. Detailed per-sync
+  // change history lives on the Log tab (src/app/sync-log/page.tsx) — this
+  // page no longer duplicates it in a banner. `syncOverride` wins once a
+  // sync completes in this tab; otherwise it falls back to the persisted
+  // setting — derived directly (no effect) so it's never one render stale.
+  const [syncOverride, setSyncOverride] = useState<string | null>(null);
+  const lastSyncAt = syncOverride ?? settingsData?.lastSyncAt ?? null;
+  const setLastSyncAt = setSyncOverride;
 
   // Only show PowerSchool classes — that's where grades come from.
   const psClasses: SchoolClass[] = useMemo(() => {
@@ -253,42 +241,41 @@ export default function GradesPage() {
     return all.sort((a, b) => b.gradeImpactPercent - a.gradeImpactPercent).slice(0, 8);
   }, [psClasses, homeworkByClass]);
 
+  // Kicks off the sync (returns almost instantly — the real scrape runs
+  // server-side via after(), surviving a tab close) and polls for the
+  // result. See src/lib/powerschoolClient.ts.
   const syncNow = async () => {
     setSyncing(true);
     try {
-      const res = await fetch('/api/powerschool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}), // empty — use saved creds
-      });
-      const data = await res.json();
+      const data = await syncPowerSchoolAndWait();
       const nowStr = dayjs().format('MMM D, h:mm A');
-      if (data.success) {
+      const result = data.result as Record<string, number> | null;
+      if (data.status === 'success') {
         const parts: string[] = [];
-        if (data.classAdded) parts.push(`${data.classAdded} class${data.classAdded === 1 ? '' : 'es'} added`);
-        if (data.classUpdated) parts.push(`${data.classUpdated} updated`);
-        if (data.classRemoved) parts.push(`${data.classRemoved} removed`);
-        if (data.assignmentAdded) parts.push(`${data.assignmentAdded} assignment${data.assignmentAdded === 1 ? '' : 's'} added`);
-        if (data.assignmentUpdated) parts.push(`${data.assignmentUpdated} assignments updated`);
+        if (result?.classAdded) parts.push(`${result.classAdded} class${result.classAdded === 1 ? '' : 'es'} added`);
+        if (result?.classUpdated) parts.push(`${result.classUpdated} updated`);
+        if (result?.classRemoved) parts.push(`${result.classRemoved} removed`);
+        if (result?.assignmentAdded) parts.push(`${result.assignmentAdded} assignment${result.assignmentAdded === 1 ? '' : 's'} added`);
+        if (result?.assignmentUpdated) parts.push(`${result.assignmentUpdated} assignments updated`);
         const summary = parts.length > 0
           ? `Synced — ${parts.join(', ')}.`
-          : `Synced — already up to date (${data.classCount ?? 0} classes, ${data.assignmentCount ?? 0} assignments).`;
+          : `Synced — already up to date (${result?.classCount ?? 0} classes, ${result?.assignmentCount ?? 0} assignments).`;
         setSnackbar({ open: true, message: summary, severity: 'success' });
-        setLastSync({ at: nowStr, ok: true, summary, log: Array.isArray(data.log) ? data.log : [] });
+        setLastSyncAt(nowStr);
         fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'lastSyncAt', value: nowStr }) }).catch(() => {});
         refetchClasses();
         refetchHomework();
-      } else {
+      } else if (data.status === 'error') {
         const summary = data.error?.includes('Missing PowerSchool credentials')
           ? 'Save your PowerSchool login in Settings first, then sync from here.'
           : data.error || 'Sync failed.';
         setSnackbar({ open: true, message: summary, severity: 'error' });
-        setLastSync({ at: nowStr, ok: false, summary, log: Array.isArray(data.log) ? data.log : [] });
+      } else {
+        setSnackbar({ open: true, message: 'Still syncing in the background — check back in a bit, or reload to see the latest status.', severity: 'info' });
       }
     } catch (e) {
       const msg = `Sync error: ${(e as Error).message}`;
       setSnackbar({ open: true, message: msg, severity: 'error' });
-      setLastSync({ at: dayjs().format('MMM D, h:mm A'), ok: false, summary: msg, log: [] });
     }
     setSyncing(false);
   };
@@ -308,9 +295,9 @@ export default function GradesPage() {
             Your PowerSchool grades, assignments, and status — click Sync Now to update.
           </Typography>
         </Box>
-        {lastSync && (
+        {lastSyncAt && (
           <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-            Last synced {lastSync.at}
+            Last synced {lastSyncAt}
           </Typography>
         )}
         <Button
@@ -337,55 +324,6 @@ export default function GradesPage() {
       {activeTab === 'sync-log' && <SyncLogPage />}
 
       {activeTab === 'grades' && (<>
-      {/* ===== Sync log panel =====
-          Collapsed by default. Expanded automatically when the sync failed or
-          produced 0 assignments for any class — the common "why are rows
-          missing?" scenario. */}
-      {lastSync && (
-        <Accordion
-          sx={{ mt: 2, mb: 1 }}
-          defaultExpanded={!lastSync.ok || lastSync.log.some((l) => l.includes('0 parsed') || l.includes('no assignments'))}
-        >
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Chip
-                size="small"
-                label={lastSync.ok ? 'Sync log' : 'Sync failed'}
-                color={lastSync.ok ? 'default' : 'error'}
-              />
-              <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                {lastSync.summary}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {lastSync.at} · {lastSync.log.length} log line{lastSync.log.length === 1 ? '' : 's'}
-              </Typography>
-            </Box>
-          </AccordionSummary>
-          <AccordionDetails>
-            {lastSync.log.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                No log returned by the server.
-              </Typography>
-            ) : (
-              <Box
-                sx={{
-                  m: 0,
-                  p: 1.5,
-                  bgcolor: 'action.hover',
-                  borderRadius: 1,
-                  fontSize: '0.75rem',
-                  maxHeight: 360,
-                  overflow: 'auto',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {lastSync.log.join('\n')}
-              </Box>
-            )}
-          </AccordionDetails>
-        </Accordion>
-      )}
 
       {/* ===== At-a-glance status strip =====
           The five numbers a student actually wants to see first:
@@ -697,7 +635,7 @@ export default function GradesPage() {
                 }}
                 sx={{
                   '& .MuiCardActionArea-focusHighlight': { display: 'none' },
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.03)' },
+                  '&:hover': { bgcolor: 'action.hover' },
                 }}
               >
                 <CardContent>

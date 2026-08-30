@@ -3,26 +3,82 @@
 // Client-side data fetching hooks
 // ============================================================
 import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
-import type { SchoolClass, Homework, Exam, Task, ScheduleDisruption, GradeHistoryEntry, SyncLogEntry } from '@/types';
+import type { SchoolClass, Homework, Exam, Task, ScheduleDisruption, GradeHistoryEntry, SyncLogEntry, AppSettings } from '@/types';
 
 // Global state to deduplicate ongoing requests and provide a basic cache.
 const ongoingRequests = new Map<string, Promise<any>>();
 const globalCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 5_000; // 5 seconds
 
+// Background refresh cadence — keeps every page's data current without a
+// manual reload. Long enough that it never fights with the 5s optimistic
+// "undo" windows some pages use (e.g. Tasks' delete-undo snackbar), short
+// enough that changes made elsewhere (another tab, a scheduled sync) show up
+// within about a minute.
+const POLL_MS = 60_000;
+
 // Subscription system so all instances of useFetch(url) see the same data.
 const subscribers = new Map<string, Set<() => void>>();
+// One interval per URL, ref-counted by subscriber count — only polls URLs
+// something on screen is actually showing.
+const pollers = new Map<string, ReturnType<typeof setInterval>>();
 
 function notifySubscribers(url: string) {
   const subs = subscribers.get(url);
   if (subs) subs.forEach((cb) => cb());
 }
 
+function startPolling(url: string) {
+  if (pollers.has(url)) return;
+  const id = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    fetchWithDeduplication(url, true).catch(() => {
+      // Poll failures are silent — last-good cached data stays on screen and
+      // the next tick (or a focus/reconnect revalidation) will retry.
+    });
+  }, POLL_MS);
+  pollers.set(url, id);
+}
+
+function stopPolling(url: string) {
+  const id = pollers.get(url);
+  if (id !== undefined) {
+    clearInterval(id);
+    pollers.delete(url);
+  }
+}
+
 function subscribe(url: string, cb: () => void) {
   let subs = subscribers.get(url);
   if (!subs) { subs = new Set(); subscribers.set(url, subs); }
   subs.add(cb);
-  return () => { subs!.delete(cb); if (subs!.size === 0) subscribers.delete(url); };
+  if (subs.size === 1) startPolling(url);
+  return () => {
+    subs!.delete(cb);
+    if (subs!.size === 0) {
+      subscribers.delete(url);
+      stopPolling(url);
+    }
+  };
+}
+
+// Revalidate every URL something is actually showing right now — used on tab
+// focus and on network reconnect so data catches up immediately instead of
+// waiting up to POLL_MS.
+function revalidateAllSubscribed() {
+  for (const url of subscribers.keys()) {
+    fetchWithDeduplication(url, true).catch(() => {});
+  }
+}
+
+let globalListenersInstalled = false;
+function ensureGlobalListeners() {
+  if (globalListenersInstalled || typeof window === 'undefined') return;
+  globalListenersInstalled = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') revalidateAllSubscribed();
+  });
+  window.addEventListener('online', revalidateAllSubscribed);
 }
 
 function getSnapshot<T>(url: string): T | null {
@@ -69,6 +125,8 @@ async function fetchWithDeduplication<T>(url: string, forceRefresh = false): Pro
 }
 
 function useFetch<T>(url: string) {
+  ensureGlobalListeners();
+
   const cached = useSyncExternalStore(
     (cb) => subscribe(url, cb),
     () => getSnapshot<T>(url),
@@ -76,7 +134,13 @@ function useFetch<T>(url: string) {
   );
 
   const [data, setData] = useState<T | null>(cached);
+  // `loading` — true only until the FIRST data arrives for this URL, so a
+  // page can show a skeleton in place of content that's never been fetched
+  // yet. `validating` — true whenever ANY fetch for this URL is in flight,
+  // including background polls/refetches after data already exists — for a
+  // subtle in-place indicator that never discards what's already rendered.
   const [loading, setLoading] = useState(cached === null);
+  const [validating, setValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -84,18 +148,19 @@ function useFetch<T>(url: string) {
   }, [cached]);
 
   const refetch = useCallback(async (forceRefresh = false): Promise<T> => {
-    setLoading(true);
+    setValidating(true);
     setError(null);
     try {
       const d = await fetchWithDeduplication<T>(url, forceRefresh);
       setData(d);
+      setLoading(false);
       return d;
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       setError(errorMessage);
       throw e;
     } finally {
-      setLoading(false);
+      setValidating(false);
     }
   }, [url]);
 
@@ -120,7 +185,7 @@ function useFetch<T>(url: string) {
     });
   }, [url]);
 
-  return { data, loading, error, refetch, mutate };
+  return { data, loading, validating, error, refetch, mutate };
 }
 
 export function useClasses() {
@@ -153,6 +218,10 @@ export function useSyncLog(classId?: string, limit = 200) {
     ? `/api/sync-log?classId=${encodeURIComponent(classId)}&limit=${limit}`
     : `/api/sync-log?limit=${limit}`;
   return useFetch<SyncLogEntry[]>(url);
+}
+
+export function useSettings() {
+  return useFetch<Partial<AppSettings>>('/api/settings');
 }
 
 // Mutation helpers

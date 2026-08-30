@@ -6,6 +6,7 @@ const ALLOWED_KEYS = new Set([
   'schoolName', 'semesterStart', 'semesterEnd', 'calendarToken',
   'lunchTimes', 'lathropMode', 'early_out_schedule',
   'themeMode', 'accentColor', 'lastSyncAt', 'timezone',
+  'powerschoolAutoSync',
 ]);
 
 const MAX_VALUE_LEN = 10_000;

@@ -27,6 +27,10 @@ export interface SchoolClass {
   // never overwrites them again (see syncClassesFromSource in db.ts).
   categoryWeights?: Record<string, number>;
   weightSource?: 'scraped' | 'manual';
+  // True = this is an AP class — its grade counts as weighted (+1.0 on the
+  // 4.0 scale, standard AP weighting) in the weighted-GPA calculation on the
+  // Transcript page, distinct from the always-shown unweighted GPA.
+  isAp?: boolean;
 }
 
 // One step in a completion pipeline (e.g. "Done" -> "Turned In"). Each
@@ -38,6 +42,11 @@ export interface TaskStage {
   id: string;
   label: string;
 }
+
+// Whether an item is due during class ("in_class") or after class / can be
+// done online ("after_class"). Per-item, optional — undefined = unset,
+// matching the same "classic behavior when absent" convention as `stages`.
+export type DueTiming = 'in_class' | 'after_class';
 
 export interface Homework {
   id: string;
@@ -53,6 +62,8 @@ export interface Homework {
   // (true iff stageId is `stages`' last entry) so every existing "done"
   // filter/count keeps working without change.
   stageId?: string;
+  // Due in class vs. after class/online. undefined = not set.
+  dueTiming?: DueTiming;
   priority: 'low' | 'medium' | 'high';
   source: 'manual' | 'powerschool' | 'classroom';
   sourceId?: string;
@@ -114,6 +125,8 @@ export interface Task {
   // This task's own completion pipeline and current step — see Homework.stages/stageId.
   stages?: TaskStage[];
   stageId?: string;
+  // Due in class vs. after class/online. undefined = not set.
+  dueTiming?: DueTiming;
   priority: 'low' | 'medium' | 'high';
   category: string;
   // Optional link to a SchoolClass — set by the Quick Add Homework feature
@@ -155,6 +168,18 @@ export interface AppSettings {
   classroomEnabled: boolean;
   theme: 'light' | 'dark';
   lunchTimes?: Record<number, { startTime: string; endTime: string }>;
+  lathropMode?: boolean | string;
+  early_out_schedule?: Record<number, { startTime: string; endTime: string }> | string;
+  themeMode?: 'light' | 'dark' | 'system';
+  accentColor?: string;
+  timezone?: string;
+  lastSyncAt?: string;
+  // Scheduled automatic PowerSchool sync. `utcHour` is one of a small fixed
+  // set of once-daily Vercel Cron trigger hours (0/3/6/9/12/15/18/21) — see
+  // vercel.json's `crons` array. Hobby-plan cron can only run once/day per
+  // entry with up to ~59min of slop, so this is deliberately a coarse hour
+  // bucket, not an arbitrary exact time.
+  powerschoolAutoSync?: { enabled: boolean; utcHour: number };
 }
 
 export interface DaySchedule {

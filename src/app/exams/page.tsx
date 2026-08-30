@@ -20,7 +20,7 @@ import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
-import LinearProgress from '@mui/material/LinearProgress';
+import Skeleton from '@mui/material/Skeleton';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -135,8 +135,6 @@ export default function ExamsPage() {
   const getClassName = (classId: string) => classMap.get(classId)?.name ?? 'Unknown';
   const getClassColor = (classId: string) => classMap.get(classId)?.color ?? '';
 
-  if (loading) return <Box sx={{ pt: 2 }}><LinearProgress sx={{ borderRadius: 1 }} /></Box>;
-
   const renderExamCard = (exam: Exam) => {
     const isPast = dayjs(exam.date).isBefore(dayjs(), 'day');
     const daysUntil = dayjs(exam.date).diff(dayjs(), 'day');
@@ -213,7 +211,19 @@ export default function ExamsPage() {
         Upcoming tests and exams — set a weight to see how the score could affect your grade.
       </Typography>
 
-      {upcoming.length === 0 && past.length === 0 && (
+      {loading && (
+        <Stack spacing={1.5}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}><CardContent sx={{ py: 2 }}>
+              <Skeleton variant="text" width="35%" height={32} />
+              <Skeleton variant="text" width="20%" />
+              <Skeleton variant="text" width="45%" />
+            </CardContent></Card>
+          ))}
+        </Stack>
+      )}
+
+      {!loading && upcoming.length === 0 && past.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>No exams scheduled</Typography>
           <Typography variant="body2" color="text.disabled" sx={{ mb: 2 }}>
@@ -225,14 +235,14 @@ export default function ExamsPage() {
         </Box>
       )}
 
-      {upcoming.length > 0 && (
+      {!loading && upcoming.length > 0 && (
         <>
           <Typography variant="h6" sx={{ mb: 1.5, color: 'primary.main' }}>Upcoming</Typography>
           <Stack spacing={1.5} sx={{ mb: 3 }}>{upcoming.map(renderExamCard)}</Stack>
         </>
       )}
 
-      {past.length > 0 && (
+      {!loading && past.length > 0 && (
         <>
           <Typography variant="h6" sx={{ mb: 1.5, color: 'text.secondary' }}>Past</Typography>
           <Stack spacing={1.5}>{past.map(renderExamCard)}</Stack>

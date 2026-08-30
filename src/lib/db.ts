@@ -211,6 +211,39 @@ export async function initializeDatabase() {
   await sql`CREATE INDEX IF NOT EXISTS idx_sync_log_user_time ON sync_log (user_id, occurred_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_sync_log_class ON sync_log (user_id, class_id, occurred_at DESC)`;
 
+  // powerschool_sync_status: one row per user, tracking the most recent sync
+  // (manual or scheduled) so it can keep running server-side after `after()`
+  // takes over — the response is sent immediately, and the client polls this
+  // row instead of waiting on the original request. Also doubles as a simple
+  // lock (status='running') so a scheduled sync never overlaps a manual one.
+  await sql`
+    CREATE TABLE IF NOT EXISTS powerschool_sync_status (
+      user_id TEXT PRIMARY KEY,
+      sync_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'idle',
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ,
+      log JSONB,
+      result JSONB,
+      error TEXT
+    )
+  `;
+
+  // powerschool_sync_lock: a separate one-row-per-user mutex, deliberately
+  // NOT folded into powerschool_sync_status. Acquiring the lock is a plain
+  // INSERT that either succeeds or hits the PRIMARY KEY — a race-safe
+  // primitive on any real Postgres, unlike a conditional
+  // "ON CONFLICT ... WHERE" upsert (which requires correctly serializing
+  // concurrent writers). Released by DELETE when a sync finishes; a stale
+  // lock (function killed mid-scrape) self-heals after LOCK_STALE_MINUTES.
+  await sql`
+    CREATE TABLE IF NOT EXISTS powerschool_sync_lock (
+      user_id TEXT PRIMARY KEY,
+      sync_id TEXT NOT NULL,
+      acquired_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
   // Admin support: role column on users, created_at on sessions
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`;
   await sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`;
@@ -225,6 +258,13 @@ export async function initializeDatabase() {
   await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS stages JSONB`;
   await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stage_id TEXT`;
   await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stages JSONB`;
+
+  // Migration: due-in-class vs. after-class/online (per task/homework item)
+  await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS due_timing TEXT`;
+  await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_timing TEXT`;
+
+  // Migration: AP class flag (weighted GPA calc — standard +1.0 AP bump)
+  await sql`ALTER TABLE classes ADD COLUMN IF NOT EXISTS is_ap BOOLEAN NOT NULL DEFAULT FALSE`;
 
   // Migrate settings table PK from single-column (key) to composite (user_id, key)
   await sql`
@@ -263,6 +303,7 @@ function dbToClass(row: Record<string, unknown>): SchoolClass {
     gradePercent: row.grade_percent != null ? Number(row.grade_percent) : undefined,
     categoryWeights: (row.category_weights as Record<string, number>) ?? undefined,
     weightSource: (row.weight_source as SchoolClass['weightSource']) ?? undefined,
+    isAp: Boolean(row.is_ap),
   };
 }
 
@@ -276,6 +317,7 @@ function dbToHomework(row: Record<string, unknown>): Homework {
     completed: Boolean(row.completed),
     stages: (() => { const s = parseStages(row.stages); return s.length > 0 ? s : undefined; })(),
     stageId: (row.stage_id as string) || undefined,
+    dueTiming: (row.due_timing as Homework['dueTiming']) || undefined,
     priority: (row.priority as Homework['priority']) || 'medium',
     source: (row.source as Homework['source']) || 'manual',
     sourceId: (row.source_id as string) || undefined,
@@ -337,6 +379,7 @@ function dbToTask(row: Record<string, unknown>): Task {
     completed: Boolean(row.completed),
     stages: (() => { const s = parseStages(row.stages); return s.length > 0 ? s : undefined; })(),
     stageId: (row.stage_id as string) || undefined,
+    dueTiming: (row.due_timing as Task['dueTiming']) || undefined,
     priority: (row.priority as Task['priority']) || 'medium',
     category: (row.category as string) || 'General',
     classId: (row.class_id as string) || undefined,
@@ -510,14 +553,15 @@ export async function getClassById(id: string, userId: string): Promise<SchoolCl
 export async function addClass(c: SchoolClass, userId: string): Promise<void> {
   const sql = getDb();
   await sql`
-    INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source)
+    INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
     VALUES (
       ${c.id}, ${userId}, ${c.name}, ${c.teacher}, ${c.room}, ${c.color}, ${c.period},
       ${c.startTime}, ${c.endTime}, ${JSON.stringify(c.days)}::jsonb,
       ${c.dayTimes ? JSON.stringify(c.dayTimes) : null}::jsonb,
       ${c.semester}, ${c.source ?? null}, ${c.sourceId ?? null},
       ${c.grade ?? null}, ${c.gradePercent ?? null},
-      ${c.categoryWeights ? JSON.stringify(c.categoryWeights) : null}::jsonb, ${c.weightSource ?? null}
+      ${c.categoryWeights ? JSON.stringify(c.categoryWeights) : null}::jsonb, ${c.weightSource ?? null},
+      ${c.isAp ?? false}
     )
   `;
 }
@@ -534,7 +578,7 @@ export async function updateClass(c: SchoolClass, userId: string): Promise<void>
         source_id = ${c.sourceId ?? null}, grade = ${c.grade ?? null},
         grade_percent = ${c.gradePercent ?? null},
         category_weights = ${c.categoryWeights ? JSON.stringify(c.categoryWeights) : null}::jsonb,
-        weight_source = ${c.weightSource ?? null}
+        weight_source = ${c.weightSource ?? null}, is_ap = ${c.isAp ?? false}
       WHERE id = ${c.id} AND user_id = ${userId}
     `;
   } else {
@@ -548,7 +592,7 @@ export async function updateClass(c: SchoolClass, userId: string): Promise<void>
         source_id = ${c.sourceId ?? null}, grade = ${c.grade ?? null},
         grade_percent = ${c.gradePercent ?? null},
         category_weights = ${c.categoryWeights ? JSON.stringify(c.categoryWeights) : null}::jsonb,
-        weight_source = ${c.weightSource ?? null}
+        weight_source = ${c.weightSource ?? null}, is_ap = ${c.isAp ?? false}
       WHERE id = ${c.id} AND user_id = ${userId}
     `;
   }
@@ -570,10 +614,11 @@ export async function getHomework(userId: string): Promise<Homework[]> {
 export async function addHomework(h: Homework, userId: string): Promise<void> {
   const sql = getDb();
   await sql`
-    INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, stage_id, stages, priority, source, source_id, score, category, flags, score_percent)
+    INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, stage_id, stages, due_timing, priority, source, source_id, score, category, flags, score_percent)
     VALUES (
       ${h.id}, ${userId}, ${h.classId}, ${h.title}, ${h.description}, ${h.dueDate},
       ${h.completed}, ${h.stageId ?? null}, ${h.stages?.length ? JSON.stringify(h.stages) : null}::jsonb,
+      ${h.dueTiming ?? null},
       ${h.priority}, ${h.source}, ${h.sourceId ?? null},
       ${h.score ?? null}, ${h.category ?? null}, ${h.flags ?? null},
       ${h.scorePercent ?? null}
@@ -587,7 +632,8 @@ export async function updateHomework(h: Homework, userId: string): Promise<void>
     UPDATE homework SET
       class_id = ${h.classId}, title = ${h.title}, description = ${h.description},
       due_date = ${h.dueDate}, completed = ${h.completed}, stage_id = ${h.stageId ?? null},
-      stages = ${h.stages?.length ? JSON.stringify(h.stages) : null}::jsonb, priority = ${h.priority},
+      stages = ${h.stages?.length ? JSON.stringify(h.stages) : null}::jsonb, due_timing = ${h.dueTiming ?? null},
+      priority = ${h.priority},
       source = ${h.source}, source_id = ${h.sourceId ?? null}, score = ${h.score ?? null},
       category = ${h.category ?? null}, flags = ${h.flags ?? null},
       score_percent = ${h.scorePercent ?? null}
@@ -650,10 +696,10 @@ export async function getTasks(userId: string): Promise<Task[]> {
 export async function addTask(t: Task, userId: string): Promise<void> {
   const sql = getDb();
   await sql`
-    INSERT INTO tasks (id, user_id, title, description, due_date, completed, stage_id, stages, priority, category, class_id)
+    INSERT INTO tasks (id, user_id, title, description, due_date, completed, stage_id, stages, due_timing, priority, category, class_id)
     VALUES (
       ${t.id}, ${userId}, ${t.title}, ${t.description}, ${t.dueDate}, ${t.completed}, ${t.stageId ?? null},
-      ${t.stages?.length ? JSON.stringify(t.stages) : null}::jsonb, ${t.priority}, ${t.category}, ${t.classId ?? null}
+      ${t.stages?.length ? JSON.stringify(t.stages) : null}::jsonb, ${t.dueTiming ?? null}, ${t.priority}, ${t.category}, ${t.classId ?? null}
     )
   `;
 }
@@ -665,6 +711,7 @@ export async function updateTask(t: Task, userId: string): Promise<void> {
       title = ${t.title}, description = ${t.description}, due_date = ${t.dueDate},
       completed = ${t.completed}, stage_id = ${t.stageId ?? null},
       stages = ${t.stages?.length ? JSON.stringify(t.stages) : null}::jsonb,
+      due_timing = ${t.dueTiming ?? null},
       priority = ${t.priority}, category = ${t.category},
       class_id = ${t.classId ?? null}
     WHERE id = ${t.id} AND user_id = ${userId}
@@ -753,6 +800,26 @@ export async function setSettingsBatch(entries: [string, string][], userId: stri
     INSERT INTO settings (user_id, key, value) VALUES (${userId}, ${key}, ${value})
     ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value
   `));
+}
+
+/**
+ * Cross-user scan for the scheduled-sync cron: every user whose stored
+ * `powerschoolAutoSync` setting is enabled and matches the given UTC hour
+ * bucket. Mirrors the cross-user query style already used by getSystemStats.
+ */
+export async function getUsersWithAutoSyncDueAt(utcHour: number): Promise<string[]> {
+  const sql = getDb();
+  const rows = await sql`SELECT user_id, value FROM settings WHERE key = 'powerschoolAutoSync'`;
+  const due: string[] = [];
+  for (const row of rows as Record<string, unknown>[]) {
+    try {
+      const parsed = JSON.parse((row.value as string) || '{}') as { enabled?: boolean; utcHour?: number };
+      if (parsed.enabled && parsed.utcHour === utcHour) due.push(row.user_id as string);
+    } catch {
+      // malformed setting value — skip rather than fail the whole scan
+    }
+  }
+  return due;
 }
 
 export async function deleteSetting(key: string, userId: string): Promise<void> {
@@ -923,6 +990,92 @@ export async function addSyncLogEntries(
   `));
 }
 
+// ---- PowerSchool sync status (background/scheduled sync progress) ----
+
+export interface SyncStatusRow {
+  syncId: string;
+  status: 'idle' | 'running' | 'success' | 'error';
+  startedAt?: string;
+  finishedAt?: string;
+  log: string[];
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export async function getSyncStatus(userId: string): Promise<SyncStatusRow | null> {
+  const sql = getDb();
+  const rows = await sql`SELECT * FROM powerschool_sync_status WHERE user_id = ${userId}`;
+  if (rows.length === 0) return null;
+  const row = rows[0] as Record<string, unknown>;
+  return {
+    syncId: (row.sync_id as string) || '',
+    status: (row.status as SyncStatusRow['status']) || 'idle',
+    startedAt: row.started_at ? new Date(row.started_at as string).toISOString() : undefined,
+    finishedAt: row.finished_at ? new Date(row.finished_at as string).toISOString() : undefined,
+    log: (row.log as string[]) || [],
+    result: (row.result as Record<string, unknown>) ?? null,
+    error: (row.error as string) ?? null,
+  };
+}
+
+const LOCK_STALE_MINUTES = 10; // generous vs. vercel.json's 280s maxDuration — covers a killed/stuck invocation
+
+/**
+ * Claims the per-user sync lock via a plain INSERT into a PK-uniqueness-
+ * enforced table — race-safe on any real Postgres without depending on
+ * conditional-upsert semantics. Returns true if the caller won the lock.
+ */
+export async function tryAcquireSyncLock(userId: string, syncId: string): Promise<boolean> {
+  const sql = getDb();
+  try {
+    await sql`INSERT INTO powerschool_sync_lock (user_id, sync_id) VALUES (${userId}, ${syncId})`;
+    return true;
+  } catch {
+    // PK conflict — someone already holds the lock. Reclaim it if stale
+    // (e.g. a prior invocation was killed mid-scrape and never released),
+    // then retry once. Compare against a JS-computed cutoff timestamp
+    // (rather than an INTERVAL literal) so this stays a plain bindable
+    // parameter — safe and portable across the neon driver and this
+    // project's local pg-mem dev shim alike.
+    const staleCutoff = new Date(Date.now() - LOCK_STALE_MINUTES * 60_000).toISOString();
+    await sql`DELETE FROM powerschool_sync_lock WHERE user_id = ${userId} AND acquired_at < ${staleCutoff}`.catch(() => {});
+    try {
+      await sql`INSERT INTO powerschool_sync_lock (user_id, sync_id) VALUES (${userId}, ${syncId})`;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/** Releases the per-user sync lock — call when a sync reaches a terminal state (success or error). */
+export async function releaseSyncLock(userId: string): Promise<void> {
+  const sql = getDb();
+  await sql`DELETE FROM powerschool_sync_lock WHERE user_id = ${userId}`.catch(() => {});
+}
+
+/** Upsert this user's sync status row. Also acts as a simple per-user lock — check `status !== 'running'` before starting a new sync. */
+export async function setSyncStatus(
+  userId: string,
+  data: Partial<SyncStatusRow> & { syncId: string; status: SyncStatusRow['status'] },
+): Promise<void> {
+  const sql = getDb();
+  await sql`
+    INSERT INTO powerschool_sync_status (user_id, sync_id, status, started_at, finished_at, log, result, error)
+    VALUES (
+      ${userId}, ${data.syncId}, ${data.status},
+      ${data.startedAt ?? null}, ${data.finishedAt ?? null},
+      ${data.log ? JSON.stringify(data.log) : null}::jsonb,
+      ${data.result ? JSON.stringify(data.result) : null}::jsonb,
+      ${data.error ?? null}
+    )
+    ON CONFLICT (user_id) DO UPDATE SET
+      sync_id = EXCLUDED.sync_id, status = EXCLUDED.status,
+      started_at = EXCLUDED.started_at, finished_at = EXCLUDED.finished_at,
+      log = EXCLUDED.log, result = EXCLUDED.result, error = EXCLUDED.error
+  `;
+}
+
 // ---- Sync helpers (PowerSchool / Classroom imports) ----
 
 const normalizeName = (s?: string | null) =>
@@ -1027,7 +1180,7 @@ export async function syncClassesFromSource(
             source_id = ${merged.sourceId ?? null}, grade = ${merged.grade ?? null},
             grade_percent = ${merged.gradePercent ?? null},
             category_weights = ${merged.categoryWeights ? JSON.stringify(merged.categoryWeights) : null}::jsonb,
-            weight_source = ${merged.weightSource ?? null}
+            weight_source = ${merged.weightSource ?? null}, is_ap = ${merged.isAp ?? false}
           WHERE id = ${merged.id} AND user_id = ${userId}
         `);
         idMap.set(cls.id, prior.id);
@@ -1035,7 +1188,7 @@ export async function syncClassesFromSource(
         updated++;
       } else {
         writeQueries.push(sql`
-          INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source)
+          INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
           VALUES (
             ${cls.id}, ${userId}, ${cls.name}, ${cls.teacher}, ${cls.room}, ${cls.color}, ${cls.period},
             ${cls.startTime}, ${cls.endTime}, ${JSON.stringify(cls.days)}::jsonb,
@@ -1043,7 +1196,7 @@ export async function syncClassesFromSource(
             ${cls.semester}, ${source}, ${cls.sourceId ?? null},
             ${cls.grade ?? null}, ${cls.gradePercent ?? null},
             ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
-            ${cls.weightSource ?? null}
+            ${cls.weightSource ?? null}, ${cls.isAp ?? false}
           )
         `);
         idMap.set(cls.id, cls.id);
@@ -1094,7 +1247,7 @@ export async function syncClassesFromSource(
   for (const cls of incoming) {
     if (!cls.sourceId) {
       writeQueries.push(sql`
-        INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source)
+        INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
         VALUES (
           ${cls.id}, ${userId}, ${cls.name}, ${cls.teacher}, ${cls.room}, ${cls.color}, ${cls.period},
           ${cls.startTime}, ${cls.endTime}, ${JSON.stringify(cls.days)}::jsonb,
@@ -1102,7 +1255,7 @@ export async function syncClassesFromSource(
           ${cls.semester}, ${source}, ${null},
           ${cls.grade ?? null}, ${cls.gradePercent ?? null},
           ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
-          ${cls.weightSource ?? null}
+          ${cls.weightSource ?? null}, ${cls.isAp ?? false}
         )
       `);
       idMap.set(cls.id, cls.id);
@@ -1146,7 +1299,7 @@ export async function syncClassesFromSource(
           source_id = ${merged.sourceId ?? null}, grade = ${merged.grade ?? null},
           grade_percent = ${merged.gradePercent ?? null},
           category_weights = ${merged.categoryWeights ? JSON.stringify(merged.categoryWeights) : null}::jsonb,
-          weight_source = ${merged.weightSource ?? null}
+          weight_source = ${merged.weightSource ?? null}, is_ap = ${merged.isAp ?? false}
         WHERE id = ${merged.id} AND user_id = ${userId}
       `);
       idMap.set(cls.id, prior.id);
@@ -1154,7 +1307,7 @@ export async function syncClassesFromSource(
       updated++;
     } else {
       writeQueries.push(sql`
-        INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source)
+        INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
         VALUES (
           ${cls.id}, ${userId}, ${cls.name}, ${cls.teacher}, ${cls.room}, ${cls.color}, ${cls.period},
           ${cls.startTime}, ${cls.endTime}, ${JSON.stringify(cls.days)}::jsonb,
@@ -1162,7 +1315,7 @@ export async function syncClassesFromSource(
           ${cls.semester}, ${source}, ${cls.sourceId ?? null},
           ${cls.grade ?? null}, ${cls.gradePercent ?? null},
           ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
-          ${cls.weightSource ?? null}
+          ${cls.weightSource ?? null}, ${cls.isAp ?? false}
         )
       `);
       idMap.set(cls.id, cls.id);

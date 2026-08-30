@@ -1,6 +1,7 @@
 import { scrypt, randomBytes, timingSafeEqual } from 'crypto';
 import { promisify } from 'util';
-import { createDbSession, getDbSession, deleteDbSession } from './db';
+import { cookies } from 'next/headers';
+import { createDbSession, getDbSession, deleteDbSession, getUserById } from './db';
 
 const scryptAsync = promisify(scrypt);
 
@@ -56,6 +57,27 @@ export async function getSessionUserId(request: Request): Promise<string | null>
     return null;
   }
   return session.userId;
+}
+
+/**
+ * Server Component-only session lookup — reads the session cookie directly
+ * via next/headers `cookies()` instead of a Request object, so a Server
+ * Component ancestor (RootLayout) can resolve the logged-in user during the
+ * initial render and hand it down as a prop. This is what lets AppShell
+ * paint the real page immediately instead of a blank screen while a client
+ * `fetch('/api/auth')` round-trip resolves.
+ */
+export async function getServerSessionUser(): Promise<{ id: string; username: string; role: string } | null> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  const session = await getDbSession(token);
+  if (!session) return null;
+  if (session.expiresAt < new Date()) {
+    await deleteDbSession(token);
+    return null;
+  }
+  return getUserById(session.userId);
 }
 
 export async function deleteSession(request: Request): Promise<void> {

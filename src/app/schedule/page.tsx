@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo, useEffect, Suspense } from 'react';
+import { useState, useMemo, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
@@ -27,7 +27,7 @@ import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
-import LinearProgress from '@mui/material/LinearProgress';
+import Skeleton from '@mui/material/Skeleton';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
@@ -39,7 +39,7 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import CloseIcon from '@mui/icons-material/Close';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
-import { useClasses, useDisruptions, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { useClasses, useDisruptions, useSettings, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, getWeekSchedule, buildLathropEarlyOutTemplate } from '@/lib/schedule';
 import DayView from '@/components/DayView';
 import WeekView from '@/components/WeekView';
@@ -86,34 +86,37 @@ function SchedulePageInner() {
   const [detailEntry, setDetailEntry] = useState<ScheduleEntry | null>(null);
   const [detailDate, setDetailDate] = useState<string>('');
 
-  const [lunchTimes, setLunchTimes] = useState<Record<number, { startTime: string; endTime: string }>>(DEFAULT_LUNCH_TIMES);
-  const [semesterStart, setSemesterStart] = useState<string | undefined>(undefined);
-  const [semesterEnd, setSemesterEnd] = useState<string | undefined>(undefined);
-  const [earlyOutTemplate, setEarlyOutTemplate] = useState<Record<number, { startTime: string; endTime: string }> | undefined>(undefined);
-  const [lathropMode, setLathropMode] = useState(false);
+  const { data: settingsData } = useSettings();
 
-  useEffect(() => {
-    fetch('/api/settings')
-      .then((r) => r.json())
-      .then((s) => {
-        if (s.lunchTimes) {
-          setLunchTimes(typeof s.lunchTimes === 'string' ? JSON.parse(s.lunchTimes) : s.lunchTimes);
-        }
-        if (s.semesterStart) setSemesterStart(s.semesterStart);
-        if (s.semesterEnd) setSemesterEnd(s.semesterEnd);
-        const isLathrop = s.lathropMode === true || s.lathropMode === 'true';
-        setLathropMode(isLathrop);
-        if (s.early_out_schedule) {
-          const raw = typeof s.early_out_schedule === 'string' ? JSON.parse(s.early_out_schedule) : s.early_out_schedule;
-          const tpl: Record<number, { startTime: string; endTime: string }> = {};
-          for (const [k, v] of Object.entries(raw)) tpl[Number(k)] = v as { startTime: string; endTime: string };
-          setEarlyOutTemplate(tpl);
-        } else if (isLathrop) {
-          setEarlyOutTemplate(buildLathropEarlyOutTemplate());
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const lunchTimes = useMemo(() => {
+    const raw = settingsData?.lunchTimes;
+    if (!raw) return DEFAULT_LUNCH_TIMES;
+    try {
+      return typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch {
+      return DEFAULT_LUNCH_TIMES;
+    }
+  }, [settingsData]);
+  const semesterStart = settingsData?.semesterStart;
+  const semesterEnd = settingsData?.semesterEnd;
+  const isLathrop = useMemo(() => {
+    const v = (settingsData as unknown as { lathropMode?: unknown })?.lathropMode;
+    return v === true || v === 'true';
+  }, [settingsData]);
+  const earlyOutTemplate = useMemo(() => {
+    const raw = (settingsData as unknown as { early_out_schedule?: unknown })?.early_out_schedule;
+    if (raw) {
+      try {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const tpl: Record<number, { startTime: string; endTime: string }> = {};
+        for (const [k, v] of Object.entries(parsed as Record<string, { startTime: string; endTime: string }>)) tpl[Number(k)] = v;
+        return tpl;
+      } catch {
+        // fall through to Lathrop default / undefined below
+      }
+    }
+    return isLathrop ? buildLathropEarlyOutTemplate() : undefined;
+  }, [settingsData, isLathrop]);
 
   const { data: classes, loading: cLoading } = useClasses();
   const { data: disruptions, loading: dLoading, refetch } = useDisruptions();
@@ -257,8 +260,7 @@ function SchedulePageInner() {
     setDetailDate(date);
   };
 
-  if (cLoading || dLoading) return <Box sx={{ pt: 2 }}><LinearProgress sx={{ borderRadius: 1 }} /></Box>;
-
+  const scheduleLoading = cLoading || dLoading;
   const isTodaySelected = selectedDate.isSame(dayjs(), 'day');
   const todayDisruption = daySchedule?.disruption;
 
@@ -315,6 +317,9 @@ function SchedulePageInner() {
           <Tab label="Year" />
         </Tabs>
         <Box sx={{ p: 2 }}>
+          {scheduleLoading ? (
+            <Skeleton variant="rounded" height={240} />
+          ) : (
           <>
             {(!classes || classes.length === 0) && (
               <Box sx={{ textAlign: 'center', py: 2 }}>
@@ -357,6 +362,7 @@ function SchedulePageInner() {
               />
             )}
           </>
+          )}
         </Box>
       </Paper>
 

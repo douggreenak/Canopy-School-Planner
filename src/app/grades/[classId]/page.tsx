@@ -30,6 +30,7 @@ import Alert from '@mui/material/Alert';
 import Snackbar from '@mui/material/Snackbar';
 import CircularProgress from '@mui/material/CircularProgress';
 import LinearProgress from '@mui/material/LinearProgress';
+import Skeleton from '@mui/material/Skeleton';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import TextField from '@mui/material/TextField';
@@ -54,6 +55,7 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
 import EventIcon from '@mui/icons-material/Event';
 import { useClasses, useHomework, useGradeHistory, useSyncLog } from '@/lib/hooks';
+import { syncPowerSchoolAndWait } from '@/lib/powerschoolClient';
 import {
   gradeColor,
   letterFromPercent,
@@ -212,20 +214,18 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
       .map((bucket) => ({ bucket, items: groups.get(bucket)! }));
   }, [filteredSorted, sortMode]);
 
+  // Kicks off the sync (returns almost instantly — the real scrape runs
+  // server-side via after(), surviving a tab close) and polls for the
+  // result. See src/lib/powerschoolClient.ts.
   const syncNow = async () => {
     setSyncing(true);
     try {
-      const res = await fetch('/api/powerschool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}), // empty — use saved creds
-      });
-      const data = await res.json();
-      if (data.success) {
+      const data = await syncPowerSchoolAndWait();
+      if (data.status === 'success') {
         setSnackbar({ open: true, message: 'Grades synced.', severity: 'success' });
         refetchClasses();
         refetchHomework();
-      } else {
+      } else if (data.status === 'error') {
         setSnackbar({
           open: true,
           message: data.error?.includes('Missing PowerSchool credentials')
@@ -233,6 +233,8 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
             : data.error || 'Sync failed.',
           severity: 'error',
         });
+      } else {
+        setSnackbar({ open: true, message: 'Still syncing in the background — check back in a bit.', severity: 'info' });
       }
     } catch (e) {
       setSnackbar({ open: true, message: `Sync error: ${(e as Error).message}`, severity: 'error' });
@@ -244,8 +246,13 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
   const color = cls ? gradeColor(cls.gradePercent, theme) : theme.palette.text.disabled;
 
   if (loading && !cls) return (
-    <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}>
-      <CircularProgress />
+    <Box>
+      <Button startIcon={<ArrowBackIcon />} onClick={() => router.push('/grades')} sx={{ mb: 2 }}>
+        Back to Grades
+      </Button>
+      <Skeleton variant="rounded" height={140} sx={{ mb: 2 }} />
+      <Skeleton variant="rounded" height={80} sx={{ mb: 2 }} />
+      <Skeleton variant="rounded" height={320} />
     </Box>
   );
 

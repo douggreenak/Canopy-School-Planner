@@ -39,8 +39,34 @@ export const ACCENT_PRESETS: AccentPreset[] = [
 
 export const DEFAULT_ACCENT = '#388E3C'; // Canopy green
 
+// ---- Small hex-RGB mix helper (no new dependency) ----
+// Blends `amount` (0-1) of `tint` into `base`, returning an opaque hex
+// string. A hand-rolled RGB blend (rather than rgba()) is used so
+// background.paper / the Drawer paper stay fully opaque — an alpha-based
+// surface would double-tint wherever paper surfaces stack (e.g. a Card
+// inside a Dialog).
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const h = hex.replace('#', '');
+  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function mix(base: string, tint: string, amount: number): string {
+  const b = hexToRgb(base);
+  const t = hexToRgb(tint);
+  const c = (k: 'r' | 'g' | 'b') => Math.round(b[k] + (t[k] - b[k]) * amount);
+  return `#${[c('r'), c('g'), c('b')].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
 export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_ACCENT): Theme {
   const isLight = mode === 'light';
+
+  // Neutral bases with NO baked-in hue — accentColor supplies the tint below,
+  // so every one of the 19 accent presets (not just green) reads as
+  // intentional throughout the app, not just on buttons/icons.
+  const canvasBase = isLight ? '#f3f3f1' : '#111111';
+  const paperBase   = isLight ? '#ffffff' : '#1a1a1a';
+  const drawerBase  = isLight ? '#f6f6f4' : '#141414';
+  const dividerBase = isLight ? '#e4e4e2' : null; // dark divider stays a flat white-alpha, mixing looks muddy there
 
   return createTheme({
     palette: {
@@ -59,14 +85,14 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
       success: { main: isLight ? '#2E7D32' : '#81c995' },
       info:    { main: isLight ? '#0277BD' : '#4fc3f7' },
       background: {
-        default: isLight ? '#f1f5f1' : '#111411', // very slight green tint
-        paper:   isLight ? '#ffffff' : '#1a1e1a',
+        default: mix(canvasBase, accentColor, isLight ? 0.09 : 0.16),
+        paper:   mix(paperBase, accentColor, isLight ? 0.035 : 0.075),
       },
       text: {
-        primary:   isLight ? '#1b2a1c' : '#e0e8e0',
+        primary:   isLight ? '#1b1b1b' : '#e8e8e8',
         secondary: isLight ? '#5f6368' : '#9aa0a6',
       },
-      divider: isLight ? '#dde8dd' : 'rgba(255,255,255,0.10)',
+      divider: dividerBase ? mix(dividerBase, accentColor, 0.18) : 'rgba(255,255,255,0.10)',
       action: {
         hover:    isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.07)',
         selected: isLight ? alpha(accentColor, 0.08) : alpha(accentColor, 0.18),
@@ -155,7 +181,7 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
           paper: ({ theme }) => ({
             borderRight: `1px solid ${theme.palette.divider}`,
             boxShadow: 'none',
-            backgroundColor: isLight ? '#f6faf6' : '#141914',
+            backgroundColor: mix(drawerBase, accentColor, isLight ? 0.11 : 0.19),
           }),
         },
       },

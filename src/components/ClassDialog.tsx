@@ -13,6 +13,8 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import CloseIcon from '@mui/icons-material/Close';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
@@ -53,6 +55,7 @@ const empty: SchoolClass = {
   endTime: '08:50',
   days: [1, 2, 3, 4, 5],
   semester: 'Spring 2026',
+  isAp: false,
 };
 
 type WeightRow = { category: string; weight: string };
@@ -202,6 +205,21 @@ export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
                 />
               ))}
             </Box>
+          </Grid>
+
+          {/* AP / weighted-GPA flag */}
+          <Grid size={12}>
+            <FormControlLabel
+              control={<Switch checked={!!form.isAp} onChange={(e) => update('isAp', e.target.checked)} />}
+              label={
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>AP Class</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Counts as weighted (+1.0) in the Transcript page&apos;s weighted GPA.
+                  </Typography>
+                </Box>
+              }
+            />
           </Grid>
 
           {/* Grade Weights */}

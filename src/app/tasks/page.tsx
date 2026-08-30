@@ -7,7 +7,6 @@ import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
-import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -26,32 +25,53 @@ import Stack from '@mui/material/Stack';
 import Divider from '@mui/material/Divider';
 import Alert from '@mui/material/Alert';
 import Snackbar from '@mui/material/Snackbar';
-import LinearProgress from '@mui/material/LinearProgress';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Skeleton from '@mui/material/Skeleton';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { alpha, useTheme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
-import EditIcon from '@mui/icons-material/Edit';
 import AssignmentIcon from '@mui/icons-material/Assignment';
-import ChecklistIcon from '@mui/icons-material/Checklist';
 import CloseIcon from '@mui/icons-material/Close';
+import MeetingRoomOutlinedIcon from '@mui/icons-material/MeetingRoomOutlined';
+import LaptopOutlinedIcon from '@mui/icons-material/LaptopOutlined';
 import { useHomework, useTasks, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import { nextMeetingDate } from '@/lib/schedule';
 import { suggestRebalancing } from '@/lib/heatmap';
 import { completedForStage, loadLastStageTemplate, saveLastStageTemplate } from '@/lib/stages';
-import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import ItemDetailDialog, { type DetailItem } from '@/components/ItemDetailDialog';
 import StageListEditor from '@/components/StageListEditor';
-import type { Homework, Task, SchoolClass, TaskStage } from '@/types';
+import TaskRow, { TASK_ROW_COLUMNS } from '@/components/TaskRow';
+import type { Homework, Task, SchoolClass, TaskStage, DueTiming } from '@/types';
 import { v4 as uuid } from 'uuid';
 
 const CATEGORIES = ['General', 'Ask', 'Homework', 'Study', 'Project', 'Reading', 'Practice', 'Other'];
 
 type ItemKind = 'homework' | 'task';
 type ListItem = { kind: 'homework'; data: Homework } | { kind: 'task'; data: Task };
+
+function DueTimingField({ value, onChange }: { value: DueTiming | undefined; onChange: (v: DueTiming | undefined) => void }) {
+  return (
+    <FormControl fullWidth size="small">
+      <InputLabel shrink sx={{ position: 'static', transform: 'none', fontSize: '0.75rem', mb: 0.5 }}>Due</InputLabel>
+      <ToggleButtonGroup
+        value={value ?? null}
+        exclusive
+        size="small"
+        fullWidth
+        onChange={(_, v) => onChange(v ?? undefined)}
+      >
+        <ToggleButton value="in_class">
+          <MeetingRoomOutlinedIcon sx={{ mr: 0.75, fontSize: 18 }} /> In class
+        </ToggleButton>
+        <ToggleButton value="after_class">
+          <LaptopOutlinedIcon sx={{ mr: 0.75, fontSize: 18 }} /> After class
+        </ToggleButton>
+      </ToggleButtonGroup>
+    </FormControl>
+  );
+}
 
 // Small pill showing where a row sits in its OWN pipeline, when it's mid-way
 // through one — a glance-able hint without opening the detail dialog. Once
@@ -101,11 +121,11 @@ export default function TasksPage() {
     if (detailItem.kind === 'task') {
       const t = (tasks || []).find((x) => x.id === detailItem.id);
       if (!t) return null;
-      return { id: t.id, title: t.title, description: t.description, dueDate: t.dueDate, completed: t.completed, stages: t.stages ?? [], stageId: t.stageId, priority: t.priority, category: t.category, classId: t.classId };
+      return { id: t.id, title: t.title, description: t.description, dueDate: t.dueDate, completed: t.completed, stages: t.stages ?? [], stageId: t.stageId, dueTiming: t.dueTiming, priority: t.priority, category: t.category, classId: t.classId };
     }
     const h = (homework || []).find((x) => x.id === detailItem.id);
     if (!h) return null;
-    return { id: h.id, title: h.title, description: h.description, dueDate: h.dueDate, completed: h.completed, stages: h.stages ?? [], stageId: h.stageId, priority: h.priority, category: 'Homework', classId: h.classId };
+    return { id: h.id, title: h.title, description: h.description, dueDate: h.dueDate, completed: h.completed, stages: h.stages ?? [], stageId: h.stageId, dueTiming: h.dueTiming, priority: h.priority, category: 'Homework', classId: h.classId };
   }, [detailItem, tasks, homework]);
   // Runs a callback with the live Task/Homework backing the open detail dialog.
   const dispatchDetail = (onTask: (t: Task) => void, onHw: (h: Homework) => void) => {
@@ -168,16 +188,19 @@ export default function TasksPage() {
 
   // ---- Dialog helpers ----
 
-  const openAdd = (kind?: ItemKind) => {
+  // Add always creates a Task — Category (which already includes
+  // "Homework") is how the old Homework/Task choice is expressed now, so
+  // there's no type toggle here anymore. Legacy manually-added Homework
+  // rows remain fully editable via openEditHw below, just not creatable
+  // from Add going forward.
+  const openAdd = () => {
     setEditingHw(null);
     setEditingTask(null);
-    const k = kind ?? 'task';
-    setAddKind(k);
+    setAddKind('task');
     // Prefill with whichever stage pipeline was last used on this browser —
     // a convenience default only, not an enforced setting: it's fully
     // editable/clearable right here, per item.
     const template = loadLastStageTemplate();
-    setHwForm({ id: uuid(), classId: sortedClasses[0]?.id ?? '', title: '', description: '', dueDate: dayjs().format('YYYY-MM-DD'), completed: false, priority: 'medium', source: 'manual', stages: template });
     setTaskForm({ id: uuid(), title: '', description: '', dueDate: dayjs().format('YYYY-MM-DD'), completed: false, priority: 'medium', category: 'General', classId: undefined, stages: template });
     setDialogOpen(true);
   };
@@ -380,8 +403,6 @@ export default function TasksPage() {
     }
   };
 
-  if (loading) return <Box sx={{ pt: 2 }}><LinearProgress sx={{ borderRadius: 1 }} /></Box>;
-
   return (
     <Box>
       <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 0.5 }}>Homework & Tasks</Typography>
@@ -391,11 +412,11 @@ export default function TasksPage() {
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label={`To Do (${pendingCount})`} />
-        <Tab label={`Done (${doneCount})`} />
+        <Tab label="Done" />
       </Tabs>
 
       {/* Quick add homework — hide on Done tab */}
-      {sortedClasses.length > 0 && tab !== 1 && (
+      {!loading && sortedClasses.length > 0 && tab !== 1 && (
         <Card variant="outlined" sx={{ mb: 2 }}>
           <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
@@ -430,135 +451,108 @@ export default function TasksPage() {
         </Box>
       )}
 
-      {merged.length === 0 && (
+      {loading && (
+        <Stack spacing={1}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}><CardContent sx={{ py: 2 }}>
+              <Skeleton variant="text" width="40%" height={28} />
+              <Skeleton variant="text" width="25%" />
+            </CardContent></Card>
+          ))}
+        </Stack>
+      )}
+
+      {!loading && merged.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 6 }}>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
             {tab === 0 ? 'All caught up!' : 'Nothing completed yet.'}
           </Typography>
           {tab === 0 && (
             <Typography variant="body2" color="text.disabled">
-              Use the + button to add homework or a task.
+              Use the + button to add a task.
             </Typography>
           )}
         </Box>
       )}
 
+      {/* Column header — desktop only, reinforces the table read */}
+      {!loading && merged.length > 0 && (
+        <Box
+          sx={{
+            display: { xs: 'none', md: 'grid' },
+            gridTemplateColumns: 'auto minmax(160px,1fr) 130px 100px 100px 92px 84px auto',
+            gap: 1.5,
+            px: 2,
+            mb: 0.5,
+          }}
+        >
+          {TASK_ROW_COLUMNS.map((label, i) => (
+            <Typography key={i} variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+              {label}
+            </Typography>
+          ))}
+        </Box>
+      )}
+
       <Stack spacing={1}>
-        {merged.map((item) => {
+        {!loading && merged.map((item) => {
           if (item.kind === 'homework') {
             const hw = item.data;
             const cls = classMap.get(hw.classId);
             const overdue = !hw.completed && dayjs(hw.dueDate).isBefore(dayjs(), 'day');
+            const rebalance = rebalancingByHwId.get(hw.id);
             return (
-              <Card key={`hw-${hw.id}`} sx={{ opacity: hw.completed ? 0.7 : 1, ...(overdue ? { borderLeft: '3px solid', borderColor: 'error.main', bgcolor: (t) => alpha(t.palette.error.main, 0.04) } : {}) }}>
-                <CardContent
-                  sx={{
-                    display: 'flex',
-                    flexDirection: { xs: 'column', sm: 'row' },
-                    alignItems: { xs: 'stretch', sm: 'center' },
-                    gap: { xs: 0.5, sm: 2 },
-                    py: 1.5,
-                    '&:last-child': { pb: 1.5 },
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, minWidth: 0 }}>
-                    <Checkbox
-                      checked={hw.completed}
-                      onChange={() => toggleHw(hw)}
-                      sx={{ color: cls?.color, '&.Mui-checked': { color: cls?.color }, flexShrink: 0 }}
-                    />
-                    <Box
-                      role="button" tabIndex={0}
-                      onClick={() => setDetailItem({ kind: 'homework', id: hw.id })}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailItem({ kind: 'homework', id: hw.id }); } }}
-                      sx={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, my: -0.25, transition: 'background-color 0.12s', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
-                    >
-                      <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: hw.completed ? 'line-through' : 'none' }}>
-                        {hw.title}
-                      </Typography>
-                      {hw.description && <Typography variant="body2" color="text.secondary" noWrap>{hw.description}</Typography>}
-                      <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <Chip size="small" label="Homework" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
-                        {cls && (
-                          <Chip size="small" label={cls.name} sx={{ backgroundColor: cls.color + '18', color: cls.color, fontWeight: 500, fontSize: '0.7rem' }} />
-                        )}
-                        {stageChip(hw)}
-                        <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
-                          {overdue ? 'OVERDUE • ' : ''}Due {dayjs(hw.dueDate).format('MMM D, YYYY')}
-                        </Typography>
-                        {rebalancingByHwId.get(hw.id) && !hw.completed && (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                            <SwapHorizIcon sx={{ fontSize: 12, color: 'warning.main' }} />
-                            <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 500 }}>
-                              Start by {dayjs(rebalancingByHwId.get(hw.id)!.startBy).format('ddd MMM D')} — {rebalancingByHwId.get(hw.id)!.reason}
-                            </Typography>
-                          </Box>
-                        )}
-                      </Box>
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: { xs: 'flex-end', sm: 'flex-start' }, pl: { xs: 7, sm: 0 } }}>
-                    <Chip size="small" label={hw.priority} color={hw.priority === 'high' ? 'error' : hw.priority === 'medium' ? 'warning' : 'default'} sx={{ fontSize: '0.7rem' }} />
-                    <IconButton size="small" onClick={() => openEditHw(hw)}><EditIcon fontSize="small" /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => deleteHw(hw.id)}><DeleteIcon fontSize="small" /></IconButton>
-                  </Box>
-                </CardContent>
-              </Card>
+              <TaskRow
+                key={`hw-${hw.id}`}
+                title={hw.title}
+                description={hw.description}
+                completed={hw.completed}
+                overdue={overdue}
+                dueDateLabel={hw.dueDate ? dayjs(hw.dueDate).format('MMM D, YYYY') : null}
+                checkboxColor={cls?.color}
+                classChip={cls ? { name: cls.name, color: cls.color } : null}
+                categoryLabel="Homework"
+                dueTiming={hw.dueTiming}
+                priority={hw.priority}
+                stageChip={stageChip(hw)}
+                rebalanceHint={rebalance && !hw.completed ? (
+                  <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 500 }}>
+                    Start by {dayjs(rebalance.startBy).format('ddd MMM D')} — {rebalance.reason}
+                  </Typography>
+                ) : undefined}
+                onToggle={() => toggleHw(hw)}
+                onOpenDetail={() => setDetailItem({ kind: 'homework', id: hw.id })}
+                onEdit={() => openEditHw(hw)}
+                onDelete={() => deleteHw(hw.id)}
+              />
             );
           }
 
           // Task item
           const task = item.data;
-          const overdue = !task.completed && task.dueDate && dayjs(task.dueDate).isBefore(dayjs(), 'day');
+          const overdue = !task.completed && !!task.dueDate && dayjs(task.dueDate).isBefore(dayjs(), 'day');
           const taskCls = task.classId ? classMap.get(task.classId) : undefined;
           return (
-            <Card key={`task-${task.id}`} sx={{ opacity: task.completed ? 0.7 : 1, ...(overdue ? { borderLeft: '3px solid', borderColor: 'error.main', bgcolor: (t) => alpha(t.palette.error.main, 0.04) } : {}) }}>
-              <CardContent
-                sx={{
-                  display: 'flex',
-                  flexDirection: { xs: 'column', sm: 'row' },
-                  alignItems: { xs: 'stretch', sm: 'center' },
-                  gap: { xs: 0.5, sm: 2 },
-                  py: 1.5,
-                  '&:last-child': { pb: 1.5 },
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, minWidth: 0 }}>
-                  <Checkbox checked={task.completed} onChange={() => toggleTask(task)} color="success" sx={{ flexShrink: 0 }} />
-                  <Box
-                    role="button" tabIndex={0}
-                    onClick={() => setDetailItem({ kind: 'task', id: task.id })}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailItem({ kind: 'task', id: task.id }); } }}
-                    sx={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, my: -0.25, transition: 'background-color 0.12s', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
-                  >
-                    <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: task.completed ? 'line-through' : 'none' }}>
-                      {task.title}
-                    </Typography>
-                    {task.description && <Typography variant="body2" color="text.secondary" noWrap>{task.description}</Typography>}
-                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <Chip size="small" label={task.category} variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                      {taskCls && (
-                        <Chip size="small" label={taskCls.name} variant="outlined" sx={{ fontSize: '0.7rem', borderLeft: `3px solid ${taskCls.color}`, pl: 0.25 }} />
-                      )}
-                      {stageChip(task)}
-                      {task.dueDate && (
-                        <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
-                          {overdue ? 'OVERDUE • ' : ''}Due {dayjs(task.dueDate).format('MMM D')}
-                        </Typography>
-                      )}
-                    </Box>
-                  </Box>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: { xs: 'flex-end', sm: 'flex-start' }, pl: { xs: 7, sm: 0 } }}>
-                  <Chip size="small" label={task.priority} color={task.priority === 'high' ? 'error' : task.priority === 'medium' ? 'warning' : 'default'} sx={{ fontSize: '0.7rem' }} />
-                  <IconButton size="small" onClick={() => openEditTask(task)} aria-label="Edit"><EditIcon fontSize="small" /></IconButton>
-                  <IconButton size="small" color="error" onClick={() => deleteTask(task.id)} aria-label="Delete"><DeleteIcon fontSize="small" /></IconButton>
-                </Box>
-              </CardContent>
-            </Card>
+            <TaskRow
+              key={`task-${task.id}`}
+              title={task.title}
+              description={task.description}
+              completed={task.completed}
+              overdue={overdue}
+              dueDateLabel={task.dueDate ? dayjs(task.dueDate).format('MMM D, YYYY') : null}
+              classChip={taskCls ? { name: taskCls.name, color: taskCls.color } : null}
+              categoryLabel={task.category}
+              dueTiming={task.dueTiming}
+              priority={task.priority}
+              stageChip={stageChip(task)}
+              onToggle={() => toggleTask(task)}
+              onOpenDetail={() => setDetailItem({ kind: 'task', id: task.id })}
+              onEdit={() => openEditTask(task)}
+              onDelete={() => deleteTask(task.id)}
+            />
           );
         })}
-        {tab === 0 && (
+        {!loading && tab === 0 && (
           <Button
             variant="outlined"
             startIcon={<AddIcon />}
@@ -566,7 +560,7 @@ export default function TasksPage() {
             fullWidth
             sx={{ mt: 0.5, py: 1.25, borderStyle: 'dashed', color: 'text.secondary', borderColor: 'divider', '&:hover': { borderStyle: 'dashed' } }}
           >
-            Add Task or Homework
+            Add Task
           </Button>
         )}
       </Stack>
@@ -575,7 +569,7 @@ export default function TasksPage() {
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth fullScreen={fullScreen}>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box sx={{ flex: 1 }}>
-            {editingHw ? 'Edit Homework' : editingTask ? 'Edit Task' : addKind === 'homework' ? 'Add Homework' : 'Add Task'}
+            {editingHw ? 'Edit Homework' : editingTask ? 'Edit Task' : 'Add Task'}
           </Box>
           {fullScreen && (
             <IconButton onClick={() => setDialogOpen(false)} aria-label="Close" edge="end">
@@ -584,20 +578,6 @@ export default function TasksPage() {
           )}
         </DialogTitle>
         <DialogContent>
-          {/* Type toggle — only shown when adding, not editing */}
-          {!editingHw && !editingTask && (
-            <Box sx={{ mb: 2, mt: 0.5 }}>
-              <ToggleButtonGroup value={addKind} exclusive onChange={(_, v) => { if (v) setAddKind(v); }} size="small" fullWidth>
-                <ToggleButton value="homework">
-                  <AssignmentIcon sx={{ mr: 0.75, fontSize: 18 }} /> Homework
-                </ToggleButton>
-                <ToggleButton value="task">
-                  <ChecklistIcon sx={{ mr: 0.75, fontSize: 18 }} /> Task
-                </ToggleButton>
-              </ToggleButtonGroup>
-            </Box>
-          )}
-
           {addKind === 'homework' ? (
             <Grid container spacing={2}>
               <Grid size={12}>
@@ -626,6 +606,9 @@ export default function TasksPage() {
                     <MenuItem value="high">High</MenuItem>
                   </Select>
                 </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <DueTimingField value={hwForm.dueTiming} onChange={(v) => setHwForm({ ...hwForm, dueTiming: v })} />
               </Grid>
             </Grid>
           ) : (
@@ -656,6 +639,9 @@ export default function TasksPage() {
                     {CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
                   </Select>
                 </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <DueTimingField value={taskForm.dueTiming} onChange={(v) => setTaskForm({ ...taskForm, dueTiming: v })} />
               </Grid>
               {sortedClasses.length > 0 && (
                 <Grid size={{ xs: 12, sm: 6 }}>

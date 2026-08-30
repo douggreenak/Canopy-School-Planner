@@ -2,11 +2,21 @@
   "functions": {
     "src/app/api/powerschool/**": {
       "memory": 1024,
-      "maxDuration": 60
+      "maxDuration": 280
     },
     "src/app/api/powerschool/migrate/**": {
       "memory": 1024,
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    { "path": "/api/powerschool/cron?hour=0", "schedule": "0 0 * * *" },
+    { "path": "/api/powerschool/cron?hour=3", "schedule": "0 3 * * *" },
+    { "path": "/api/powerschool/cron?hour=6", "schedule": "0 6 * * *" },
+    { "path": "/api/powerschool/cron?hour=9", "schedule": "0 9 * * *" },
+    { "path": "/api/powerschool/cron?hour=12", "schedule": "0 12 * * *" },
+    { "path": "/api/powerschool/cron?hour=15", "schedule": "0 15 * * *" },
+    { "path": "/api/powerschool/cron?hour=18", "schedule": "0 18 * * *" },
+    { "path": "/api/powerschool/cron?hour=21", "schedule": "0 21 * * *" }
+  ]
 }

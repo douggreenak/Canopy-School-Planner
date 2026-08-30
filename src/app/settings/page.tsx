@@ -49,6 +49,21 @@ import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import PaletteIcon from '@mui/icons-material/Palette';
 import { useClasses } from '@/lib/hooks';
 import { buildLathropEarlyOutTemplate } from '@/lib/schedule';
+import { syncPowerSchoolAndWait } from '@/lib/powerschoolClient';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import MenuItem from '@mui/material/MenuItem';
+import Select from '@mui/material/Select';
+import InputLabel from '@mui/material/InputLabel';
+import FormControl from '@mui/material/FormControl';
+
+// Vercel Cron trigger hours (UTC) — must match vercel.json's `crons` array
+// exactly. Kept as a small fixed set (Hobby-plan cron can only fire once/day
+// per entry, with up to ~59min of slop) rather than an arbitrary time.
+const AUTO_SYNC_HOURS = [0, 3, 6, 9, 12, 15, 18, 21];
+function localHourLabel(utcHour: number): string {
+  const d = new Date(Date.UTC(2000, 0, 1, utcHour, 0, 0));
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
 import { useThemeMode } from '@/components/ThemeRegistry';
 import { ACCENT_PRESETS } from '@/lib/theme';
 import TimezonePicker from '@/components/TimezonePicker';
@@ -149,6 +164,8 @@ function SettingsInner() {
   const [calendarReady, setCalendarReady] = useState(false);
 
   const [lathropMode, setLathropMode] = useState(false);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+  const [autoSyncHour, setAutoSyncHour] = useState(12);
 
   // Change password
   const [currentPassword, setCurrentPassword] = useState('');
@@ -235,6 +252,15 @@ function SettingsInner() {
         if (s.lunchTimes) setLunchTimes(typeof s.lunchTimes === 'string' ? JSON.parse(s.lunchTimes) : s.lunchTimes);
         const isLathrop = s.lathropMode === true || s.lathropMode === 'true';
         if (s.lathropMode) setLathropMode(isLathrop);
+        if (s.powerschoolAutoSync) {
+          try {
+            const parsed = typeof s.powerschoolAutoSync === 'string' ? JSON.parse(s.powerschoolAutoSync) : s.powerschoolAutoSync;
+            setAutoSyncEnabled(!!parsed.enabled);
+            if (typeof parsed.utcHour === 'number') setAutoSyncHour(parsed.utcHour);
+          } catch {
+            // ignore malformed stored value — keep defaults
+          }
+        }
         if (s.early_out_schedule) {
           const raw = typeof s.early_out_schedule === 'string' ? JSON.parse(s.early_out_schedule) : s.early_out_schedule;
           const tpl: Record<number, { startTime: string; endTime: string }> = {};
@@ -380,6 +406,16 @@ function SettingsInner() {
     }
   };
 
+  const saveAutoSync = async (enabled: boolean, utcHour: number) => {
+    setAutoSyncEnabled(enabled);
+    setAutoSyncHour(utcHour);
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled, utcHour } }),
+    }).catch(() => {});
+  };
+
   const handleChangePassword = async () => {
     if (newPassword !== confirmPassword) {
       setSnackbar({ open: true, message: 'New passwords do not match.', severity: 'error' });
@@ -456,33 +492,36 @@ function SettingsInner() {
     setSyncing(null);
   };
 
+  // Kicks off the sync (returns almost instantly — the real scrape runs
+  // server-side via after(), so it keeps going even if this tab closes) and
+  // polls for the result. See src/lib/powerschoolClient.ts.
   const syncPowerSchool = async () => {
     setSyncing('powerschool');
     setPsLog([]);
     setPsMatrixSuggestions({});
     try {
       const hasPassword = !!psPass;
-      const res = await fetch('/api/powerschool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(hasPassword ? { url: psUrl, username: psUser, password: psPass } : {}),
-      });
-      const data = await res.json();
+      const data = await syncPowerSchoolAndWait(
+        hasPassword ? { url: psUrl, username: psUser, password: psPass } : undefined,
+        (status) => { if (status.log?.length) setPsLog(status.log); },
+      );
       if (data.log) setPsLog(data.log);
-      if (data.matrixByClassId) setPsMatrixSuggestions(data.matrixByClassId);
-      if (data.success) {
+      const result = data.result as Record<string, unknown> | null;
+      if (result?.matrixByClassId) setPsMatrixSuggestions(result.matrixByClassId as typeof psMatrixSuggestions);
+      if (data.status === 'success') {
         const parts: string[] = [];
-        if (data.classAdded) parts.push(`${data.classAdded} added`);
-        if (data.classUpdated) parts.push(`${data.classUpdated} updated`);
-        if (data.classRemoved) parts.push(`${data.classRemoved} removed`);
+        if (result?.classAdded) parts.push(`${result.classAdded} added`);
+        if (result?.classUpdated) parts.push(`${result.classUpdated} updated`);
+        if (result?.classRemoved) parts.push(`${result.classRemoved} removed`);
         const classSummary = parts.length > 0 ? parts.join(', ') : 'no changes';
-        setSnackbar({ open: true, message: `PowerSchool sync complete — ${classSummary}. ${data.assignmentCount || 0} assignments synced.`, severity: 'success' });
+        setSnackbar({ open: true, message: `PowerSchool sync complete — ${classSummary}. ${result?.assignmentCount || 0} assignments synced.`, severity: 'success' });
         if (hasPassword) setPsPass('');
         refetchClasses();
         refetchClassesList();
         const status = await fetch('/api/setup').then((r) => r.json());
         setSetupStatus(status);
-        if (data.matrixByClassId && Object.keys(data.matrixByClassId).length > 0) {
+        const matrixByClassId = result?.matrixByClassId as Record<string, unknown> | undefined;
+        if (matrixByClassId && Object.keys(matrixByClassId).length > 0) {
           setSyncing('migrating');
           try {
             const resp = await fetch('/api/powerschool/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
@@ -504,8 +543,12 @@ function SettingsInner() {
           const freshClasses: SchoolClass[] = await fetch('/api/classes').then((r) => r.json()).catch(() => []);
           await applyLathropSchedule(freshClasses);
         }
-      } else {
+      } else if (data.status === 'error') {
         setSnackbar({ open: true, message: data.error || 'PowerSchool import failed', severity: 'error' });
+      } else {
+        // Still running after our poll budget — it keeps going server-side;
+        // let the user know rather than leaving the button spinning forever.
+        setSnackbar({ open: true, message: 'Still syncing in the background — check back in a bit, or reload to see the latest status.', severity: 'info' });
       }
     } catch (e) {
       setSnackbar({ open: true, message: `Connection error: ${(e as Error).message}`, severity: 'error' });
@@ -870,6 +913,44 @@ function SettingsInner() {
                   }
                   sx={{ mb: 1.5, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { mt: 0.25 } }}
                 />
+              </Grid>
+              <Grid size={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={autoSyncEnabled}
+                      onChange={(e) => saveAutoSync(e.target.checked, autoSyncHour)}
+                      size="small"
+                      disabled={!setupStatus?.hasPowerschool}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography variant="body2" sx={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <ScheduleIcon sx={{ fontSize: 16 }} /> Scheduled Sync
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Automatically sync PowerSchool once a day, even if you don&apos;t open the app.
+                        {!setupStatus?.hasPowerschool && ' Save a PowerSchool login above first.'}
+                      </Typography>
+                    </Box>
+                  }
+                  sx={{ mb: autoSyncEnabled ? 1 : 1.5, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { mt: 0.25 } }}
+                />
+                {autoSyncEnabled && (
+                  <FormControl size="small" sx={{ mb: 1.5, minWidth: 220 }}>
+                    <InputLabel>Runs around</InputLabel>
+                    <Select
+                      value={autoSyncHour}
+                      label="Runs around"
+                      onChange={(e) => saveAutoSync(true, Number(e.target.value))}
+                    >
+                      {AUTO_SYNC_HOURS.map((h) => (
+                        <MenuItem key={h} value={h}>~{localHourLabel(h)} your time</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
               </Grid>
               <Grid size={12}>
                 <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>

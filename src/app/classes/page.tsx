@@ -8,7 +8,7 @@ import Grid from '@mui/material/Grid';
 import Fab from '@mui/material/Fab';
 import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
-import LinearProgress from '@mui/material/LinearProgress';
+import Skeleton from '@mui/material/Skeleton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -74,8 +74,6 @@ export default function ClassesPage() {
     }
   };
 
-  if (loading) return <Box sx={{ pt: 2 }}><LinearProgress sx={{ borderRadius: 1 }} /></Box>;
-
   return (
     <Box>
       <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 0.5 }}>
@@ -85,7 +83,25 @@ export default function ClassesPage() {
         Your class roster — used for schedule, grades, and task organization.
       </Typography>
 
-      {(!classes || classes.length === 0) && (
+      {loading && (
+        <Grid container spacing={2}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Grid key={i} size={{ xs: 12, sm: 6, md: 4 }}>
+              <Card>
+                <Skeleton variant="rectangular" height={6} />
+                <CardContent>
+                  <Skeleton variant="text" width="60%" height={32} />
+                  <Skeleton variant="text" width="45%" />
+                  <Skeleton variant="text" width="40%" />
+                  <Skeleton variant="text" width="55%" />
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      )}
+
+      {!loading && (!classes || classes.length === 0) && (
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
             No classes yet
@@ -105,7 +121,7 @@ export default function ClassesPage() {
       )}
 
       <Grid container spacing={2} sx={{ pb: classes && classes.length > 0 ? 10 : 0 }}>
-        {classes?.map((cls) => (
+        {!loading && classes?.map((cls) => (
           <Grid key={cls.id} size={{ xs: 12, sm: 6, md: 4 }} sx={{ display: 'flex' }}>
             <Card sx={{ position: 'relative', width: '100%', display: 'flex', flexDirection: 'column' }}>
               <Box sx={{ height: 6, backgroundColor: cls.color, borderRadius: '12px 12px 0 0' }} />

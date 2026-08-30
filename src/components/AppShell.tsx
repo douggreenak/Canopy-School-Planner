@@ -30,9 +30,9 @@ import TimelineIcon from '@mui/icons-material/Timeline';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import Button from '@mui/material/Button';
-import LoadingOverlay from '@/components/LoadingOverlay';
 import SetupWizard from '@/components/SetupWizard';
 import LoginScreen from '@/components/LoginScreen';
+import SaveStatusIndicator, { SaveStatusIcon } from '@/components/SaveStatusIndicator';
 import { clearClientCache } from '@/lib/hooks';
 
 const DRAWER_WIDTH   = 256;
@@ -180,7 +180,9 @@ function PageEnter({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+type CurrentUser = { id: string; username: string; role: string };
+
+export default function AppShell({ children, initialUser }: { children: React.ReactNode; initialUser: CurrentUser | null }) {
   const theme   = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -200,13 +202,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const [currentUser, setCurrentUser] = useState<{ id: string; username: string; role: string } | null | false>(null);
+  // Seeded from the server-rendered session (see layout.tsx) so the real
+  // page paints on the first render — no blank screen while a client fetch
+  // resolves. The mount-effect fetch below still runs, purely to catch a
+  // session that changed since the server render (e.g. signed out in
+  // another tab); it no longer gates the initial paint.
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(initialUser);
 
   useEffect(() => {
     fetch('/api/auth')
       .then((r) => r.json())
-      .then((data) => setCurrentUser(data.user ?? false))
-      .catch(() => setCurrentUser(false));
+      .then((data) => setCurrentUser(data.user ?? null))
+      .catch(() => {});
   }, []);
 
   const handleNavClick = (path: string) => {
@@ -242,12 +249,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ action: 'logout' }),
     }).catch(() => {});
     clearClientCache();
-    setCurrentUser(false);
+    setCurrentUser(null);
     router.push('/');
   };
 
-  if (currentUser === null)  return <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }} />;
-  if (currentUser === false) return (
+  if (currentUser === null) return (
     <LoginScreen
       onLogin={(user, isNew) => {
         setCurrentUser(user);
@@ -267,7 +273,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <Box component="main" sx={{ p: { xs: 2, sm: 3 } }}>
           {children}
         </Box>
-        <Box sx={{ position: 'fixed', bottom: 16, right: 16 }}>
+        <Box sx={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <SaveStatusIndicator dense />
           <Button variant="outlined" size="small" onClick={doLogout} startIcon={<LogoutIcon />}>
             Sign Out
           </Button>
@@ -334,13 +341,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* Bottom: user + logout */}
       <List sx={{ px: collapsed && !isMobile ? 0.5 : 1, pb: 0.5 }}>
         {collapsed && !isMobile ? (
-          <Tooltip title={currentUser.username} placement="right">
-            <ListItemButton disabled sx={{ justifyContent: 'center', px: 1, minHeight: 44, opacity: 0.7 }}>
-              <ListItemIcon sx={{ minWidth: 0, justifyContent: 'center', color: 'text.secondary' }}>
-                <AccountCircleIcon />
-              </ListItemIcon>
-            </ListItemButton>
-          </Tooltip>
+          <>
+            <Tooltip title={currentUser.username} placement="right">
+              <ListItemButton disabled sx={{ justifyContent: 'center', px: 1, minHeight: 44, opacity: 0.7 }}>
+                <ListItemIcon sx={{ minWidth: 0, justifyContent: 'center', color: 'text.secondary' }}>
+                  <AccountCircleIcon />
+                </ListItemIcon>
+              </ListItemButton>
+            </Tooltip>
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 0.5 }}>
+              <SaveStatusIcon />
+            </Box>
+          </>
         ) : (
           <ListItemButton disabled sx={{ borderRadius: 1, opacity: 0.7 }}>
             <ListItemIcon sx={{ minWidth: 40, color: 'text.secondary' }}>
@@ -348,7 +360,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </ListItemIcon>
             <ListItemText
               primary={currentUser.username}
-              slotProps={{ primary: { sx: { fontSize: '0.875rem', fontWeight: 500 } } }}
+              secondary={<SaveStatusIndicator />}
+              slotProps={{
+                primary: { sx: { fontSize: '0.875rem', fontWeight: 500 } },
+                secondary: { component: 'div', sx: { mt: 0.25 } },
+              }}
             />
           </ListItemButton>
         )}
@@ -375,7 +391,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <LoadingOverlay />
       <SetupWizard
         open={wizardOpen}
         required={wizardRequired}
@@ -393,6 +408,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <Typography variant="h6" noWrap sx={{ fontWeight: 600, flex: 1, color: 'primary.main', letterSpacing: '-0.3px' }}>
               Canopy
             </Typography>
+            <Box sx={{ mr: 1 }}>
+              <SaveStatusIcon />
+            </Box>
             <Tooltip title={currentUser ? `Signed in as ${currentUser.username}` : 'Sign out'}>
               <IconButton onClick={doLogout} size="small" sx={{ color: 'text.secondary' }} aria-label="Sign out">
                 <LogoutIcon fontSize="small" />

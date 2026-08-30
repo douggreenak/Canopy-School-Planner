@@ -20,34 +20,21 @@ import TimelineIcon from '@mui/icons-material/Timeline';
 import SchoolIcon from '@mui/icons-material/School';
 import { useGradeHistory, useClasses } from '@/lib/hooks';
 import { gradeColor, letterFromPercent } from '@/lib/grades';
+import { unweightedGpaPoints, weightedGpaPoints } from '@/lib/gradeEngine';
 import type { GradeHistoryEntry } from '@/types';
-
-// Unweighted GPA scale (standard 4.0)
-function percentToGpa(p: number): number {
-  if (p >= 93) return 4.0;
-  if (p >= 90) return 3.7;
-  if (p >= 87) return 3.3;
-  if (p >= 83) return 3.0;
-  if (p >= 80) return 2.7;
-  if (p >= 77) return 2.3;
-  if (p >= 73) return 2.0;
-  if (p >= 70) return 1.7;
-  if (p >= 67) return 1.3;
-  if (p >= 63) return 1.0;
-  if (p >= 60) return 0.7;
-  return 0.0;
-}
 
 type SemesterRow = {
   semester: string;
-  classes: { classId: string; name: string; gradePercent: number; letter: string; gpa: number }[];
+  classes: { classId: string; name: string; gradePercent: number; letter: string; gpa: number; gpaWeighted: number; isAp: boolean }[];
   semesterGpa: number;
+  semesterGpaWeighted: number;
   capturedAt: string;
 };
 
 function buildTranscript(
   history: GradeHistoryEntry[],
   classNames: Map<string, string>,
+  classAp: Map<string, boolean>,
 ): SemesterRow[] {
   // For each (classId, semester) pair, take the most recent grade snapshot.
   const latestBySemesterAndClass = new Map<string, GradeHistoryEntry>();
@@ -72,22 +59,28 @@ function buildTranscript(
   for (const [semester, entries] of bySemester) {
     const classes = entries
       .filter((e) => e.gradePercent != null)
-      .map((e) => ({
-        classId: e.classId,
-        name: classNames.get(e.classId) ?? 'Unknown Class',
-        gradePercent: e.gradePercent!,
-        letter: e.letter ?? letterFromPercent(e.gradePercent!),
-        gpa: percentToGpa(e.gradePercent!),
-      }))
+      .map((e) => {
+        const isAp = classAp.get(e.classId) ?? false;
+        return {
+          classId: e.classId,
+          name: classNames.get(e.classId) ?? 'Unknown Class',
+          gradePercent: e.gradePercent!,
+          letter: e.letter ?? letterFromPercent(e.gradePercent!),
+          gpa: unweightedGpaPoints(e.gradePercent!),
+          gpaWeighted: weightedGpaPoints(e.gradePercent!, isAp),
+          isAp,
+        };
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
 
     if (classes.length === 0) continue;
     const semesterGpa = classes.reduce((sum, c) => sum + c.gpa, 0) / classes.length;
+    const semesterGpaWeighted = classes.reduce((sum, c) => sum + c.gpaWeighted, 0) / classes.length;
     const latestCapture = entries.sort(
       (a, b) => dayjs(b.capturedAt).valueOf() - dayjs(a.capturedAt).valueOf(),
     )[0]?.capturedAt ?? '';
 
-    rows.push({ semester, classes, semesterGpa, capturedAt: latestCapture });
+    rows.push({ semester, classes, semesterGpa, semesterGpaWeighted, capturedAt: latestCapture });
   }
 
   // Sort semesters chronologically (newest first)
@@ -109,14 +102,27 @@ export default function TranscriptPage() {
     return m;
   }, [classes]);
 
+  const classAp = useMemo(() => {
+    const m = new Map<string, boolean>();
+    (classes ?? []).forEach((c) => m.set(c.id, !!c.isAp));
+    return m;
+  }, [classes]);
+
   const transcript = useMemo(
-    () => (history ? buildTranscript(history, classNames) : []),
-    [history, classNames],
+    () => (history ? buildTranscript(history, classNames, classAp) : []),
+    [history, classNames, classAp],
   );
 
   const cumulativeGpa = useMemo(() => {
     if (transcript.length === 0) return null;
     const sum = transcript.reduce((s, r) => s + r.semesterGpa * r.classes.length, 0);
+    const count = transcript.reduce((s, r) => s + r.classes.length, 0);
+    return count > 0 ? sum / count : null;
+  }, [transcript]);
+
+  const cumulativeGpaWeighted = useMemo(() => {
+    if (transcript.length === 0) return null;
+    const sum = transcript.reduce((s, r) => s + r.semesterGpaWeighted * r.classes.length, 0);
     const count = transcript.reduce((s, r) => s + r.classes.length, 0);
     return count > 0 ? sum / count : null;
   }, [transcript]);
@@ -130,25 +136,35 @@ export default function TranscriptPage() {
             Transcript
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            GPA estimate (unweighted) — based on PowerSchool sync snapshots.
+            GPA estimate — unweighted and AP-weighted — based on PowerSchool sync snapshots.
           </Typography>
         </Box>
-        {cumulativeGpa !== null && (() => {
-          const cumColor = cumulativeGpa >= 3.5
+        {cumulativeGpa !== null && cumulativeGpaWeighted !== null && (() => {
+          const colorFor = (g: number) => g >= 3.5
             ? theme.palette.success.main
-            : cumulativeGpa >= 2.5
+            : g >= 2.5
               ? theme.palette.info.main
-              : cumulativeGpa >= 1.5
+              : g >= 1.5
                 ? theme.palette.warning.main
                 : theme.palette.error.main;
           return (
-            <Box sx={{ textAlign: 'right' }}>
-              <Typography variant="caption" color="text.secondary">Cumulative GPA est.</Typography>
-              <Typography variant="h4" sx={{ fontWeight: 500, color: cumColor }}>
-                {cumulativeGpa.toFixed(2)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">unweighted · {transcript.reduce((s, r) => s + r.classes.length, 0)} classes</Typography>
-            </Box>
+            <Stack direction="row" spacing={3}>
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" color="text.secondary">Unweighted GPA</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 500, color: colorFor(cumulativeGpa) }}>
+                  {cumulativeGpa.toFixed(2)}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" color="text.secondary">Weighted GPA</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 500, color: colorFor(cumulativeGpaWeighted) }}>
+                  {cumulativeGpaWeighted.toFixed(2)}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'right', alignSelf: 'flex-end' }}>
+                <Typography variant="caption" color="text.secondary">{transcript.reduce((s, r) => s + r.classes.length, 0)} classes</Typography>
+              </Box>
+            </Stack>
           );
         })()}
       </Box>
@@ -172,37 +188,47 @@ export default function TranscriptPage() {
 
       <Stack spacing={3}>
         {transcript.map((row) => {
-          const gpaColor = row.semesterGpa >= 3.5
+          const colorFor = (g: number) => g >= 3.5
             ? theme.palette.success.main
-            : row.semesterGpa >= 2.5
+            : g >= 2.5
               ? theme.palette.info.main
-              : row.semesterGpa >= 1.5
+              : g >= 1.5
                 ? theme.palette.warning.main
                 : theme.palette.error.main;
+          const gpaColor = colorFor(row.semesterGpa);
+          const gpaWeightedColor = colorFor(row.semesterGpaWeighted);
 
           return (
             <Card key={row.semester} variant="outlined">
               <CardContent sx={{ pb: 0 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 2 }}>
                   <Box>
                     <Typography variant="h6" sx={{ fontWeight: 600 }}>{row.semester}</Typography>
                     <Typography variant="caption" color="text.secondary">
                       {row.classes.length} class{row.classes.length !== 1 ? 'es' : ''} · as of {dayjs(row.capturedAt).format('MMM D, YYYY')}
                     </Typography>
                   </Box>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="caption" color="text.secondary">Semester GPA</Typography>
-                    <Typography variant="h4" sx={{ fontWeight: 500, color: gpaColor, lineHeight: 1 }}>
-                      {row.semesterGpa.toFixed(2)}
-                    </Typography>
-                  </Box>
+                  <Stack direction="row" spacing={2.5}>
+                    <Box sx={{ textAlign: 'right' }}>
+                      <Typography variant="caption" color="text.secondary">Unweighted</Typography>
+                      <Typography variant="h4" sx={{ fontWeight: 500, color: gpaColor, lineHeight: 1 }}>
+                        {row.semesterGpa.toFixed(2)}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ textAlign: 'right' }}>
+                      <Typography variant="caption" color="text.secondary">Weighted</Typography>
+                      <Typography variant="h4" sx={{ fontWeight: 500, color: gpaWeightedColor, lineHeight: 1 }}>
+                        {row.semesterGpaWeighted.toFixed(2)}
+                      </Typography>
+                    </Box>
+                  </Stack>
                 </Box>
-                {/* CSS bar visualization for semester GPA */}
+                {/* CSS bar visualization for semester GPA (weighted scale, so AP bars can exceed the unweighted 4.0 reference) */}
                 <Box
                   sx={{
                     height: 8,
                     borderRadius: 4,
-                    bgcolor: alpha(gpaColor, 0.15),
+                    bgcolor: alpha(gpaWeightedColor, 0.15),
                     mb: 2,
                     position: 'relative',
                     overflow: 'hidden',
@@ -214,8 +240,8 @@ export default function TranscriptPage() {
                       left: 0,
                       top: 0,
                       bottom: 0,
-                      width: `${(row.semesterGpa / 4) * 100}%`,
-                      bgcolor: gpaColor,
+                      width: `${Math.min(100, (row.semesterGpaWeighted / 5) * 100)}%`,
+                      bgcolor: gpaWeightedColor,
                       borderRadius: 4,
                     }}
                   />
@@ -229,6 +255,7 @@ export default function TranscriptPage() {
                     <TableCell sx={{ fontWeight: 600 }}>Class</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600 }}>Grade</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600 }}>GPA pts</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>Weighted</TableCell>
                     <TableCell sx={{ width: 120, fontWeight: 600 }}>Bar</TableCell>
                   </TableRow>
                 </TableHead>
@@ -238,7 +265,12 @@ export default function TranscriptPage() {
                     return (
                       <TableRow key={cls.classId} hover>
                         <TableCell>
-                          <Typography variant="body2">{cls.name}</Typography>
+                          <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                            <Typography variant="body2">{cls.name}</Typography>
+                            {cls.isAp && (
+                              <Chip label="AP" size="small" color="primary" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700 }} />
+                            )}
+                          </Stack>
                         </TableCell>
                         <TableCell align="right">
                           <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -253,12 +285,17 @@ export default function TranscriptPage() {
                             {cls.gpa.toFixed(1)}
                           </Typography>
                         </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" sx={{ fontWeight: 500, color: cls.isAp ? theme.palette.primary.main : c }}>
+                            {cls.gpaWeighted.toFixed(1)}
+                          </Typography>
+                        </TableCell>
                         <TableCell>
                           <Box sx={{ height: 6, borderRadius: 3, bgcolor: alpha(c, 0.15), position: 'relative', overflow: 'hidden' }}>
                             <Box
                               sx={{
                                 position: 'absolute', left: 0, top: 0, bottom: 0,
-                                width: `${(cls.gpa / 4) * 100}%`,
+                                width: `${Math.min(100, (cls.gpaWeighted / 5) * 100)}%`,
                                 bgcolor: c, borderRadius: 3,
                               }}
                             />

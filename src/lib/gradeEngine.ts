@@ -5,6 +5,32 @@
 
 import type { Homework } from '@/types';
 
+/** Standard unweighted 4.0-scale grade points for a percent grade (0-100). */
+export function unweightedGpaPoints(percent: number): number {
+  if (percent >= 93) return 4.0;
+  if (percent >= 90) return 3.7;
+  if (percent >= 87) return 3.3;
+  if (percent >= 83) return 3.0;
+  if (percent >= 80) return 2.7;
+  if (percent >= 77) return 2.3;
+  if (percent >= 73) return 2.0;
+  if (percent >= 70) return 1.7;
+  if (percent >= 67) return 1.3;
+  if (percent >= 63) return 1.0;
+  if (percent >= 60) return 0.7;
+  return 0.0;
+}
+
+/**
+ * Weighted grade points. Standard AP weighting: +1.0 added to the 4.0-scale
+ * unweighted points for an AP class (so an AP "A" registers as 5.0 instead
+ * of 4.0). Non-AP classes are numerically identical to unweightedGpaPoints —
+ * this is the function every "weighted GPA" display should call.
+ */
+export function weightedGpaPoints(percent: number, isAp?: boolean): number {
+  return unweightedGpaPoints(percent) + (isAp ? 1.0 : 0);
+}
+
 /** Equal-weight mean of scorePercent for graded assignments in one category. */
 export function categoryAverage(assignments: Homework[], category: string): number | undefined {
   const graded = assignments.filter((h) => h.category === category && h.scorePercent !== undefined);

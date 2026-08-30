@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import Box from '@mui/material/Box';
@@ -16,7 +16,7 @@ import Paper from '@mui/material/Paper';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Button from '@mui/material/Button';
-import LinearProgress from '@mui/material/LinearProgress';
+import Skeleton from '@mui/material/Skeleton';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
@@ -24,7 +24,8 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import QuizIcon from '@mui/icons-material/Quiz';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
-import { useClasses, useHomework, useExams, useTasks, useDisruptions } from '@/lib/hooks';
+import { alpha, useTheme } from '@mui/material/styles';
+import { useClasses, useHomework, useExams, useTasks, useDisruptions, useSettings } from '@/lib/hooks';
 import { buildDaySchedule } from '@/lib/calendar';
 import { getWeekSchedule } from '@/lib/schedule';
 import { buildHeatmap } from '@/lib/heatmap';
@@ -36,39 +37,36 @@ import WhatshotIcon from '@mui/icons-material/Whatshot';
 
 dayjs.extend(isoWeek);
 
+const DEFAULT_LUNCH_TIMES: Record<number, { startTime: string; endTime: string }> = {
+  1: { startTime: '10:26', endTime: '10:57' },
+  2: { startTime: '10:50', endTime: '11:20' },
+  3: { startTime: '10:50', endTime: '11:20' },
+  4: { startTime: '10:50', endTime: '11:20' },
+  5: { startTime: '10:26', endTime: '10:57' },
+};
+
 export default function Dashboard() {
+  const theme = useTheme();
   const [tab, setTab] = useState(0);
   const [selectedDate, setSelectedDate] = useState(dayjs());
   const { data: classes, loading: classesLoading } = useClasses();
   const { data: homework } = useHomework();
   const { data: exams } = useExams();
   const { data: tasks } = useTasks();
-  const { data: disruptions } = useDisruptions();
+  const { data: disruptions, loading: disruptionsLoading } = useDisruptions();
+  const { data: settingsData } = useSettings();
 
-  const DEFAULT_LUNCH_TIMES: Record<number, { startTime: string; endTime: string }> = {
-    1: { startTime: '10:26', endTime: '10:57' },
-    2: { startTime: '10:50', endTime: '11:20' },
-    3: { startTime: '10:50', endTime: '11:20' },
-    4: { startTime: '10:50', endTime: '11:20' },
-    5: { startTime: '10:26', endTime: '10:57' },
-  };
-
-  const [lunchTimes, setLunchTimes] = useState<Record<number, { startTime: string; endTime: string }>>(DEFAULT_LUNCH_TIMES);
-  const [semesterStart, setSemesterStart] = useState<string | undefined>(undefined);
-  const [semesterEnd, setSemesterEnd] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    fetch('/api/settings')
-      .then((r) => r.json())
-      .then((s) => {
-        if (s.lunchTimes) {
-          setLunchTimes(typeof s.lunchTimes === 'string' ? JSON.parse(s.lunchTimes) : s.lunchTimes);
-        }
-        if (s.semesterStart) setSemesterStart(s.semesterStart);
-        if (s.semesterEnd) setSemesterEnd(s.semesterEnd);
-      })
-      .catch(() => {});
-  }, []);
+  const lunchTimes = useMemo(() => {
+    const raw = settingsData?.lunchTimes;
+    if (!raw) return DEFAULT_LUNCH_TIMES;
+    try {
+      return typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch {
+      return DEFAULT_LUNCH_TIMES;
+    }
+  }, [settingsData]);
+  const semesterStart = settingsData?.semesterStart;
+  const semesterEnd = settingsData?.semesterEnd;
 
   const classesWithLunch = useMemo(() => {
     const base = classes || [];
@@ -163,8 +161,6 @@ export default function Dashboard() {
     };
   }, [manualHomework, tasks]);
 
-  if (classesLoading) return <LinearProgress sx={{ borderRadius: 1 }} />;
-
   const navigateDate = (dir: number) => {
     if (tab === 0) setSelectedDate(selectedDate.add(dir, 'day'));
     else if (tab === 1) setSelectedDate(selectedDate.add(dir, 'week'));
@@ -232,8 +228,23 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      {/* Summary Cards */}
+      {/* Summary Cards — greyed to skeletons only until the first classes load;
+          the header/nav above is always interactive, never blocked by this. */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
+        {classesLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Grid key={i} size={{ xs: 6, md: 3 }}>
+              <Card>
+                <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
+                  <Skeleton variant="circular" width={32} height={32} sx={{ mx: 'auto', mb: 0.5 }} />
+                  <Skeleton variant="text" width={40} height={36} sx={{ mx: 'auto' }} />
+                  <Skeleton variant="text" width={80} sx={{ mx: 'auto' }} />
+                </CardContent>
+              </Card>
+            </Grid>
+          ))
+        ) : (
+        <>
         <Grid size={{ xs: 6, md: 3 }}>
           <Card>
             <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
@@ -285,6 +296,8 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </Grid>
+        </>
+        )}
       </Grid>
 
       {/* Schedule Tabs */}
@@ -302,6 +315,9 @@ export default function Dashboard() {
           <Tab label="Heatmap" />
         </Tabs>
         <Box sx={{ p: 2 }}>
+          {(classesLoading || disruptionsLoading) ? (
+            <Skeleton variant="rounded" height={240} />
+          ) : (<>
           {tab === 0 && todaySchedule && (
             <DayView schedule={todaySchedule} date={selectedDate.format('YYYY-MM-DD')} hasClasses={!!classes && classes.length > 0} />
           )}
@@ -330,24 +346,40 @@ export default function Dashboard() {
           )}
           {tab === 3 && (() => {
             const heatmapDays = buildHeatmap(homework ?? [], tasks ?? []);
-            const intensityColors = ['transparent', 'rgba(25,118,210,0.18)', 'rgba(25,118,210,0.45)', 'rgba(25,118,210,0.75)'];
+            // Hue-distinct blue -> yellow -> red scale (low -> medium -> high
+            // workload) using the app's fixed semantic tokens — deliberately
+            // NOT theme.palette.primary, since the user's chosen accent color
+            // could itself be blue/yellow/red and would collide with this
+            // scale's meaning if it were accent-derived.
+            const intensityColors = [
+              'transparent',
+              alpha(theme.palette.info.main, 0.30),
+              alpha(theme.palette.warning.main, 0.40),
+              alpha(theme.palette.error.main, 0.42),
+            ];
+            const intensityTextColor = ['text.secondary', 'info.main', 'warning.dark', 'error.main'];
+            const todayStr = dayjs().format('YYYY-MM-DD');
             return (
               <Box>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   14-day workload — assignments + tasks due each day.
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-                  {heatmapDays.map((day) => (
+                  {heatmapDays.map((day) => {
+                    const isWeekend = [0, 6].includes(dayjs(day.date).day());
+                    return (
                     <Box
                       key={day.date}
                       onClick={() => { setSelectedDate(dayjs(day.date)); setTab(0); }}
                       sx={{
+                        position: 'relative',
                         width: 52,
                         height: 52,
                         borderRadius: 1.5,
-                        bgcolor: day.intensity === 0 ? 'action.hover' : intensityColors[day.intensity],
+                        bgcolor: day.intensity === 0 ? (isWeekend ? alpha(theme.palette.text.secondary, 0.06) : 'action.hover') : intensityColors[day.intensity],
                         border: '1px solid',
-                        borderColor: day.date === dayjs().format('YYYY-MM-DD') ? 'primary.main' : 'divider',
+                        borderStyle: isWeekend ? 'dashed' : 'solid',
+                        borderColor: day.date === todayStr ? 'primary.main' : 'divider',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -356,21 +388,22 @@ export default function Dashboard() {
                         '&:hover': { opacity: 0.8 },
                       }}
                     >
-                      <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.65rem', color: 'text.secondary', lineHeight: 1 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.65rem', color: isWeekend ? 'secondary.main' : 'text.secondary', lineHeight: 1 }}>
                         {dayjs(day.date).format('ddd')}
                       </Typography>
                       <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
                         {dayjs(day.date).format('D')}
                       </Typography>
                       {day.total > 0 && (
-                        <Typography variant="caption" sx={{ fontSize: '0.6rem', color: day.intensity >= 2 ? 'primary.main' : 'text.secondary', fontWeight: 700 }}>
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', color: intensityTextColor[day.intensity], fontWeight: 700 }}>
                           {day.total}
                         </Typography>
                       )}
                     </Box>
-                  ))}
+                    );
+                  })}
                 </Box>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 2 }}>
+                <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mt: 2, flexWrap: 'wrap' }}>
                   <Typography variant="caption" color="text.secondary">Workload:</Typography>
                   {[0, 1, 2, 3].map((i) => (
                     <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -380,10 +413,15 @@ export default function Dashboard() {
                       </Typography>
                     </Box>
                   ))}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Box sx={{ width: 12, height: 12, borderRadius: 0.5, border: '1px dashed', borderColor: 'divider' }} />
+                    <Typography variant="caption" color="text.secondary">Weekend</Typography>
+                  </Box>
                 </Box>
               </Box>
             );
           })()}
+          </>)}
         </Box>
       </Paper>
 
