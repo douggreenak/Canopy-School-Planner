@@ -51,6 +51,21 @@ export function nextMeetingDate(days: number[], from: Date = new Date()): string
 }
 
 /**
+ * Monday that should anchor the "week" containing `date`, for display/
+ * navigation purposes. Ordinarily this is just the ISO week's Monday
+ * (`date.startOf('isoWeek')`) — but Sunday is the LAST day of its ISO
+ * week, so treating "today" as a Sunday would land the week view on the
+ * week that's ending rather than the week ahead. A Sunday date is nudged
+ * forward one day (to Monday) first, landing on the upcoming week instead.
+ * Applying this uniformly (not just for "today") keeps week-to-week
+ * navigation consistent — each prev/next still moves exactly 7 days.
+ */
+export function weekViewStart(date: dayjs.Dayjs): dayjs.Dayjs {
+  const anchor = date.day() === 0 ? date.add(1, 'day') : date;
+  return anchor.startOf('isoWeek');
+}
+
+/**
  * Get the schedule for an entire week.
  */
 export function getWeekSchedule(
@@ -60,7 +75,7 @@ export function getWeekSchedule(
   semesterStart?: string,
   semesterEnd?: string,
 ): DaySchedule[] {
-  const start = dayjs(weekStart).startOf('isoWeek');
+  const start = weekViewStart(dayjs(weekStart));
   const days: DaySchedule[] = [];
   for (let i = 0; i < 7; i++) {
     const date = start.add(i, 'day').format('YYYY-MM-DD');

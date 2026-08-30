@@ -49,7 +49,8 @@ import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import PaletteIcon from '@mui/icons-material/Palette';
 import { useClasses } from '@/lib/hooks';
 import { buildLathropEarlyOutTemplate } from '@/lib/schedule';
-import { syncPowerSchoolAndWait } from '@/lib/powerschoolClient';
+import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
+import { fetchPowerSchoolStatusNow } from '@/lib/powerschoolStatusStore';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
@@ -492,6 +493,59 @@ function SettingsInner() {
     setSyncing(null);
   };
 
+  // Handles a sync's terminal (or still-running) result, whichever page
+  // action produced it: a fresh click (syncPowerSchool) or resuming one
+  // already in flight when this page mounted (see the effect below) —
+  // both funnel through here so the button/snackbar behave identically
+  // either way.
+  const handleSyncOutcome = async (data: Awaited<ReturnType<typeof syncPowerSchoolAndWait>>, hasPassword: boolean) => {
+    if (data.log) setPsLog(data.log);
+    const result = data.result as Record<string, unknown> | null;
+    if (result?.matrixByClassId) setPsMatrixSuggestions(result.matrixByClassId as typeof psMatrixSuggestions);
+    if (data.status === 'success') {
+      const parts: string[] = [];
+      if (result?.classAdded) parts.push(`${result.classAdded} added`);
+      if (result?.classUpdated) parts.push(`${result.classUpdated} updated`);
+      if (result?.classRemoved) parts.push(`${result.classRemoved} removed`);
+      const classSummary = parts.length > 0 ? parts.join(', ') : 'no changes';
+      setSnackbar({ open: true, message: `PowerSchool sync complete — ${classSummary}. ${result?.assignmentCount || 0} assignments synced.`, severity: 'success' });
+      if (hasPassword) setPsPass('');
+      refetchClasses();
+      refetchClassesList();
+      const status = await fetch('/api/setup').then((r) => r.json());
+      setSetupStatus(status);
+      const matrixByClassId = result?.matrixByClassId as Record<string, unknown> | undefined;
+      if (matrixByClassId && Object.keys(matrixByClassId).length > 0) {
+        setSyncing('migrating');
+        try {
+          const resp = await fetch('/api/powerschool/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+          const j = await resp.json().catch(() => ({}));
+          if (resp.ok && j && j.success) {
+            const migratedCount = Number(j.migrated || 0);
+            setSnackbar({ open: true, message: migratedCount > 0 ? `Migration complete: ${migratedCount} classes linked.` : 'Migration complete: no manual classes needed linking.', severity: migratedCount > 0 ? 'success' : 'info' });
+            refetchClassesList();
+            refetchClasses();
+          } else {
+            setSnackbar({ open: true, message: (j && j.error) ? j.error : 'Migration failed', severity: 'error' });
+          }
+        } catch (err) {
+          setSnackbar({ open: true, message: `Migration error: ${(err as Error).message}`, severity: 'error' });
+        }
+        setSyncing(null);
+      }
+      if (lathropMode) {
+        const freshClasses: SchoolClass[] = await fetch('/api/classes').then((r) => r.json()).catch(() => []);
+        await applyLathropSchedule(freshClasses);
+      }
+    } else if (data.status === 'error') {
+      setSnackbar({ open: true, message: data.error || 'PowerSchool import failed', severity: 'error' });
+    } else {
+      // Still running after our poll budget — it keeps going server-side;
+      // let the user know rather than leaving the button spinning forever.
+      setSnackbar({ open: true, message: 'Still syncing in the background — check back in a bit, or reload to see the latest status.', severity: 'info' });
+    }
+  };
+
   // Kicks off the sync (returns almost instantly — the real scrape runs
   // server-side via after(), so it keeps going even if this tab closes) and
   // polls for the result. See src/lib/powerschoolClient.ts.
@@ -505,56 +559,32 @@ function SettingsInner() {
         hasPassword ? { url: psUrl, username: psUser, password: psPass } : undefined,
         (status) => { if (status.log?.length) setPsLog(status.log); },
       );
-      if (data.log) setPsLog(data.log);
-      const result = data.result as Record<string, unknown> | null;
-      if (result?.matrixByClassId) setPsMatrixSuggestions(result.matrixByClassId as typeof psMatrixSuggestions);
-      if (data.status === 'success') {
-        const parts: string[] = [];
-        if (result?.classAdded) parts.push(`${result.classAdded} added`);
-        if (result?.classUpdated) parts.push(`${result.classUpdated} updated`);
-        if (result?.classRemoved) parts.push(`${result.classRemoved} removed`);
-        const classSummary = parts.length > 0 ? parts.join(', ') : 'no changes';
-        setSnackbar({ open: true, message: `PowerSchool sync complete — ${classSummary}. ${result?.assignmentCount || 0} assignments synced.`, severity: 'success' });
-        if (hasPassword) setPsPass('');
-        refetchClasses();
-        refetchClassesList();
-        const status = await fetch('/api/setup').then((r) => r.json());
-        setSetupStatus(status);
-        const matrixByClassId = result?.matrixByClassId as Record<string, unknown> | undefined;
-        if (matrixByClassId && Object.keys(matrixByClassId).length > 0) {
-          setSyncing('migrating');
-          try {
-            const resp = await fetch('/api/powerschool/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-            const j = await resp.json().catch(() => ({}));
-            if (resp.ok && j && j.success) {
-              const migratedCount = Number(j.migrated || 0);
-              setSnackbar({ open: true, message: migratedCount > 0 ? `Migration complete: ${migratedCount} classes linked.` : 'Migration complete: no manual classes needed linking.', severity: migratedCount > 0 ? 'success' : 'info' });
-              refetchClassesList();
-              refetchClasses();
-            } else {
-              setSnackbar({ open: true, message: (j && j.error) ? j.error : 'Migration failed', severity: 'error' });
-            }
-          } catch (err) {
-            setSnackbar({ open: true, message: `Migration error: ${(err as Error).message}`, severity: 'error' });
-          }
-          setSyncing(null);
-        }
-        if (lathropMode) {
-          const freshClasses: SchoolClass[] = await fetch('/api/classes').then((r) => r.json()).catch(() => []);
-          await applyLathropSchedule(freshClasses);
-        }
-      } else if (data.status === 'error') {
-        setSnackbar({ open: true, message: data.error || 'PowerSchool import failed', severity: 'error' });
-      } else {
-        // Still running after our poll budget — it keeps going server-side;
-        // let the user know rather than leaving the button spinning forever.
-        setSnackbar({ open: true, message: 'Still syncing in the background — check back in a bit, or reload to see the latest status.', severity: 'info' });
-      }
+      await handleSyncOutcome(data, hasPassword);
     } catch (e) {
       setSnackbar({ open: true, message: `Connection error: ${(e as Error).message}`, severity: 'error' });
     }
     setSyncing(null);
   };
+
+  // If a sync (manual from another tab, or a scheduled one) is already
+  // running when this page loads, resume watching it instead of leaving
+  // the Sync button looking idle while work is actually in progress.
+  useEffect(() => {
+    let cancelled = false;
+    fetchPowerSchoolStatusNow().then(async (status) => {
+      if (cancelled || status.status !== 'running') return;
+      setSyncing('powerschool');
+      try {
+        const data = await waitForPowerSchoolSync((s) => { if (s.log?.length) setPsLog(s.log); });
+        if (!cancelled) await handleSyncOutcome(data, false);
+      } catch {
+        // swallow — the global status bubble still reflects reality even if this resume attempt fails
+      }
+      if (!cancelled) setSyncing(null);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const copyCalendarUrl = () => {
     navigator.clipboard.writeText(calendarUrl);

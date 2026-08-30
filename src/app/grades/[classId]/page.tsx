@@ -10,7 +10,7 @@
 //   6. Assignments table — grouped by time bucket when sorted by due-desc,
 //      flagged rows tinted, smart relative due labels
 // ============================================================
-import { use, useMemo, useState } from 'react';
+import { use, useMemo, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
 import WhatIfDialog from '@/components/WhatIfDialog';
@@ -55,7 +55,8 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
 import EventIcon from '@mui/icons-material/Event';
 import { useClasses, useHomework, useGradeHistory, useSyncLog } from '@/lib/hooks';
-import { syncPowerSchoolAndWait } from '@/lib/powerschoolClient';
+import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
+import { fetchPowerSchoolStatusNow } from '@/lib/powerschoolStatusStore';
 import {
   gradeColor,
   letterFromPercent,
@@ -217,30 +218,53 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
   // Kicks off the sync (returns almost instantly — the real scrape runs
   // server-side via after(), surviving a tab close) and polls for the
   // result. See src/lib/powerschoolClient.ts.
+  const handleSyncOutcome = (data: Awaited<ReturnType<typeof syncPowerSchoolAndWait>>) => {
+    if (data.status === 'success') {
+      setSnackbar({ open: true, message: 'Grades synced.', severity: 'success' });
+      refetchClasses();
+      refetchHomework();
+    } else if (data.status === 'error') {
+      setSnackbar({
+        open: true,
+        message: data.error?.includes('Missing PowerSchool credentials')
+          ? 'Save your PowerSchool login in Settings first.'
+          : data.error || 'Sync failed.',
+        severity: 'error',
+      });
+    } else {
+      setSnackbar({ open: true, message: 'Still syncing in the background — check back in a bit.', severity: 'info' });
+    }
+  };
+
   const syncNow = async () => {
     setSyncing(true);
     try {
       const data = await syncPowerSchoolAndWait();
-      if (data.status === 'success') {
-        setSnackbar({ open: true, message: 'Grades synced.', severity: 'success' });
-        refetchClasses();
-        refetchHomework();
-      } else if (data.status === 'error') {
-        setSnackbar({
-          open: true,
-          message: data.error?.includes('Missing PowerSchool credentials')
-            ? 'Save your PowerSchool login in Settings first.'
-            : data.error || 'Sync failed.',
-          severity: 'error',
-        });
-      } else {
-        setSnackbar({ open: true, message: 'Still syncing in the background — check back in a bit.', severity: 'info' });
-      }
+      handleSyncOutcome(data);
     } catch (e) {
       setSnackbar({ open: true, message: `Sync error: ${(e as Error).message}`, severity: 'error' });
     }
     setSyncing(false);
   };
+
+  // Resume showing "syncing" if one's already running (started from Grades,
+  // Settings, or a scheduled sync) instead of assuming idle on mount.
+  useEffect(() => {
+    let cancelled = false;
+    fetchPowerSchoolStatusNow().then(async (status) => {
+      if (cancelled || status.status !== 'running') return;
+      setSyncing(true);
+      try {
+        const data = await waitForPowerSchoolSync();
+        if (!cancelled) handleSyncOutcome(data);
+      } catch {
+        // swallow — the global status bubble still reflects reality even if this resume attempt fails
+      }
+      if (!cancelled) setSyncing(false);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loading = loadingClasses || loadingHomework;
   const color = cls ? gradeColor(cls.gradePercent, theme) : theme.palette.text.disabled;

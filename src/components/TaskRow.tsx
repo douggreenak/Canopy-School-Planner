@@ -25,7 +25,17 @@ import type { DueTiming } from '@/types';
 // Shared column template — desktop (md+) only. Mobile keeps a stacked
 // flex layout (see below) since a rigid table read doesn't fit a narrow
 // screen anyway.
-const GRID_TEMPLATE = 'auto minmax(160px,1fr) 130px 100px 100px 92px 84px auto';
+//
+// Every column except the flexible Item column is a FIXED pixel width —
+// deliberately not `auto` for the checkbox/actions columns. The header row
+// (tasks/page.tsx) and each row here are separate grid containers, and
+// `auto` track sizing is computed independently per container from that
+// container's own content — the header's checkbox/actions cells are empty
+// while a real row's aren't, so an `auto` column resolves to a different
+// width in each, which throws off the shared `1fr` Item column and
+// misaligns every column after it. Fixed widths make every column
+// content-independent, so header and rows always agree pixel-for-pixel.
+export const TASK_ROW_GRID_TEMPLATE = '48px minmax(160px,1fr) 130px 100px 100px 92px 84px 76px';
 
 export const TASK_ROW_COLUMNS = ['', 'Item', 'Class', 'Category', 'Due', 'When', 'Priority', ''];
 
@@ -77,7 +87,7 @@ export default function TaskRow({
           display: { xs: 'flex', md: 'grid' },
           flexDirection: { xs: 'column', md: undefined },
           gap: { xs: 0.5, md: 1.5 },
-          gridTemplateColumns: { md: GRID_TEMPLATE },
+          gridTemplateColumns: { md: TASK_ROW_GRID_TEMPLATE },
           alignItems: { md: 'center' },
         }}
       >

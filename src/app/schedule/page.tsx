@@ -40,7 +40,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import { useClasses, useDisruptions, useSettings, apiPost, apiPut, apiDelete } from '@/lib/hooks';
-import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, getWeekSchedule, buildLathropEarlyOutTemplate } from '@/lib/schedule';
+import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, getWeekSchedule, buildLathropEarlyOutTemplate, weekViewStart } from '@/lib/schedule';
 import DayView from '@/components/DayView';
 import WeekView from '@/components/WeekView';
 import YearView from '@/components/YearView';
@@ -175,7 +175,7 @@ function SchedulePageInner() {
   const headerLabel = useMemo(() => {
     if (view === 'day') return selectedDate.format('dddd, MMMM D, YYYY');
     if (view === 'week') {
-      const start = selectedDate.startOf('isoWeek');
+      const start = weekViewStart(selectedDate);
       const end = start.add(6, 'day');
       return start.month() === end.month()
         ? `${start.format('MMM D')} – ${end.format('D, YYYY')}`
@@ -347,7 +347,7 @@ function SchedulePageInner() {
             {view === 'week' && weekSchedule && (
               <WeekView
                 schedule={weekSchedule}
-                weekStart={selectedDate.startOf('isoWeek').format('YYYY-MM-DD')}
+                weekStart={weekViewStart(selectedDate).format('YYYY-MM-DD')}
                 onClassClick={handleWeekClick}
               />
             )}

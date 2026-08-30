@@ -35,6 +35,9 @@ export const ACCENT_PRESETS: AccentPreset[] = [
   { name: 'Crimson',  color: '#C62828' },
   { name: 'Earth',    color: '#6D4C41' },
   { name: 'Dusk',     color: '#4E342E' },
+  // Neutrals
+  { name: 'Graphite', color: '#424242' },
+  { name: 'Onyx',     color: '#1A1A1A' },
 ];
 
 export const DEFAULT_ACCENT = '#388E3C'; // Canopy green
@@ -66,7 +69,7 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
   const canvasBase = isLight ? '#f3f3f1' : '#111111';
   const paperBase   = isLight ? '#ffffff' : '#1a1a1a';
   const drawerBase  = isLight ? '#f6f6f4' : '#141414';
-  const dividerBase = isLight ? '#e4e4e2' : null; // dark divider stays a flat white-alpha, mixing looks muddy there
+  const dividerBase = isLight ? '#d8d8d5' : null; // dark divider stays a flat white-alpha, mixing looks muddy there
 
   return createTheme({
     palette: {
@@ -92,14 +95,19 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
         primary:   isLight ? '#1b1b1b' : '#e8e8e8',
         secondary: isLight ? '#5f6368' : '#9aa0a6',
       },
-      divider: dividerBase ? mix(dividerBase, accentColor, 0.18) : 'rgba(255,255,255,0.10)',
+      divider: dividerBase ? mix(dividerBase, accentColor, 0.20) : 'rgba(255,255,255,0.16)',
       action: {
-        hover:    isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.07)',
-        selected: isLight ? alpha(accentColor, 0.08) : alpha(accentColor, 0.18),
+        // Material's own state-layer spec: hover 8%, selected 12% — this was
+        // sitting well under that (4%/7%), which read as flat/low-contrast.
+        hover:    isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.11)',
+        selected: isLight ? alpha(accentColor, 0.12) : alpha(accentColor, 0.24),
       },
     },
     typography: {
-      fontFamily: '"Google Sans", "Roboto", "Arial", sans-serif',
+      // var(--font-roboto) is the actually-loaded, self-hosted Roboto (see
+      // layout.tsx) — "Google Sans" stays listed after it purely as a
+      // preference for anyone who happens to have it OS-installed.
+      fontFamily: 'var(--font-roboto), "Google Sans", Roboto, Arial, sans-serif',
       h1: { fontWeight: 400, fontSize: '2rem', letterSpacing: 0 },
       h2: { fontWeight: 400, fontSize: '1.5rem', letterSpacing: 0 },
       h3: { fontWeight: 500, fontSize: '1.25rem', letterSpacing: 0 },
@@ -132,7 +140,10 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
           root: ({ theme }) => ({
             borderRadius: 14,
             border: `1px solid ${theme.palette.divider}`,
-            boxShadow: 'none',
+            // A faint resting shadow (not just on hover) gives cards a touch
+            // of real depth against the tinted background instead of
+            // relying on the border alone for separation.
+            boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.05)' : '0 1px 2px rgba(0,0,0,0.35)',
             transition: 'box-shadow 0.2s ease',
             '&:hover': {
               // Two-layer shadow: tight edge + wide ambient gives depth/elevation

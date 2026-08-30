@@ -42,7 +42,7 @@ import { suggestRebalancing } from '@/lib/heatmap';
 import { completedForStage, loadLastStageTemplate, saveLastStageTemplate } from '@/lib/stages';
 import ItemDetailDialog, { type DetailItem } from '@/components/ItemDetailDialog';
 import StageListEditor from '@/components/StageListEditor';
-import TaskRow, { TASK_ROW_COLUMNS } from '@/components/TaskRow';
+import TaskRow, { TASK_ROW_COLUMNS, TASK_ROW_GRID_TEMPLATE } from '@/components/TaskRow';
 import type { Homework, Task, SchoolClass, TaskStage, DueTiming } from '@/types';
 import { v4 as uuid } from 'uuid';
 
@@ -480,7 +480,7 @@ export default function TasksPage() {
         <Box
           sx={{
             display: { xs: 'none', md: 'grid' },
-            gridTemplateColumns: 'auto minmax(160px,1fr) 130px 100px 100px 92px 84px auto',
+            gridTemplateColumns: TASK_ROW_GRID_TEMPLATE,
             gap: 1.5,
             px: 2,
             mb: 0.5,

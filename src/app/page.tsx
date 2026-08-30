@@ -27,7 +27,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useClasses, useHomework, useExams, useTasks, useDisruptions, useSettings } from '@/lib/hooks';
 import { buildDaySchedule } from '@/lib/calendar';
-import { getWeekSchedule } from '@/lib/schedule';
+import { getWeekSchedule, weekViewStart } from '@/lib/schedule';
 import { buildHeatmap } from '@/lib/heatmap';
 import DayView from '@/components/DayView';
 import WeekView from '@/components/WeekView';
@@ -98,27 +98,26 @@ export default function Dashboard() {
     return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions, semesterStart, semesterEnd);
   }, [classesWithLunch, disruptions, selectedDate, semesterStart, semesterEnd]);
 
-  // PowerSchool assignments belong on the Grades tab only — don't show them
-  // in the Dashboard's "Upcoming Homework" card or summary counts. They're
-  // imports from the school grading system, not personal to-dos.
-  const manualHomework = useMemo(
-    () => (homework || []).filter((h) => h.source !== 'powerschool'),
-    [homework],
-  );
+  // The dashboard's "what's due" widgets show ALL homework regardless of
+  // source (manual or PowerSchool-synced) — for most students nearly every
+  // assignment comes from PowerSchool, so excluding it here made "Upcoming
+  // Homework" and "Due Today" look permanently empty. The Grades page
+  // remains the dedicated gradebook view with per-class breakdowns; this is
+  // just "what's due," holistically.
+  const allHomework = useMemo(() => homework || [], [homework]);
 
-  // PowerSchool assignments live on the Grades tab, not here. Track whether any
-  // exist so the dashboard can point the user there instead of looking empty.
-  const hasPowerschoolHomework = useMemo(
-    () => (homework || []).some((h) => h.source === 'powerschool'),
-    [homework],
-  );
+  const classMap = useMemo(() => {
+    const m = new Map<string, { name: string; color: string }>();
+    (classes || []).forEach((c) => m.set(c.id, { name: c.name, color: c.color }));
+    return m;
+  }, [classes]);
 
   const upcomingHomework = useMemo(() => {
-    return manualHomework
+    return allHomework
       .filter((h) => !h.completed && dayjs(h.dueDate).isAfter(dayjs().subtract(1, 'day')))
       .sort((a, b) => dayjs(a.dueDate).diff(dayjs(b.dueDate)))
       .slice(0, 5);
-  }, [manualHomework]);
+  }, [allHomework]);
 
   const upcomingExams = useMemo(() => {
     if (!exams) return [];
@@ -151,7 +150,7 @@ export default function Dashboard() {
     const todayStr = dayjs().format('YYYY-MM-DD');
     // Count only manual / non-PowerSchool homework here — PowerSchool
     // assignments live on the Grades tab.
-    const todayHw = manualHomework.filter((h) => h.dueDate === todayStr);
+    const todayHw = allHomework.filter((h) => h.dueDate === todayStr);
     const todayTasks = tasks.filter((t) => t.dueDate === todayStr);
     return {
       hw: todayHw.filter((h) => h.completed).length,
@@ -159,7 +158,7 @@ export default function Dashboard() {
       tasks: todayTasks.filter((t) => t.completed).length,
       tasksTotal: todayTasks.length,
     };
-  }, [manualHomework, tasks]);
+  }, [allHomework, tasks]);
 
   const navigateDate = (dir: number) => {
     if (tab === 0) setSelectedDate(selectedDate.add(dir, 'day'));
@@ -327,7 +326,7 @@ export default function Dashboard() {
             </Typography>
           )}
           {tab === 1 && weekSchedule && (
-            <WeekView schedule={weekSchedule} weekStart={selectedDate.startOf('isoWeek').format('YYYY-MM-DD')} />
+            <WeekView schedule={weekSchedule} weekStart={weekViewStart(selectedDate).format('YYYY-MM-DD')} />
           )}
           {tab === 1 && !weekSchedule && (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
@@ -438,29 +437,35 @@ export default function Dashboard() {
                 </Typography>
               </Typography>
               {upcomingHomework.length === 0 && (
-                <Typography variant="body2" color="text.secondary">No homework due soon. Add some on the Tasks page.</Typography>
-              )}
-              {hasPowerschoolHomework && (
-                <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: upcomingHomework.length === 0 ? 0.5 : 1 }}>
-                  Your synced PowerSchool assignments live on the <Box component="a" href="/grades" sx={{ color: 'primary.main', textDecoration: 'none', fontWeight: 500 }}>Grades</Box> page.
-                </Typography>
+                <Typography variant="body2" color="text.secondary">No homework due soon.</Typography>
               )}
               <Stack spacing={1}>
-                {upcomingHomework.map((h) => (
-                  <Box key={h.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Box>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>{h.title}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Due {dayjs(h.dueDate).format('MMM D')}
-                      </Typography>
+                {upcomingHomework.map((h) => {
+                  const cls = classMap.get(h.classId);
+                  return (
+                    <Box key={h.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>{h.title}</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                          {cls && (
+                            <Typography variant="caption" sx={{ color: cls.color, fontWeight: 500 }} noWrap>
+                              {cls.name}
+                            </Typography>
+                          )}
+                          <Typography variant="caption" color="text.secondary">
+                            Due {dayjs(h.dueDate).format('MMM D')}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <Chip
+                        size="small"
+                        label={h.priority}
+                        color={h.priority === 'high' ? 'error' : h.priority === 'medium' ? 'warning' : 'default'}
+                        sx={{ flexShrink: 0 }}
+                      />
                     </Box>
-                    <Chip
-                      size="small"
-                      label={h.priority}
-                      color={h.priority === 'high' ? 'error' : h.priority === 'medium' ? 'warning' : 'default'}
-                    />
-                  </Box>
-                ))}
+                  );
+                })}
               </Stack>
             </CardContent>
           </Card>

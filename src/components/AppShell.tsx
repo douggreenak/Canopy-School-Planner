@@ -182,7 +182,7 @@ function PageEnter({ children }: { children: React.ReactNode }) {
 
 type CurrentUser = { id: string; username: string; role: string };
 
-export default function AppShell({ children, initialUser }: { children: React.ReactNode; initialUser: CurrentUser | null }) {
+export default function AppShell({ children }: { children: React.ReactNode }) {
   const theme   = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -202,18 +202,20 @@ export default function AppShell({ children, initialUser }: { children: React.Re
     });
   };
 
-  // Seeded from the server-rendered session (see layout.tsx) so the real
-  // page paints on the first render — no blank screen while a client fetch
-  // resolves. The mount-effect fetch below still runs, purely to catch a
-  // session that changed since the server render (e.g. signed out in
-  // another tab); it no longer gates the initial paint.
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(initialUser);
+  // Resolved client-side. `null` = still checking, `false` = confirmed
+  // logged out. Deliberately NOT resolved server-side in the root layout —
+  // that was tried and reverted because a dynamic API call (cookies()) in
+  // the layout that wraps every route forces the whole app out of the
+  // Router Cache, so every client-side navigation (not just first load)
+  // has to hit the server fresh. This client check runs once per full page
+  // load (AppShell persists across SPA navigation), so it doesn't repeat.
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null | false>(null);
 
   useEffect(() => {
     fetch('/api/auth')
       .then((r) => r.json())
-      .then((data) => setCurrentUser(data.user ?? null))
-      .catch(() => {});
+      .then((data) => setCurrentUser(data.user ?? false))
+      .catch(() => setCurrentUser(false));
   }, []);
 
   const handleNavClick = (path: string) => {
@@ -249,11 +251,12 @@ export default function AppShell({ children, initialUser }: { children: React.Re
       body: JSON.stringify({ action: 'logout' }),
     }).catch(() => {});
     clearClientCache();
-    setCurrentUser(null);
+    setCurrentUser(false);
     router.push('/');
   };
 
-  if (currentUser === null) return (
+  if (currentUser === null)  return <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }} />;
+  if (currentUser === false) return (
     <LoginScreen
       onLogin={(user, isNew) => {
         setCurrentUser(user);

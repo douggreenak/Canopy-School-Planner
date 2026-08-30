@@ -9,7 +9,7 @@
 //   5. Sort toggle
 //   6. Class cards with smart dates, status chips, and flagged-row tinting
 // ============================================================
-import { useState, useMemo, type ReactNode } from 'react';
+import { useState, useMemo, useEffect, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
 import Box from '@mui/material/Box';
@@ -47,7 +47,8 @@ import EventIcon from '@mui/icons-material/Event';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import { useClasses, useHomework, useGradeHistory, useSettings } from '@/lib/hooks';
-import { syncPowerSchoolAndWait } from '@/lib/powerschoolClient';
+import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
+import { fetchPowerSchoolStatusNow } from '@/lib/powerschoolStatusStore';
 import { missingWorkImpact } from '@/lib/gradeEngine';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
@@ -244,41 +245,67 @@ export default function GradesPage() {
   // Kicks off the sync (returns almost instantly — the real scrape runs
   // server-side via after(), surviving a tab close) and polls for the
   // result. See src/lib/powerschoolClient.ts.
+  const handleSyncOutcome = (data: Awaited<ReturnType<typeof syncPowerSchoolAndWait>>) => {
+    const nowStr = dayjs().format('MMM D, h:mm A');
+    const result = data.result as Record<string, number> | null;
+    if (data.status === 'success') {
+      const parts: string[] = [];
+      if (result?.classAdded) parts.push(`${result.classAdded} class${result.classAdded === 1 ? '' : 'es'} added`);
+      if (result?.classUpdated) parts.push(`${result.classUpdated} updated`);
+      if (result?.classRemoved) parts.push(`${result.classRemoved} removed`);
+      if (result?.assignmentAdded) parts.push(`${result.assignmentAdded} assignment${result.assignmentAdded === 1 ? '' : 's'} added`);
+      if (result?.assignmentUpdated) parts.push(`${result.assignmentUpdated} assignments updated`);
+      const summary = parts.length > 0
+        ? `Synced — ${parts.join(', ')}.`
+        : `Synced — already up to date (${result?.classCount ?? 0} classes, ${result?.assignmentCount ?? 0} assignments).`;
+      setSnackbar({ open: true, message: summary, severity: 'success' });
+      setLastSyncAt(nowStr);
+      fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'lastSyncAt', value: nowStr }) }).catch(() => {});
+      refetchClasses();
+      refetchHomework();
+    } else if (data.status === 'error') {
+      const summary = data.error?.includes('Missing PowerSchool credentials')
+        ? 'Save your PowerSchool login in Settings first, then sync from here.'
+        : data.error || 'Sync failed.';
+      setSnackbar({ open: true, message: summary, severity: 'error' });
+    } else {
+      setSnackbar({ open: true, message: 'Still syncing in the background — check back in a bit, or reload to see the latest status.', severity: 'info' });
+    }
+  };
+
   const syncNow = async () => {
     setSyncing(true);
     try {
       const data = await syncPowerSchoolAndWait();
-      const nowStr = dayjs().format('MMM D, h:mm A');
-      const result = data.result as Record<string, number> | null;
-      if (data.status === 'success') {
-        const parts: string[] = [];
-        if (result?.classAdded) parts.push(`${result.classAdded} class${result.classAdded === 1 ? '' : 'es'} added`);
-        if (result?.classUpdated) parts.push(`${result.classUpdated} updated`);
-        if (result?.classRemoved) parts.push(`${result.classRemoved} removed`);
-        if (result?.assignmentAdded) parts.push(`${result.assignmentAdded} assignment${result.assignmentAdded === 1 ? '' : 's'} added`);
-        if (result?.assignmentUpdated) parts.push(`${result.assignmentUpdated} assignments updated`);
-        const summary = parts.length > 0
-          ? `Synced — ${parts.join(', ')}.`
-          : `Synced — already up to date (${result?.classCount ?? 0} classes, ${result?.assignmentCount ?? 0} assignments).`;
-        setSnackbar({ open: true, message: summary, severity: 'success' });
-        setLastSyncAt(nowStr);
-        fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'lastSyncAt', value: nowStr }) }).catch(() => {});
-        refetchClasses();
-        refetchHomework();
-      } else if (data.status === 'error') {
-        const summary = data.error?.includes('Missing PowerSchool credentials')
-          ? 'Save your PowerSchool login in Settings first, then sync from here.'
-          : data.error || 'Sync failed.';
-        setSnackbar({ open: true, message: summary, severity: 'error' });
-      } else {
-        setSnackbar({ open: true, message: 'Still syncing in the background — check back in a bit, or reload to see the latest status.', severity: 'info' });
-      }
+      handleSyncOutcome(data);
     } catch (e) {
       const msg = `Sync error: ${(e as Error).message}`;
       setSnackbar({ open: true, message: msg, severity: 'error' });
     }
     setSyncing(false);
   };
+
+  // The Sync button should read as "in progress" (grey + spinner) whenever a
+  // sync is actually running — including one kicked off elsewhere (Settings,
+  // the Grade Detail page, a scheduled sync) or one that was already running
+  // when this tab navigated back to Grades. Resolve that on mount instead of
+  // assuming "not syncing" just because this page's own state starts fresh.
+  useEffect(() => {
+    let cancelled = false;
+    fetchPowerSchoolStatusNow().then(async (status) => {
+      if (cancelled || status.status !== 'running') return;
+      setSyncing(true);
+      try {
+        const data = await waitForPowerSchoolSync();
+        if (!cancelled) handleSyncOutcome(data);
+      } catch {
+        // swallow — the global status bubble still reflects reality even if this resume attempt fails
+      }
+      if (!cancelled) setSyncing(false);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loading = loadingClasses || loadingHomework;
 

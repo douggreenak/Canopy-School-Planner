@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 body {
-  font-family: "Google Sans", "Roboto", "Arial", sans-serif;
+  font-family: var(--font-roboto), "Google Sans", Roboto, Arial, sans-serif;
 }
 
 /* ─── Animations ────────────────────────────────────────────── */

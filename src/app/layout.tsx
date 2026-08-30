@@ -1,10 +1,23 @@
 import type { Metadata, Viewport } from 'next';
+import { Roboto } from 'next/font/google';
 import './globals.css';
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v15-appRouter';
 import ThemeRegistry from '@/components/ThemeRegistry';
 import AppShell from '@/components/AppShell';
 import { SpeedInsights } from '@vercel/speed-insights/next';
-import { getServerSessionUser } from '@/lib/auth';
+
+// "Google Sans" itself isn't available for general web embedding — Roboto is
+// what Google's own web apps (Classroom, Calendar, Workspace) actually ship.
+// The theme's typography previously just NAMED "Google Sans"/"Roboto" in its
+// font stack without ever loading either, so it silently fell back to plain
+// Arial everywhere — self-hosted via next/font (no external request, no
+// layout shift) so the app actually renders in a real Google-style typeface.
+const roboto = Roboto({
+  weight: ['400', '500', '700'],
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-roboto',
+});
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -23,26 +36,21 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Resolve the session server-side so AppShell can paint the real page on
-  // the very first render instead of a blank screen while a client-side
-  // fetch('/api/auth') round-trip resolves. Defensive try/catch: on a fresh
-  // deploy the `sessions` table may not exist yet (created lazily by
-  // initializeDatabase() on first API call) — fall back to "logged out"
-  // rather than failing the whole page.
-  let initialUser: { id: string; username: string; role: string } | null = null;
-  try {
-    initialUser = await getServerSessionUser();
-  } catch {
-    initialUser = null;
-  }
-
+// Deliberately a plain synchronous component — NOT async, no cookies()/DB
+// call here. A previous version resolved the session server-side to avoid
+// a blank first paint, but since this is the ROOT layout (wrapping every
+// route), any dynamic API call in it forces the whole app out of the
+// Router Cache: every client-side navigation — not just the first load —
+// had to hit the server fresh, which is what caused the sidebar's active-
+// tab highlight to visibly lag behind the click. AppShell resolves the
+// session client-side instead; see its comment for the tradeoff.
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={roboto.variable}>
       <body suppressHydrationWarning>
         <AppRouterCacheProvider>
           <ThemeRegistry>
-            <AppShell initialUser={initialUser}>{children}</AppShell>
+            <AppShell>{children}</AppShell>
           </ThemeRegistry>
         </AppRouterCacheProvider>
         <SpeedInsights />

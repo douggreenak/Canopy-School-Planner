@@ -21,6 +21,8 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import Skeleton from '@mui/material/Skeleton';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -77,6 +79,7 @@ export default function ExamsPage() {
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const { data: exams, loading, refetch } = useExams();
   const { data: classes } = useClasses();
+  const [tab, setTab] = useState(0); // 0 = upcoming, 1 = past
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Exam | null>(null);
   const [form, setForm] = useState<Exam>({
@@ -235,17 +238,32 @@ export default function ExamsPage() {
         </Box>
       )}
 
-      {!loading && upcoming.length > 0 && (
+      {!loading && (upcoming.length > 0 || past.length > 0) && (
         <>
-          <Typography variant="h6" sx={{ mb: 1.5, color: 'primary.main' }}>Upcoming</Typography>
-          <Stack spacing={1.5} sx={{ mb: 3 }}>{upcoming.map(renderExamCard)}</Stack>
-        </>
-      )}
+          <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+            <Tab label={`Upcoming (${upcoming.length})`} />
+            <Tab label={`Past (${past.length})`} />
+          </Tabs>
 
-      {!loading && past.length > 0 && (
-        <>
-          <Typography variant="h6" sx={{ mb: 1.5, color: 'text.secondary' }}>Past</Typography>
-          <Stack spacing={1.5}>{past.map(renderExamCard)}</Stack>
+          {tab === 0 && (
+            upcoming.length > 0 ? (
+              <Stack spacing={1.5}>{upcoming.map(renderExamCard)}</Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                No upcoming exams.
+              </Typography>
+            )
+          )}
+
+          {tab === 1 && (
+            past.length > 0 ? (
+              <Stack spacing={1.5}>{past.map(renderExamCard)}</Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                No past exams yet.
+              </Typography>
+            )
+          )}
         </>
       )}
 
