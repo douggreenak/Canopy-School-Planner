@@ -327,7 +327,7 @@ function SchedulePageInner() {
         <Tabs
           value={VIEW_MODE_INDEX[view]}
           onChange={(_, v: number) => setView(VIEW_MODES[v])}
-          sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
+          sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           <Tab label="Day" />
           <Tab label="Week" />

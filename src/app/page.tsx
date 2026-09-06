@@ -1,5 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import Box from '@mui/material/Box';
@@ -7,6 +8,7 @@ import Typography from '@mui/material/Typography';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import Card from '@mui/material/Card';
+import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import Grid from '@mui/material/Grid';
@@ -52,6 +54,7 @@ const DEFAULT_LUNCH_TIMES: Record<number, { startTime: string; endTime: string }
 
 export default function Dashboard() {
   const theme = useTheme();
+  const router = useRouter();
   const [tab, setTab] = useState(0);
   const [selectedDate, setSelectedDate] = useState(dayjs());
   const { data: classes, loading: classesLoading } = useClasses();
@@ -258,53 +261,61 @@ export default function Dashboard() {
         <>
         <Grid size={{ xs: 6, md: 3 }}>
           <Card>
-            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
-              <TodayIcon sx={{ color: 'primary.main', fontSize: 32, mb: 0.5 }} />
-              <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                {todaySchedule?.classes.filter((c) => !c.cancelled && c.classInfo.id !== '__lunch__').length ?? 0}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">Classes Today</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Card>
-            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
-              <AssignmentIcon sx={{ color: 'error.main', fontSize: 32, mb: 0.5 }} />
-              <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                {upcomingHomework.length}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">Upcoming Homework</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Card>
-            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
-              <QuizIcon sx={{ color: 'warning.main', fontSize: 32, mb: 0.5 }} />
-              <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                {upcomingExams.length}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">Upcoming Exams</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Card>
-            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
-              <CheckCircleIcon sx={{ color: 'success.main', fontSize: 32, mb: 0.5 }} />
-              {completedToday.hwTotal + completedToday.tasksTotal > 0 ? (
+            <CardActionArea onClick={() => router.push('/schedule')} sx={{ height: '100%' }}>
+              <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
+                <TodayIcon sx={{ color: 'primary.main', fontSize: 32, mb: 0.5 }} />
                 <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                  {completedToday.hw + completedToday.tasks}
-                  <Typography component="span" variant="body2" color="text.secondary">
-                    /{completedToday.hwTotal + completedToday.tasksTotal}
-                  </Typography>
+                  {todaySchedule?.classes.filter((c) => !c.cancelled && c.classInfo.id !== '__lunch__').length ?? 0}
                 </Typography>
-              ) : (
-                <Typography variant="h4" sx={{ fontWeight: 600, color: 'text.disabled' }}>—</Typography>
-              )}
-              <Typography variant="caption" color="text.secondary">Due Today</Typography>
-            </CardContent>
+                <Typography variant="caption" color="text.secondary">Classes Today</Typography>
+              </CardContent>
+            </CardActionArea>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, md: 3 }}>
+          <Card>
+            <CardActionArea onClick={() => router.push('/tasks')} sx={{ height: '100%' }}>
+              <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
+                <AssignmentIcon sx={{ color: 'error.main', fontSize: 32, mb: 0.5 }} />
+                <Typography variant="h4" sx={{ fontWeight: 600 }}>
+                  {upcomingHomework.length}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">Upcoming Homework</Typography>
+              </CardContent>
+            </CardActionArea>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, md: 3 }}>
+          <Card>
+            <CardActionArea onClick={() => router.push('/exams')} sx={{ height: '100%' }}>
+              <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
+                <QuizIcon sx={{ color: 'warning.main', fontSize: 32, mb: 0.5 }} />
+                <Typography variant="h4" sx={{ fontWeight: 600 }}>
+                  {upcomingExams.length}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">Upcoming Exams</Typography>
+              </CardContent>
+            </CardActionArea>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, md: 3 }}>
+          <Card>
+            <CardActionArea onClick={() => router.push('/tasks')} sx={{ height: '100%' }}>
+              <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
+                <CheckCircleIcon sx={{ color: 'success.main', fontSize: 32, mb: 0.5 }} />
+                {completedToday.hwTotal + completedToday.tasksTotal > 0 ? (
+                  <Typography variant="h4" sx={{ fontWeight: 600 }}>
+                    {completedToday.hw + completedToday.tasks}
+                    <Typography component="span" variant="body2" color="text.secondary">
+                      /{completedToday.hwTotal + completedToday.tasksTotal}
+                    </Typography>
+                  </Typography>
+                ) : (
+                  <Typography variant="h4" sx={{ fontWeight: 600, color: 'text.disabled' }}>—</Typography>
+                )}
+                <Typography variant="caption" color="text.secondary">Due Today</Typography>
+              </CardContent>
+            </CardActionArea>
           </Card>
         </Grid>
         </>
@@ -318,7 +329,11 @@ export default function Dashboard() {
           onChange={(_, v) => setTab(v)}
           variant="scrollable"
           scrollButtons="auto"
-          sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
+          // No horizontal padding — otherwise the container adds an extra
+          // gap before the first tab beyond Tab's own built-in padding, and
+          // (for whichever tab is selected first/last) keeps the selected
+          // indicator from ever reaching the Paper's actual edge.
+          sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           <Tab label="Day" />
           <Tab label="Week" />

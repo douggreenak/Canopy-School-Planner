@@ -21,6 +21,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import MeetingRoomOutlinedIcon from '@mui/icons-material/MeetingRoomOutlined';
 import LaptopOutlinedIcon from '@mui/icons-material/LaptopOutlined';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { contrastTextFor } from '@/lib/theme';
 import type { DueTiming } from '@/types';
 
@@ -64,6 +65,10 @@ export interface TaskRowProps {
   classChip?: { name: string; color: string } | null;
   categoryLabel: string;
   dueTiming?: DueTiming;
+  // True when this item is due "in class" but that class's meeting on the
+  // due date is cancelled by a schedule disruption — surfaces a warning so
+  // a scheduled task doesn't silently ignore the disruption it's tied to.
+  classDisrupted?: boolean;
   priority: 'low' | 'medium' | 'high';
   stageChip?: React.ReactNode;
   rebalanceHint?: React.ReactNode;
@@ -75,7 +80,7 @@ export interface TaskRowProps {
 
 export default function TaskRow({
   title, description, completed, overdue, dueDateLabel, checkboxColor,
-  classChip, categoryLabel, dueTiming, priority, stageChip, rebalanceHint,
+  classChip, categoryLabel, dueTiming, classDisrupted, priority, stageChip, rebalanceHint,
   onToggle, onOpenDetail, onEdit, onDelete,
 }: TaskRowProps) {
   const cellSx = { minWidth: 0 };
@@ -161,6 +166,11 @@ export default function TaskRow({
               {classChip && <Chip size="small" label={classChip.name} sx={{ backgroundColor: classChip.color, color: contrastTextFor(classChip.color), fontWeight: 500, fontSize: '0.7rem' }} />}
               <Chip size="small" label={categoryLabel} variant="outlined" sx={{ fontSize: '0.7rem' }} />
               {dueTiming && <Chip size="small" icon={dueTimingIcon(dueTiming)} label={dueTimingLabel(dueTiming)} variant="outlined" sx={{ fontSize: '0.7rem' }} />}
+              {classDisrupted && !completed && (
+                <Tooltip title="This class is cancelled that day — you may want to reschedule">
+                  <Chip size="small" icon={<WarningAmberIcon sx={{ fontSize: 14 }} />} label="Class cancelled" color="warning" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                </Tooltip>
+              )}
               {stageChip}
               {dueDateLabel && (
                 <Typography variant="caption" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }}>
@@ -204,13 +214,25 @@ export default function TaskRow({
           )}
         </Box>
 
-        {/* When: in-class / after-class */}
+        {/* When: in-class / after-class. A disrupted "in class" item swaps
+            in a warning icon/color instead of adding a second chip — this
+            column is a fixed 100px wide, too narrow for two. */}
         <Box sx={{ display: { xs: 'none', md: 'flex' }, ...cellSx, alignItems: 'center' }}>
-          {dueTiming && (
-            <Tooltip title={dueTimingLabel(dueTiming)}>
-              <Chip size="small" icon={dueTimingIcon(dueTiming)} label={dueTiming === 'in_class' ? 'In class' : 'Online'} variant="outlined" sx={{ fontSize: '0.68rem' }} />
-            </Tooltip>
-          )}
+          {dueTiming && (() => {
+            const disrupted = classDisrupted && !completed;
+            return (
+              <Tooltip title={disrupted ? 'This class is cancelled that day — you may want to reschedule' : dueTimingLabel(dueTiming)}>
+                <Chip
+                  size="small"
+                  icon={disrupted ? <WarningAmberIcon sx={{ fontSize: 14 }} /> : dueTimingIcon(dueTiming)}
+                  label={dueTiming === 'in_class' ? 'In class' : 'Online'}
+                  variant="outlined"
+                  color={disrupted ? 'warning' : 'default'}
+                  sx={{ fontSize: '0.68rem' }}
+                />
+              </Tooltip>
+            );
+          })()}
         </Box>
 
         {/* Priority */}

@@ -308,7 +308,9 @@ export default function DayView({ schedule, date, onClassClick, hasClasses = fal
           onClassClick={onClassClick}
           debug={debug}
           index={i}
-          dueCount={dueCountFor(dueCounts, entry.classInfo.id, date)}
+          // No badge when this specific meeting is cancelled — "1 due at
+          // this class" is misleading when the class isn't actually meeting.
+          dueCount={entry.cancelled ? 0 : dueCountFor(dueCounts, entry.classInfo.id, date)}
         />
       ))}
 

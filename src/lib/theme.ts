@@ -165,6 +165,20 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
           },
         },
       },
+      MuiIconButton: {
+        styleOverrides: {
+          // Default `size="small"` IconButton is ~5px padding around a
+          // ~20px icon — a ~30px hit area, well under the ~40-44px touch-
+          // target guideline. Applied once here (rather than at each of the
+          // many call sites across the app) so every small icon button —
+          // edit/delete actions, dialog close buttons, calendar nav — gets
+          // a consistent, larger click zone without changing how the icon
+          // itself looks.
+          sizeSmall: {
+            padding: 10,
+          },
+        },
+      },
       MuiCard: {
         styleOverrides: {
           root: ({ theme }) => ({

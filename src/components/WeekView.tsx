@@ -378,7 +378,10 @@ export default function WeekView({ schedule, weekStart, onClassClick, dueCounts 
                       date={day.date}
                       onClassClick={onClassClick}
                       debug={debug}
-                      dueCount={dueCountFor(dueCounts, entry.classInfo.id, day.date)}
+                      // No badge when this specific meeting is cancelled —
+                      // "1 due at this class" is misleading when the class
+                      // isn't actually meeting.
+                      dueCount={entry.cancelled ? 0 : dueCountFor(dueCounts, entry.classInfo.id, day.date)}
                     />
                   ))}
 
