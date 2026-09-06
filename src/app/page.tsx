@@ -29,6 +29,7 @@ import { useClasses, useHomework, useExams, useTasks, useDisruptions, useSetting
 import { buildDaySchedule } from '@/lib/calendar';
 import { getWeekSchedule, weekViewStart } from '@/lib/schedule';
 import { buildHeatmap } from '@/lib/heatmap';
+import { buildDueCountMap } from '@/lib/dueCounts';
 import dynamic from 'next/dynamic';
 // Only one of Day/Week/Year is ever visible at once (tab-switched) — deferring
 // the other two to their own chunks means a visit that never touches the
@@ -59,6 +60,13 @@ export default function Dashboard() {
   const { data: tasks } = useTasks();
   const { data: disruptions, loading: disruptionsLoading } = useDisruptions();
   const { data: settingsData } = useSettings();
+
+  // classId::date -> count of assignments due at that class instance —
+  // powers the small badge on each class's calendar block (Day/Week views).
+  const dueCounts = useMemo(
+    () => buildDueCountMap([...(homework ?? []), ...(tasks ?? [])]),
+    [homework, tasks],
+  );
 
   const lunchTimes = useMemo(() => {
     const raw = settingsData?.lunchTimes;
@@ -322,7 +330,7 @@ export default function Dashboard() {
             <Skeleton variant="rounded" height={240} />
           ) : (<>
           {tab === 0 && todaySchedule && (
-            <DayView schedule={todaySchedule} date={selectedDate.format('YYYY-MM-DD')} hasClasses={!!classes && classes.length > 0} />
+            <DayView schedule={todaySchedule} date={selectedDate.format('YYYY-MM-DD')} hasClasses={!!classes && classes.length > 0} dueCounts={dueCounts} />
           )}
           {tab === 0 && !todaySchedule && (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
@@ -330,7 +338,7 @@ export default function Dashboard() {
             </Typography>
           )}
           {tab === 1 && weekSchedule && (
-            <WeekView schedule={weekSchedule} weekStart={weekViewStart(selectedDate).format('YYYY-MM-DD')} />
+            <WeekView schedule={weekSchedule} weekStart={weekViewStart(selectedDate).format('YYYY-MM-DD')} dueCounts={dueCounts} />
           )}
           {tab === 1 && !weekSchedule && (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>

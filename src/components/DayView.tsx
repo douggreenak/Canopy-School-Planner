@@ -8,6 +8,7 @@ import type { DaySchedule, ScheduleEntry } from '@/types';
 // 7 AM through 7 PM = 13 hour labels, 12 hour intervals.
 import { type Theme } from '@mui/material/styles';
 import { PX_PER_HOUR, DAY_START_MIN, DAY_END_MIN, TOTAL_HEIGHT, TIME_GUTTER, MIN_BLOCK_HEIGHT, hourTop, halfHourTop, minutesToPixels, heightForMinutes, topForMinutes, parseMinutes } from '@/lib/calendarMetrics';
+import { dueCountFor } from '@/lib/dueCounts';
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 7);
 
 function formatHour(h: number): string {
@@ -36,6 +37,10 @@ interface Props {
   // tell "you haven't added classes yet" apart from "no class meets today"
   // (a weekend, a day off, or a date outside the semester).
   hasClasses?: boolean;
+  // classId::date -> count of homework/tasks due at that class instance
+  // (see src/lib/dueCounts.ts). Optional — pages that don't have
+  // homework/task data loaded yet just render with no badges.
+  dueCounts?: Map<string, number>;
 }
 
 function NowIndicator() {
@@ -75,9 +80,10 @@ interface ClassBlockProps {
   onClassClick?: (entry: ScheduleEntry) => void;
   debug: boolean;
   index: number;
+  dueCount: number;
 }
 
-const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug, index }: ClassBlockProps) => {
+const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug, index, dueCount }: ClassBlockProps) => {
   const showTime = height >= 48;
   const showTeacher = height >= 56;
   const clickable = !!onClassClick;
@@ -137,20 +143,43 @@ const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug, index
         zIndex: 1,
       }}
     >
-      <Typography
-        variant="body2"
-        sx={{
-          fontWeight: 700,
-          color: 'text.primary',
-          textDecoration: entry.cancelled ? 'line-through' : 'none',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          lineHeight: 1.2,
-        }}
-      >
-        {entry.classInfo.name}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+        <Typography
+          variant="body2"
+          sx={{
+            fontWeight: 700,
+            color: 'text.primary',
+            textDecoration: entry.cancelled ? 'line-through' : 'none',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            lineHeight: 1.2,
+            minWidth: 0,
+          }}
+        >
+          {entry.classInfo.name}
+        </Typography>
+        {dueCount > 0 && (
+          <Box
+            aria-label={`${dueCount} assignment${dueCount === 1 ? '' : 's'} due`}
+            sx={{
+              flexShrink: 0,
+              minWidth: 16,
+              height: 16,
+              px: 0.4,
+              borderRadius: '8px',
+              bgcolor: 'error.main',
+              color: 'error.contrastText',
+              fontSize: '0.62rem',
+              fontWeight: 700,
+              lineHeight: '16px',
+              textAlign: 'center',
+            }}
+          >
+            {dueCount}
+          </Box>
+        )}
+      </Box>
       {showTime && (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.2, fontWeight: 600 }}>
           {formatTime(entry.startTime)} – {formatTime(entry.endTime)}
@@ -183,7 +212,7 @@ const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug, index
 
 ClassBlock.displayName = 'ClassBlock';
 
-export default function DayView({ schedule, date, onClassClick, hasClasses = false }: Props) {
+export default function DayView({ schedule, date, onClassClick, hasClasses = false, dueCounts }: Props) {
   const theme = useTheme();
   const debug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debugSchedule') === '1';
 
@@ -278,6 +307,7 @@ export default function DayView({ schedule, date, onClassClick, hasClasses = fal
           onClassClick={onClassClick}
           debug={debug}
           index={i}
+          dueCount={dueCountFor(dueCounts, entry.classInfo.id, date)}
         />
       ))}
 
