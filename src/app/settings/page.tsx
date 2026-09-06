@@ -47,6 +47,7 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import PaletteIcon from '@mui/icons-material/Palette';
+import KeyboardIcon from '@mui/icons-material/Keyboard';
 import { useClasses, apiGet } from '@/lib/hooks';
 import type { AppSettings } from '@/types';
 import { buildLathropEarlyOutTemplate } from '@/lib/schedule';
@@ -737,6 +738,17 @@ function SettingsInner() {
                 );
               })}
             </Box>
+
+            <Divider sx={{ my: 2.5 }} />
+
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<KeyboardIcon />}
+              onClick={() => window.dispatchEvent(new Event('open-keyboard-shortcuts'))}
+            >
+              Show keyboard shortcuts
+            </Button>
           </CardContent>
         </Card>
 

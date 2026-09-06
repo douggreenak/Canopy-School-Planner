@@ -373,7 +373,17 @@ export default function Dashboard() {
                     return (
                     <Box
                       key={day.date}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${dayjs(day.date).format('dddd, MMM D')}${day.total > 0 ? `, ${day.total} due` : ''}`}
                       onClick={() => { setSelectedDate(dayjs(day.date)); setTab(0); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setSelectedDate(dayjs(day.date));
+                          setTab(0);
+                        }
+                      }}
                       sx={{
                         position: 'relative',
                         width: 52,
@@ -389,9 +399,15 @@ export default function Dashboard() {
                         justifyContent: 'center',
                         cursor: 'pointer',
                         '&:hover': { opacity: 0.8 },
+                        '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 1 },
                       }}
                     >
-                      <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.65rem', color: isWeekend ? 'secondary.main' : 'text.secondary', lineHeight: 1 }}>
+                      {/* secondary.main is now a per-theme accent color (not
+                          a guaranteed-neutral grey), so it can't be trusted
+                          as body text against this cell's neutral
+                          background in every theme/mode — the dashed
+                          border above already conveys "weekend". */}
+                      <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.65rem', color: 'text.secondary', lineHeight: 1 }}>
                         {dayjs(day.date).format('ddd')}
                       </Typography>
                       <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>

@@ -154,6 +154,21 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
               onClick={() => { if (inMonth && dayDisruptions.length === 0) onAdd(dateStr); }}
               onMouseEnter={() => setHoverDate(dateStr)}
               onMouseLeave={() => setHoverDate(null)}
+              // Only the empty-cell "add" action needs a keyboard path here —
+              // a day WITH disruptions is reached via its Chip(s) instead,
+              // which MUI already makes focusable/keyboard-actionable since
+              // they're given an onClick. Moving a disruption is drag-and-
+              // drop-only, but editing one (Enter on its chip) lets a
+              // keyboard user change its date directly to the same effect.
+              role={inMonth && dayDisruptions.length === 0 ? 'button' : undefined}
+              tabIndex={inMonth && dayDisruptions.length === 0 ? 0 : undefined}
+              aria-label={inMonth && dayDisruptions.length === 0 ? `Add a disruption on ${day.format('MMMM D')}` : undefined}
+              onKeyDown={(e) => {
+                if (inMonth && dayDisruptions.length === 0 && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  onAdd(dateStr);
+                }
+              }}
               sx={{
                 minHeight: 76,
                 p: '6px',
@@ -185,6 +200,7 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
                 '&:hover': inMonth
                   ? { bgcolor: isDragTarget ? alpha(theme.palette.primary.main, 0.12) : alpha(theme.palette.primary.main, 0.08) }
                   : {},
+                '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: -2 },
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 0.4,
