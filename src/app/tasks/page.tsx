@@ -169,11 +169,29 @@ export default function TasksPage() {
     [homework],
   );
 
+  // IDs that were JUST marked complete — kept visible in the To Do tab for
+  // one beat after checking (see markRecentlyCompleted below) so TaskRow's
+  // green completion-fill animation has time to actually play before the
+  // row would otherwise instantly vanish from this filtered list.
+  const [recentlyCompletedIds, setRecentlyCompletedIds] = useState<Set<string>>(new Set());
+  const RECENT_COMPLETE_LINGER_MS = 700;
+  const markRecentlyCompleted = (id: string) => {
+    setRecentlyCompletedIds((prev) => new Set(prev).add(id));
+    setTimeout(() => {
+      setRecentlyCompletedIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, RECENT_COMPLETE_LINGER_MS);
+  };
+
   const merged = useMemo((): ListItem[] => {
     const hwItems: ListItem[] = manualHomework.map((d) => ({ kind: 'homework', data: d }));
     const taskItems: ListItem[] = (tasks || []).map((d) => ({ kind: 'task', data: d }));
     let list = [...hwItems, ...taskItems];
-    if (tab === 0) list = list.filter((item) => !item.data.completed);
+    if (tab === 0) list = list.filter((item) => !item.data.completed || recentlyCompletedIds.has(item.data.id));
     else if (tab === 1) list = list.filter((item) => item.data.completed);
     return list.sort((a, b) => {
       const ad = a.data.dueDate, bd = b.data.dueDate;
@@ -182,9 +200,13 @@ export default function TasksPage() {
       if (!bd) return -1;
       return dayjs(ad).diff(dayjs(bd));
     });
-  }, [manualHomework, tasks, tab]);
+  }, [manualHomework, tasks, tab, recentlyCompletedIds]);
 
-  const pendingCount = manualHomework.filter((h) => !h.completed).length + (tasks || []).filter((t) => !t.completed).length;
+  // Matches the same "still lingering post-completion" exception as the To
+  // Do list filter above, so the tab's count never disagrees with what's
+  // actually shown in it (e.g. "To Do (3)" while only 2 rows are visible).
+  const pendingCount = manualHomework.filter((h) => !h.completed || recentlyCompletedIds.has(h.id)).length
+    + (tasks || []).filter((t) => !t.completed || recentlyCompletedIds.has(t.id)).length;
   const doneCount = manualHomework.filter((h) => h.completed).length + (tasks || []).filter((t) => t.completed).length;
 
   const rebalancingByHwId = useMemo(() => {
@@ -273,6 +295,7 @@ export default function TasksPage() {
 
   const toggleHw = async (hw: Homework) => {
     const next = !hw.completed;
+    if (next) markRecentlyCompleted(hw.id);
     const stages = hw.stages ?? [];
     const nextStageId = stages.length > 0 ? (next ? stages[stages.length - 1].id : undefined) : hw.stageId;
     mutateHw((prev) => prev ? prev.map((h) => h.id === hw.id ? { ...h, completed: next, stageId: nextStageId } : h) : prev);
@@ -287,6 +310,7 @@ export default function TasksPage() {
 
   const toggleTask = async (task: Task) => {
     const next = !task.completed;
+    if (next) markRecentlyCompleted(task.id);
     const stages = task.stages ?? [];
     const nextStageId = stages.length > 0 ? (next ? stages[stages.length - 1].id : undefined) : task.stageId;
     mutateTasks((prev) => prev ? prev.map((t) => t.id === task.id ? { ...t, completed: next, stageId: nextStageId } : t) : prev);

@@ -6,6 +6,7 @@
 // everything lines up" table feel, while staying a Material Card (not a
 // literal <table>) to match the rest of the app's styling.
 // ============================================================
+import { useState } from 'react';
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
@@ -20,6 +21,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import MeetingRoomOutlinedIcon from '@mui/icons-material/MeetingRoomOutlined';
 import LaptopOutlinedIcon from '@mui/icons-material/LaptopOutlined';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import { contrastTextFor } from '@/lib/theme';
 import type { DueTiming } from '@/types';
 
 // Shared column template — desktop (md+) only. Mobile keeps a stacked
@@ -78,10 +80,50 @@ export default function TaskRow({
 }: TaskRowProps) {
   const cellSx = { minWidth: 0 };
 
+  // Plays a green circle-fill expanding from the checkbox across the whole
+  // row when a task transitions to completed (never on mount, never on
+  // unchecking) — echoes the app's existing "press" feedback (a filled
+  // ripple/scale on click) but as a one-shot completion celebration rather
+  // than a per-click affordance. The overlay unmounts itself once the CSS
+  // animation ends, so it never lingers or blocks later interaction.
+  //
+  // Adjusts state during render (React's documented pattern for "detect a
+  // prop change, derive state from it") rather than in an effect — avoids
+  // an extra post-commit render/lint warning for a plain setState call.
+  const [prevCompleted, setPrevCompleted] = useState(completed);
+  const [showCompleteFill, setShowCompleteFill] = useState(false);
+  if (completed !== prevCompleted) {
+    setPrevCompleted(completed);
+    if (completed) setShowCompleteFill(true);
+  }
+
   return (
-    <Card sx={{ opacity: completed ? 0.7 : 1, ...(overdue ? { borderLeft: '3px solid', borderColor: 'error.main', bgcolor: (t) => alpha(t.palette.error.main, 0.04) } : {}) }}>
+    <Card
+      sx={{
+        position: 'relative',
+        overflow: 'hidden',
+        opacity: completed ? 0.7 : 1,
+        ...(overdue ? { borderLeft: '3px solid', borderColor: 'error.main', bgcolor: (t) => alpha(t.palette.error.main, 0.04) } : {}),
+      }}
+    >
+      {showCompleteFill && (
+        <Box
+          onAnimationEnd={() => setShowCompleteFill(false)}
+          style={{ '--fill-origin-x': '24px' } as React.CSSProperties}
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            bgcolor: 'success.main',
+            pointerEvents: 'none',
+            zIndex: 0,
+            animation: 'taskCompleteFill 0.6s ease-out',
+          }}
+        />
+      )}
       <CardContent
         sx={{
+          position: 'relative',
+          zIndex: 1,
           py: 1.5,
           '&:last-child': { pb: 1.5 },
           display: { xs: 'flex', md: 'grid' },
@@ -96,7 +138,14 @@ export default function TaskRow({
           <Checkbox
             checked={completed}
             onChange={onToggle}
-            sx={checkboxColor ? { color: checkboxColor, '&.Mui-checked': { color: checkboxColor } } : undefined}
+            sx={{
+              ...(checkboxColor ? { color: checkboxColor, '&.Mui-checked': { color: checkboxColor } } : undefined),
+              // A quick bounce on the check icon itself whenever it becomes
+              // checked — re-plays every time since it's driven by the
+              // .Mui-checked class, not one-shot state.
+              '& .MuiSvgIcon-root': { transition: 'none' },
+              '&.Mui-checked .MuiSvgIcon-root:last-of-type': { animation: 'popIn 0.3s ease-out' },
+            }}
             color={checkboxColor ? undefined : 'success'}
           />
           {/* Mobile-only: title block sits inline next to the checkbox, matching the old layout */}
@@ -109,7 +158,7 @@ export default function TaskRow({
             <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: completed ? 'line-through' : 'none' }}>{title}</Typography>
             {description && <Typography variant="body2" color="text.secondary" noWrap>{description}</Typography>}
             <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
-              {classChip && <Chip size="small" label={classChip.name} sx={{ backgroundColor: classChip.color + '18', color: classChip.color, fontWeight: 500, fontSize: '0.7rem' }} />}
+              {classChip && <Chip size="small" label={classChip.name} sx={{ backgroundColor: classChip.color, color: contrastTextFor(classChip.color), fontWeight: 500, fontSize: '0.7rem' }} />}
               <Chip size="small" label={categoryLabel} variant="outlined" sx={{ fontSize: '0.7rem' }} />
               {dueTiming && <Chip size="small" icon={dueTimingIcon(dueTiming)} label={dueTimingLabel(dueTiming)} variant="outlined" sx={{ fontSize: '0.7rem' }} />}
               {stageChip}
@@ -136,7 +185,7 @@ export default function TaskRow({
         {/* Class */}
         <Box sx={{ display: { xs: 'none', md: 'flex' }, ...cellSx }}>
           {classChip && (
-            <Chip size="small" label={classChip.name} sx={{ backgroundColor: classChip.color + '18', color: classChip.color, fontWeight: 500, fontSize: '0.7rem', maxWidth: '100%' }} />
+            <Chip size="small" label={classChip.name} sx={{ backgroundColor: classChip.color, color: contrastTextFor(classChip.color), fontWeight: 500, fontSize: '0.7rem', maxWidth: '100%' }} />
           )}
         </Box>
 

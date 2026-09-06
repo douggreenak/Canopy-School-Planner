@@ -164,6 +164,7 @@ const ClassBlock = memo(({ entry, top, height, theme, date, onClassClick, debug,
             lineHeight: '14px',
             textAlign: 'center',
             zIndex: 2,
+            animation: 'popIn 0.3s ease-out',
           }}
         >
           {dueCount}
