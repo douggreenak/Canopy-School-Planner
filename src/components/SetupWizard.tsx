@@ -19,7 +19,6 @@ import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
-import Chip from '@mui/material/Chip';
 import { alpha } from '@mui/material/styles';
 import SchoolIcon from '@mui/icons-material/School';
 import SyncIcon from '@mui/icons-material/Sync';
@@ -34,7 +33,18 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import TimezonePicker from '@/components/TimezonePicker';
 
-const STEPS = ['Welcome', 'School Info', 'PowerSchool', 'Done'];
+// PowerSchool moved ahead of School Info — connecting it is the single
+// highest-leverage step (it pre-fills classes/schedule automatically), so
+// it's asked first rather than after a form with no payoff yet.
+const STEPS = ['Welcome', 'PowerSchool', 'School Info', 'Done'];
+
+function defaultSemesterDates() {
+  const start = new Date();
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + 4);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  return { start: iso(start), end: iso(end) };
+}
 
 interface Props {
   open: boolean;
@@ -49,15 +59,19 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // Step 1 — school info
+  // Step 2 — school info. Semester dates default to "today through 4 months
+  // out" rather than starting blank — a new user isn't blocked staring at
+  // empty date pickers, and can always fine-tune (or leave as-is) later in
+  // Settings.
   const [schoolName, setSchoolName] = useState('');
-  const [semesterStart, setSemesterStart] = useState('');
-  const [semesterEnd, setSemesterEnd] = useState('');
+  const [{ start: defaultSemStart, end: defaultSemEnd }] = useState(defaultSemesterDates);
+  const [semesterStart, setSemesterStart] = useState(defaultSemStart);
+  const [semesterEnd, setSemesterEnd] = useState(defaultSemEnd);
   const [timezone, setTimezone] = useState(() => {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'America/New_York'; }
   });
 
-  // Step 2 — PowerSchool
+  // Step 1 — PowerSchool
   const [psUrl, setPsUrl] = useState('');
   const [psUser, setPsUser] = useState('');
   const [psPass, setPsPass] = useState('');
@@ -65,6 +79,14 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
   const [psSynced, setPsSynced] = useState(false);
   const [psLog, setPsLog] = useState<string[]>([]);
   const [psSummary, setPsSummary] = useState('');
+  // Confirmation sub-view shown when "Skip" is clicked on the PowerSchool
+  // step — the user sees exactly what they're giving up before it's final.
+  const [confirmSkipPs, setConfirmSkipPs] = useState(false);
+  // Tracks whether the user actually declined PowerSchool (vs. connected
+  // it) so the Done step can offer the manual/Lathrop path only when it's
+  // actually relevant.
+  const [declinedPowerSchool, setDeclinedPowerSchool] = useState(false);
+  const [manualLathropEnabled, setManualLathropEnabled] = useState(false);
 
   // ---- actions ----
 
@@ -81,7 +103,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
           body: JSON.stringify({ key, value }),
         });
       }
-      setStep(2);
+      setStep(3);
     } catch {
       setError('Failed to save school info.');
     }
@@ -113,7 +135,18 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
         if (data.assignmentCount) parts.push(`${data.assignmentCount} assignments synced`);
         setPsSummary(parts.length > 0 ? parts.join(', ') : 'Sync complete — no changes.');
         setPsSynced(true);
-        setStep(3);
+        setDeclinedPowerSchool(false);
+        // A successful connection is exactly the case where scheduled sync
+        // is most worth defaulting to on — the user just proved their
+        // credentials work, so keeping data fresh going forward shouldn't
+        // need a second trip to Settings. utcHour matches the same default
+        // the Settings page's own picker starts from; easy to change there.
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled: true, utcHour: 12 } }),
+        }).catch(() => {});
+        setStep(2);
       } else {
         setError(data.error || 'PowerSchool sync failed.');
       }
@@ -121,6 +154,15 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
       setError(`Connection error: ${(e as Error).message}`);
     }
     setBusy(false);
+  };
+
+  const toggleManualLathrop = async (enabled: boolean) => {
+    setManualLathropEnabled(enabled);
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'lathropMode', value: enabled }),
+    }).catch(() => {});
   };
 
   const handleClose = () => {
@@ -204,7 +246,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
               <Box>
                 <Typography variant="h6" gutterBottom>Welcome to Canopy!</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  Your data is stored in a Neon PostgreSQL database — no spreadsheet setup needed. This wizard helps you add your school info and optionally import your schedule from PowerSchool.
+                  Your data is stored in a Neon PostgreSQL database — no spreadsheet setup needed. We&apos;ll start by connecting PowerSchool (it does most of the setup for you), then fill in a few school details.
                 </Typography>
                 <Alert severity="success" icon={<StorageIcon />} sx={{ mt: 1.5 }}>
                   Database connected and ready.
@@ -227,8 +269,161 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
             </Stack>
           )}
 
-          {/* ===== STEP 1: School Info ===== */}
+          {/* ===== STEP 1: PowerSchool ===== */}
           {step === 1 && (
+            <Stack spacing={2.5}>
+              {!confirmSkipPs ? (
+                <>
+                  <Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <SyncIcon color="primary" />
+                      <Typography variant="h6">Connect PowerSchool</Typography>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary">
+                      This is the fastest way to set up Canopy — it imports your classes and schedule automatically, keeps your grades in sync, and unlocks grade analytics (velocity alerts, missing-work triage, what-if calculator). Credentials are saved securely so future syncs need just one click.
+                    </Typography>
+                  </Box>
+
+                  <TextField
+                    fullWidth
+                    label="PowerSchool URL"
+                    value={psUrl}
+                    onChange={(e) => { setPsUrl(e.target.value); setError(''); }}
+                    placeholder="https://your-school.powerschool.com"
+                    helperText="Any URL from your school's PowerSchool portal"
+                  />
+
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                    <TextField
+                      fullWidth
+                      label="Student Username"
+                      value={psUser}
+                      onChange={(e) => { setPsUser(e.target.value); setError(''); }}
+                      helperText="e.g. s123456"
+                      autoComplete="off"
+                    />
+                    <TextField
+                      fullWidth
+                      label="Student Password"
+                      type={showPsPass ? 'text' : 'password'}
+                      value={psPass}
+                      onChange={(e) => { setPsPass(e.target.value); setError(''); }}
+                      autoComplete="new-password"
+                      slotProps={{
+                        input: {
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton size="small" onClick={() => setShowPsPass((v) => !v)}>
+                                {showPsPass ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        },
+                      }}
+                    />
+                  </Stack>
+
+                  {psLog.length > 0 && (
+                    <Accordion>
+                      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                        <Typography variant="body2">Sync log ({psLog.length} entries)</Typography>
+                      </AccordionSummary>
+                      <AccordionDetails>
+                        <Box sx={{ fontSize: '0.72rem', maxHeight: 160, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
+                          {psLog.map((line, i) => <div key={i}>{line}</div>)}
+                        </Box>
+                      </AccordionDetails>
+                    </Accordion>
+                  )}
+
+                  {fullScreen ? (
+                    <Stack spacing={1.5}>
+                      <Button
+                        variant="contained"
+                        size="large"
+                        fullWidth
+                        startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <SyncIcon />}
+                        onClick={syncPowerSchool}
+                        disabled={!canSyncPS || busy}
+                      >
+                        {busy ? 'Syncing…' : 'Connect & Sync'}
+                      </Button>
+                      <Stack direction="row" spacing={1.5}>
+                        <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy} sx={{ flex: 1 }}>
+                          Back
+                        </Button>
+                        <Button variant="outlined" onClick={() => setConfirmSkipPs(true)} disabled={busy} sx={{ flex: 1 }}>
+                          Skip
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  ) : (
+                    <Stack direction="row" spacing={1.5}>
+                      <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy}>
+                        Back
+                      </Button>
+                      <Button
+                        variant="contained"
+                        size="large"
+                        sx={{ flex: 1 }}
+                        startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <SyncIcon />}
+                        onClick={syncPowerSchool}
+                        disabled={!canSyncPS || busy}
+                      >
+                        {busy ? 'Syncing…' : 'Connect & Sync'}
+                      </Button>
+                      <Button variant="outlined" onClick={() => setConfirmSkipPs(true)} disabled={busy}>
+                        Skip
+                      </Button>
+                    </Stack>
+                  )}
+                </>
+              ) : (
+                // Skip confirmation — shown in place of the form so declining
+                // is a deliberate choice, not an easy-to-miss link.
+                <>
+                  <Box>
+                    <Typography variant="h6" gutterBottom>Skip PowerSchool?</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                      Without PowerSchool connected, Canopy can&apos;t automatically:
+                    </Typography>
+                    <Stack spacing={0.5} sx={{ pl: 1 }}>
+                      {[
+                        'Import your classes, teachers, and room numbers',
+                        'Sync your grades and assignments',
+                        'Show grade velocity alerts and missing-work triage',
+                        'Run the what-if and final-exam grade calculators',
+                        'Keep any of the above updated automatically over time',
+                      ].map((line) => (
+                        <Typography key={line} variant="body2" sx={{ display: 'flex', gap: 1 }}>
+                          <Box component="span" sx={{ color: 'error.main' }}>✕</Box> {line}
+                        </Typography>
+                      ))}
+                    </Stack>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+                      You can still set up your schedule manually — including a one-click Lathrop High School bell schedule — and connect PowerSchool anytime later from Settings.
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={1.5}>
+                    <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setConfirmSkipPs(false)} sx={{ flex: 1 }}>
+                      Go back
+                    </Button>
+                    <Button
+                      variant="contained"
+                      color="error"
+                      sx={{ flex: 1 }}
+                      onClick={() => { setDeclinedPowerSchool(true); setConfirmSkipPs(false); setStep(2); }}
+                    >
+                      Continue without PowerSchool
+                    </Button>
+                  </Stack>
+                </>
+              )}
+            </Stack>
+          )}
+
+          {/* ===== STEP 2: School Info ===== */}
+          {step === 2 && (
             <Stack spacing={2.5}>
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
@@ -236,7 +431,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                   <Typography variant="h6">School Information</Typography>
                 </Box>
                 <Typography variant="body2" color="text.secondary">
-                  These settings are saved to your database and sync across all devices automatically.
+                  These settings are saved to your database and sync across all devices automatically. Every field below already has a sensible default — change only what you need to.
                 </Typography>
               </Box>
 
@@ -246,7 +441,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 value={schoolName}
                 onChange={(e) => setSchoolName(e.target.value)}
                 placeholder="e.g. Lincoln High School"
-                helperText="Shown as a label throughout the app"
+                helperText="Shown as a label throughout the app — optional"
               />
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -295,11 +490,11 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                     Save &amp; Continue
                   </Button>
                   <Stack direction="row" spacing={1.5}>
-                    <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy} sx={{ flex: 1 }}>
+                    <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy} sx={{ flex: 1 }}>
                       Back
                     </Button>
                     {!required && (
-                      <Button variant="outlined" onClick={() => setStep(2)} disabled={busy} sx={{ flex: 1 }}>
+                      <Button variant="outlined" onClick={() => setStep(3)} disabled={busy} sx={{ flex: 1 }}>
                         Skip
                       </Button>
                     )}
@@ -307,7 +502,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 </Stack>
               ) : (
                 <Stack direction="row" spacing={1.5}>
-                  <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy}>
+                  <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy}>
                     Back
                   </Button>
                   <Button
@@ -321,125 +516,12 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                     Save &amp; Continue
                   </Button>
                   {!required && (
-                    <Button variant="outlined" onClick={() => setStep(2)} disabled={busy}>
+                    <Button variant="outlined" onClick={() => setStep(3)} disabled={busy}>
                       Skip
                     </Button>
                   )}
                 </Stack>
               )}
-            </Stack>
-          )}
-
-          {/* ===== STEP 2: PowerSchool ===== */}
-          {step === 2 && (
-            <Stack spacing={2.5}>
-              <Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                  <SyncIcon color="primary" />
-                  <Typography variant="h6">PowerSchool Import</Typography>
-                  <Chip label="Optional" size="small" variant="outlined" />
-                </Box>
-                <Typography variant="body2" color="text.secondary">
-                  Import your class schedule, assignments, and grades directly from PowerSchool. Credentials are saved securely so future syncs need just one click.
-                </Typography>
-              </Box>
-
-              <TextField
-                fullWidth
-                label="PowerSchool URL"
-                value={psUrl}
-                onChange={(e) => { setPsUrl(e.target.value); setError(''); }}
-                placeholder="https://your-school.powerschool.com"
-                helperText="Any URL from your school's PowerSchool portal"
-              />
-
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField
-                  fullWidth
-                  label="Student Username"
-                  value={psUser}
-                  onChange={(e) => { setPsUser(e.target.value); setError(''); }}
-                  helperText="e.g. s123456"
-                  autoComplete="off"
-                />
-                <TextField
-                  fullWidth
-                  label="Student Password"
-                  type={showPsPass ? 'text' : 'password'}
-                  value={psPass}
-                  onChange={(e) => { setPsPass(e.target.value); setError(''); }}
-                  autoComplete="new-password"
-                  slotProps={{
-                    input: {
-                      endAdornment: (
-                        <InputAdornment position="end">
-                          <IconButton size="small" onClick={() => setShowPsPass((v) => !v)}>
-                            {showPsPass ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
-                          </IconButton>
-                        </InputAdornment>
-                      ),
-                    },
-                  }}
-                />
-              </Stack>
-
-              {psLog.length > 0 && (
-                <Accordion>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography variant="body2">Sync log ({psLog.length} entries)</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <Box sx={{ fontSize: '0.72rem', maxHeight: 160, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
-                      {psLog.map((line, i) => <div key={i}>{line}</div>)}
-                    </Box>
-                  </AccordionDetails>
-                </Accordion>
-              )}
-
-              {fullScreen ? (
-                <Stack spacing={1.5}>
-                  <Button
-                    variant="contained"
-                    size="large"
-                    fullWidth
-                    startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <SyncIcon />}
-                    onClick={syncPowerSchool}
-                    disabled={!canSyncPS || busy}
-                  >
-                    {busy ? 'Syncing…' : 'Connect & Sync'}
-                  </Button>
-                  <Stack direction="row" spacing={1.5}>
-                    <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy} sx={{ flex: 1 }}>
-                      Back
-                    </Button>
-                    <Button variant="outlined" onClick={() => setStep(3)} disabled={busy} sx={{ flex: 1 }}>
-                      Skip
-                    </Button>
-                  </Stack>
-                </Stack>
-              ) : (
-                <Stack direction="row" spacing={1.5}>
-                  <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy}>
-                    Back
-                  </Button>
-                  <Button
-                    variant="contained"
-                    size="large"
-                    sx={{ flex: 1 }}
-                    startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <SyncIcon />}
-                    onClick={syncPowerSchool}
-                    disabled={!canSyncPS || busy}
-                  >
-                    {busy ? 'Syncing…' : 'Connect & Sync'}
-                  </Button>
-                  <Button variant="outlined" onClick={() => setStep(3)} disabled={busy}>
-                    Skip
-                  </Button>
-                </Stack>
-              )}
-              <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>
-                You can always sync PowerSchool later from the Settings page.
-              </Typography>
             </Stack>
           )}
 
@@ -466,6 +548,31 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                     </Box>
                   </AccordionDetails>
                 </Accordion>
+              )}
+
+              {/* Manual schedule setup nudge — only relevant when the user
+                  actually declined PowerSchool, since a successful sync
+                  already populated the schedule automatically. */}
+              {declinedPowerSchool && (
+                <Alert
+                  severity="info"
+                  variant="outlined"
+                  sx={{ width: '100%', textAlign: 'left' }}
+                  icon={<SchoolIcon fontSize="small" />}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>Set up your schedule manually</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    If your school follows Lathrop High School&apos;s bell schedule, turn this on and Canopy fills in each class&apos;s period times automatically once you&apos;ve added your classes. Otherwise, add classes yourself anytime from the Classes page.
+                  </Typography>
+                  <Button
+                    variant={manualLathropEnabled ? 'contained' : 'outlined'}
+                    size="small"
+                    startIcon={manualLathropEnabled ? <CheckCircleIcon /> : undefined}
+                    onClick={() => toggleManualLathrop(!manualLathropEnabled)}
+                  >
+                    {manualLathropEnabled ? 'Lathrop Mode enabled' : 'Enable Lathrop Mode'}
+                  </Button>
+                </Alert>
               )}
 
               <Typography variant="body2" color="text.secondary">
