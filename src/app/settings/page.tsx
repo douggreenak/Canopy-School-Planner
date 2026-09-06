@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, Suspense } from 'react';
+import dayjs from 'dayjs';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Card from '@mui/material/Card';
@@ -48,7 +49,8 @@ import DarkModeIcon from '@mui/icons-material/DarkMode';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import PaletteIcon from '@mui/icons-material/Palette';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
-import { useClasses, apiGet } from '@/lib/hooks';
+import { useClasses, apiGet, useDebouncedCallback, useAutosaveStatus } from '@/lib/hooks';
+import InlineSaveIndicator from '@/components/InlineSaveIndicator';
 import type { AppSettings } from '@/types';
 import { buildLathropEarlyOutTemplate } from '@/lib/schedule';
 import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
@@ -126,6 +128,9 @@ function SettingsInner() {
   const [schoolName, setSchoolName] = useState('');
   const [semesterStart, setSemesterStart] = useState('');
   const [semesterEnd, setSemesterEnd] = useState('');
+  const [newSemesterOpen, setNewSemesterOpen] = useState(false);
+  const [newSemStart, setNewSemStart] = useState('');
+  const [newSemEnd, setNewSemEnd] = useState('');
   const [userTimezone, setUserTimezone] = useState(() => {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'America/New_York'; }
   });
@@ -164,7 +169,11 @@ function SettingsInner() {
   };
 
   const updateLunchTime = (day: number, field: 'startTime' | 'endTime', value: string) => {
-    setLunchTimes((prev) => ({ ...prev, [day]: { ...prev[day], [field]: value } }));
+    setLunchTimes((prev) => {
+      const next = { ...prev, [day]: { ...prev[day], [field]: value } };
+      debouncedSaveLunchTimes(next);
+      return next;
+    });
   };
 
   // Calendar
@@ -287,102 +296,141 @@ function SettingsInner() {
 
   // ---- Actions ----
 
-  const saveLunchTimes = async () => {
-    setSyncing('lunch');
-    try {
-      await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'lunchTimes', value: JSON.stringify(lunchTimes) }),
-      });
-      setSnackbar({ open: true, message: 'Lunch times saved!', severity: 'success' });
-    } catch {
-      setSnackbar({ open: true, message: 'Failed to save lunch times', severity: 'error' });
-    }
-    setSyncing(null);
-  };
+  const lunchSaveStatus = useAutosaveStatus();
+  const debouncedSaveLunchTimes = useDebouncedCallback((next: typeof lunchTimes) => {
+    lunchSaveStatus.markSaving();
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'lunchTimes', value: JSON.stringify(next) }),
+    })
+      .then(() => lunchSaveStatus.markSaved())
+      .catch(() => lunchSaveStatus.markError());
+  }, 600);
+
+  const bellSaveStatus = useAutosaveStatus();
+  const debouncedSaveEarlyOut = useDebouncedCallback((next: typeof earlyOutSchedule) => {
+    bellSaveStatus.markSaving();
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'early_out_schedule', value: JSON.stringify(next) }),
+    })
+      .then(() => bellSaveStatus.markSaved())
+      .catch(() => bellSaveStatus.markError());
+  }, 600);
 
   const applyLathropEarlyOut = () => {
-    setEarlyOutSchedule(buildLathropEarlyOutTemplate(importedClasses ?? undefined));
-  };
-
-  const saveEarlyOutSchedule = async () => {
-    setSyncing('early-out');
-    try {
-      await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'early_out_schedule', value: JSON.stringify(earlyOutSchedule) }),
-      });
-      setSnackbar({ open: true, message: 'Early-out bell schedule saved!', severity: 'success' });
-    } catch {
-      setSnackbar({ open: true, message: 'Failed to save early-out schedule', severity: 'error' });
-    }
-    setSyncing(null);
+    const next = buildLathropEarlyOutTemplate(importedClasses ?? undefined);
+    setEarlyOutSchedule(next);
+    debouncedSaveEarlyOut(next);
   };
 
   const updateEarlyOutTime = (period: number, field: 'startTime' | 'endTime', value: string) => {
-    setEarlyOutSchedule((prev) => ({
-      ...prev,
-      [period]: { ...(prev[period] || { startTime: '', endTime: '' }), [field]: value },
-    }));
+    setEarlyOutSchedule((prev) => {
+      const next = { ...prev, [period]: { ...(prev[period] || { startTime: '', endTime: '' }), [field]: value } };
+      debouncedSaveEarlyOut(next);
+      return next;
+    });
   };
 
   const addEarlyOutPeriod = (period: number) => {
     if (!period || earlyOutSchedule[period]) return;
-    setEarlyOutSchedule((prev) => ({ ...prev, [period]: { startTime: '', endTime: '' } }));
+    setEarlyOutSchedule((prev) => {
+      const next = { ...prev, [period]: { startTime: '', endTime: '' } };
+      debouncedSaveEarlyOut(next);
+      return next;
+    });
   };
 
   const removeEarlyOutPeriod = (period: number) => {
-    setEarlyOutSchedule((prev) => { const next = { ...prev }; delete next[period]; return next; });
+    setEarlyOutSchedule((prev) => {
+      const next = { ...prev };
+      delete next[period];
+      debouncedSaveEarlyOut(next);
+      return next;
+    });
   };
 
-  const saveSchoolSettings = async () => {
-    setSyncing('school');
+  // ---- Autosave ----
+  // Each section below tracks its own brief "Saving…/Saved" status
+  // (InlineSaveIndicator, shown next to the section heading) and debounces
+  // its actual network write so a fast typist doesn't fire one request per
+  // keystroke. Toggles/selects save on the leading edge of the next change
+  // instead (no debounce needed — there's no "typing" to wait out).
+  const schoolSaveStatus = useAutosaveStatus();
+  const debouncedSaveSchool = useDebouncedCallback((next: { schoolName: string; semesterStart: string; semesterEnd: string; timezone: string }) => {
+    if (next.semesterStart && next.semesterEnd && next.semesterEnd < next.semesterStart) return; // don't autosave an invalid range
+    schoolSaveStatus.markSaving();
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ batch: { schoolName: next.schoolName, semesterStart: next.semesterStart, semesterEnd: next.semesterEnd, timezone: next.timezone } }),
+    })
+      .then(() => schoolSaveStatus.markSaved())
+      .catch(() => schoolSaveStatus.markError());
+  }, 600);
+
+  // "Start New Semester" — the app already keeps every past semester's
+  // classes, grade history, and sync log untouched (PowerSchool sync scopes
+  // its deletes to only the semester(s) present in each incoming batch —
+  // see syncClassesFromSource in db.ts), so this only ever needs to move the
+  // semesterStart/semesterEnd boundary that gates what shows on the
+  // Dashboard/Schedule. A fresh PowerSchool sync afterward naturally brings
+  // in the new term's classes without disturbing old ones.
+  const openNewSemesterDialog = () => {
+    const suggestedStart = semesterEnd ? dayjs(semesterEnd).add(1, 'day') : dayjs();
+    setNewSemStart(suggestedStart.format('YYYY-MM-DD'));
+    setNewSemEnd(suggestedStart.add(4, 'month').format('YYYY-MM-DD'));
+    setNewSemesterOpen(true);
+  };
+
+  const startNewSemester = async () => {
+    setSyncing('new-semester');
     try {
       await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          batch: {
-            schoolName,
-            semesterStart,
-            semesterEnd,
-            timezone: userTimezone,
-            calendarToken,
-            lunchTimes: JSON.stringify(lunchTimes),
-          },
-        }),
+        body: JSON.stringify({ batch: { semesterStart: newSemStart, semesterEnd: newSemEnd } }),
       });
-      setSnackbar({ open: true, message: 'Settings saved!', severity: 'success' });
+      setSemesterStart(newSemStart);
+      setSemesterEnd(newSemEnd);
+      setNewSemesterOpen(false);
+      setSnackbar({
+        open: true,
+        severity: 'success',
+        message: setupStatus?.hasPowerschool
+          ? 'New semester dates saved. Run Sync Now below to bring in your new classes.'
+          : 'New semester dates saved.',
+      });
     } catch {
-      setSnackbar({ open: true, message: 'Failed to save settings', severity: 'error' });
+      setSnackbar({ open: true, message: 'Failed to save new semester dates.', severity: 'error' });
     }
     setSyncing(null);
   };
 
-  const savePowerSchool = async () => {
-    setSyncing('ps-save');
-    try {
-      const res = await fetch('/api/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save-powerschool', url: psUrl, username: psUser, password: psPass }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSnackbar({ open: true, message: 'PowerSchool login saved. Future imports will run without re-entering credentials.', severity: 'success' });
-        setPsPass('');
+  const psSaveStatus = useAutosaveStatus();
+  // Same three-fields-required guard the old explicit "Save Login" button
+  // used (disabled={!psUrl || !psUser || !psPass}) — autosave simply never
+  // fires until all three are present, rather than saving a partial/invalid
+  // credential set.
+  const debouncedSavePowerSchool = useDebouncedCallback((next: { url: string; username: string; password: string }) => {
+    if (!next.url || !next.username || !next.password) return;
+    psSaveStatus.markSaving();
+    fetch('/api/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-powerschool', url: next.url, username: next.username, password: next.password }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Failed to save');
+        psSaveStatus.markSaved();
         const status = await fetch('/api/setup').then((r) => r.json());
         setSetupStatus(status);
-      } else {
-        setSnackbar({ open: true, message: data.error || 'Failed to save PowerSchool login.', severity: 'error' });
-      }
-    } catch {
-      setSnackbar({ open: true, message: 'Network error saving PowerSchool login.', severity: 'error' });
-    }
-    setSyncing(null);
-  };
+      })
+      .catch(() => psSaveStatus.markError());
+  }, 700);
 
   const clearPowerSchool = async () => {
     setSyncing('ps-clear');
@@ -411,9 +459,19 @@ function SettingsInner() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: 'lathropMode', value: enabled }),
     }).catch(() => {});
-    if (enabled && Object.keys(earlyOutSchedule).length === 0) {
-      const tpl = buildLathropEarlyOutTemplate(importedClasses ?? undefined);
-      setEarlyOutSchedule(tpl);
+    if (enabled) {
+      if (Object.keys(earlyOutSchedule).length === 0) {
+        const tpl = buildLathropEarlyOutTemplate(importedClasses ?? undefined);
+        setEarlyOutSchedule(tpl);
+        debouncedSaveEarlyOut(tpl);
+      }
+      // Applies the full weekly bell schedule right away — previously this
+      // only happened after the *next* PowerSchool sync (or a manual click
+      // of "Apply Default Bell Schedule"), so turning the toggle on didn't
+      // feel like it actually did anything until later.
+      if (importedClasses && importedClasses.length > 0) {
+        await applyLathropSchedule(importedClasses);
+      }
     }
   };
 
@@ -755,12 +813,21 @@ function SettingsInner() {
         {/* ===== SCHOOL INFORMATION ===== */}
         <Card id="settings-school">
           <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <SchoolIcon color="primary" /> School Information
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <SchoolIcon color="primary" /> School Information
+              </Typography>
+              <InlineSaveIndicator status={schoolSaveStatus.status} />
+            </Box>
             <Grid container spacing={2}>
               <Grid size={12}>
-                <TextField fullWidth label="School Name" value={schoolName} onChange={(e) => setSchoolName(e.target.value)} placeholder="e.g., Lincoln High School" />
+                <TextField
+                  fullWidth
+                  label="School Name"
+                  value={schoolName}
+                  onChange={(e) => { setSchoolName(e.target.value); debouncedSaveSchool({ schoolName: e.target.value, semesterStart, semesterEnd, timezone: userTimezone }); }}
+                  placeholder="e.g., Lincoln High School"
+                />
               </Grid>
               <Grid size={12}>
                 <Typography variant="caption" color="text.secondary">
@@ -768,7 +835,14 @@ function SettingsInner() {
                 </Typography>
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField fullWidth label="Semester Start" type="date" value={semesterStart} onChange={(e) => setSemesterStart(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
+                <TextField
+                  fullWidth
+                  label="Semester Start"
+                  type="date"
+                  value={semesterStart}
+                  onChange={(e) => { setSemesterStart(e.target.value); debouncedSaveSchool({ schoolName, semesterStart: e.target.value, semesterEnd, timezone: userTimezone }); }}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
@@ -776,7 +850,7 @@ function SettingsInner() {
                   label="Semester End"
                   type="date"
                   value={semesterEnd}
-                  onChange={(e) => setSemesterEnd(e.target.value)}
+                  onChange={(e) => { setSemesterEnd(e.target.value); debouncedSaveSchool({ schoolName, semesterStart, semesterEnd: e.target.value, timezone: userTimezone }); }}
                   slotProps={{ inputLabel: { shrink: true } }}
                   error={!!(semesterStart && semesterEnd && semesterEnd < semesterStart)}
                   helperText={semesterStart && semesterEnd && semesterEnd < semesterStart ? 'End date must be after start date' : ''}
@@ -785,20 +859,19 @@ function SettingsInner() {
               <Grid size={12}>
                 <TimezonePicker
                   value={userTimezone}
-                  onChange={setUserTimezone}
+                  onChange={(tz) => { setUserTimezone(tz); debouncedSaveSchool({ schoolName, semesterStart, semesterEnd, timezone: tz }); }}
                   label="Timezone"
                   helperText="Used for calendar feed events — auto-detected from your browser"
                 />
               </Grid>
               <Grid size={12}>
-                <Button
-                  variant="contained"
-                  startIcon={syncing === 'school' ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
-                  onClick={saveSchoolSettings}
-                  disabled={!!syncing || !!(semesterStart && semesterEnd && semesterEnd < semesterStart)}
-                >
-                  Save School Info
+                <Divider sx={{ mb: 2 }} />
+                <Button variant="outlined" size="small" startIcon={<CalendarMonthIcon />} onClick={openNewSemesterDialog}>
+                  Start New Semester
                 </Button>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  Updates the dates above for a new term. Nothing is deleted — past grades and sync history stay on the Transcript and Sync Log pages.
+                </Typography>
               </Grid>
             </Grid>
           </CardContent>
@@ -807,11 +880,14 @@ function SettingsInner() {
         {/* ===== BELL SCHEDULES ===== */}
         <Card id="settings-bell">
           <CardContent>
-            <Typography variant="h6" sx={{ mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CalendarMonthIcon color="primary" /> Bell Schedules
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CalendarMonthIcon color="primary" /> Early Dismissal Times
+              </Typography>
+              <InlineSaveIndicator status={bellSaveStatus.status} />
+            </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Set your school&apos;s exact period times for early-out days. Auto-generate will use these instead of estimating.
+              Set your school&apos;s exact period times for early-out days — used instead of estimating whenever a disruption on the Schedule page is marked &quot;Early Out&quot;.
             </Typography>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -890,16 +966,6 @@ function SettingsInner() {
                 </Box>
               </Box>
             )}
-
-            <Button
-              size="small"
-              variant="contained"
-              onClick={saveEarlyOutSchedule}
-              disabled={!!syncing}
-              startIcon={syncing === 'early-out' ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />}
-            >
-              Save Bell Schedule
-            </Button>
           </CardContent>
         </Card>
 
@@ -912,6 +978,7 @@ function SettingsInner() {
               {setupStatus?.hasPowerschool && (
                 <Chip label="Login saved" color="success" size="small" icon={<CheckCircleIcon />} />
               )}
+              <InlineSaveIndicator status={psSaveStatus.status} />
             </Typography>
             <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>
               Import your class schedule, assignments, and current grades from PowerSchool. Log in once — future imports reuse the saved credentials so you can sync with a single click.
@@ -922,13 +989,13 @@ function SettingsInner() {
                   fullWidth
                   label="PowerSchool URL"
                   value={psUrl}
-                  onChange={(e) => setPsUrl(e.target.value)}
+                  onChange={(e) => { setPsUrl(e.target.value); debouncedSavePowerSchool({ url: e.target.value, username: psUser, password: psPass }); }}
                   placeholder="https://your-school.powerschool.com"
                   helperText="Any URL from your school's PowerSchool portal — the domain will be extracted automatically"
                 />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField fullWidth label="Student Username" value={psUser} onChange={(e) => setPsUser(e.target.value)} />
+                <TextField fullWidth label="Student Username" value={psUser} onChange={(e) => { setPsUser(e.target.value); debouncedSavePowerSchool({ url: psUrl, username: e.target.value, password: psPass }); }} />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
@@ -936,7 +1003,7 @@ function SettingsInner() {
                   label={setupStatus?.hasPowerschool ? 'Password (leave blank to use saved)' : 'Student Password'}
                   type="password"
                   value={psPass}
-                  onChange={(e) => setPsPass(e.target.value)}
+                  onChange={(e) => { setPsPass(e.target.value); debouncedSavePowerSchool({ url: psUrl, username: psUser, password: e.target.value }); }}
                   placeholder={setupStatus?.hasPowerschool ? '••••••••  (saved)' : ''}
                   helperText={
                     setupStatus?.hasPowerschool
@@ -1013,14 +1080,6 @@ function SettingsInner() {
                   >
                     {syncing === 'powerschool' ? 'Syncing…' : setupStatus?.hasPowerschool ? 'Sync Now' : 'Import from PowerSchool'}
                   </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={syncing === 'ps-save' ? <CircularProgress size={16} /> : <KeyIcon />}
-                    onClick={savePowerSchool}
-                    disabled={!psUrl || !psUser || !psPass || !!syncing}
-                  >
-                    Save Login
-                  </Button>
                   {setupStatus?.hasPowerschool && (
                     <Button variant="text" color="error" onClick={clearPowerSchool} disabled={!!syncing}>
                       Clear Saved Login
@@ -1051,11 +1110,11 @@ function SettingsInner() {
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
               <CalendarMonthIcon color="primary" />
-              <Typography variant="h6">Schedule Setup Wizard</Typography>
+              <Typography variant="h6">Class Schedule (Days &amp; Times)</Typography>
               <Chip label="Optional" size="small" variant="outlined" />
             </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Create and edit your internal schedule. Pick from classes imported from PowerSchool and set the days, period, and times the app should use. PowerSchool syncs will preserve these manual schedule fields.
+              Different from Early Dismissal Times above — this sets each class&apos;s normal meeting days and period times. Pick from classes imported from PowerSchool and set the days, period, and times the app should use. PowerSchool syncs will preserve these manual schedule fields.
             </Typography>
 
             <Box sx={{ mb: 2 }}>
@@ -1098,7 +1157,7 @@ function SettingsInner() {
                 {wizardIndex === 0 && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      This wizard helps you set each class&apos;s meeting days and times — used for the schedule view, the "next class" reminder, and the calendar feed. Pick a class below to get started.
+                      This wizard helps you set each class&apos;s meeting days and times — used for the schedule view, the &quot;next class&quot; reminder, and the calendar feed. Pick a class below to get started.
                     </Typography>
                     <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>Pick a class to edit its schedule:</Typography>
                     {classesLoading && <CircularProgress />}
@@ -1129,7 +1188,10 @@ function SettingsInner() {
                       </Stack>
                     )}
                     <Divider sx={{ my: 2 }} />
-                    <Typography variant="body2" sx={{ mb: 0.5, fontWeight: 600 }}>Lunch Times</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>Lunch Times</Typography>
+                      <InlineSaveIndicator status={lunchSaveStatus.status} />
+                    </Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
                       Default times match the Lathrop HS bell schedule. Adjust if needed.
                     </Typography>
@@ -1147,9 +1209,6 @@ function SettingsInner() {
                         </Grid>
                       ))}
                     </Grid>
-                    <Button size="small" variant="contained" sx={{ mt: 1.5 }} onClick={saveLunchTimes} disabled={!!syncing} startIcon={syncing === 'lunch' ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />}>
-                      Save Lunch Times
-                    </Button>
                   </Box>
                 )}
 
@@ -1449,6 +1508,53 @@ function SettingsInner() {
         </Card>
 
       </Stack>
+
+      {/* Start New Semester dialog */}
+      <Dialog open={newSemesterOpen} onClose={() => setNewSemesterOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Start a new semester</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            This updates your semester date range — classes outside it stop appearing on the Dashboard and Schedule automatically.
+            Nothing is deleted: past grades, sync history, and transcript rows for the old semester are kept exactly as they are.
+          </DialogContentText>
+          <Stack spacing={2}>
+            <TextField
+              fullWidth
+              label="New Semester Start"
+              type="date"
+              value={newSemStart}
+              onChange={(e) => setNewSemStart(e.target.value)}
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+            <TextField
+              fullWidth
+              label="New Semester End"
+              type="date"
+              value={newSemEnd}
+              onChange={(e) => setNewSemEnd(e.target.value)}
+              slotProps={{ inputLabel: { shrink: true } }}
+              error={!!(newSemStart && newSemEnd && newSemEnd < newSemStart)}
+              helperText={newSemStart && newSemEnd && newSemEnd < newSemStart ? 'End date must be after start date' : ''}
+            />
+            {setupStatus?.hasPowerschool && (
+              <Alert severity="info" sx={{ fontSize: '0.82rem' }}>
+                After saving, run <strong>Sync Now</strong> in PowerSchool Import below to bring in the new semester&apos;s classes.
+              </Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setNewSemesterOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={startNewSemester}
+            disabled={!newSemStart || !newSemEnd || newSemEnd < newSemStart || syncing === 'new-semester'}
+            startIcon={syncing === 'new-semester' ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
+          >
+            Start New Semester
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Delete account confirmation dialog */}
       <Dialog open={deleteAccountOpen} onClose={() => { setDeleteAccountOpen(false); setDeleteAccountError(''); setDeleteConfirmText(''); setDeletePassword(''); }} maxWidth="xs" fullWidth>
