@@ -125,9 +125,14 @@ const ClassBlock = memo(({ entry, top, height, theme, date, onClassClick, debug 
         cursor: clickable ? 'pointer' : 'default',
         transition: 'background-color 0.12s',
         '&:hover': clickable ? {
+          // Was alpha(..., 0.9) — near-opaque enough that the label's fixed
+          // text.primary color failed WCAG AA against several class colors
+          // in dark mode (as low as 1.67:1). A much lower hover alpha still
+          // reads as a clear "raised" state (vs. the 0.14 resting fill) and
+          // keeps text.primary legible against every swatch in both modes.
           backgroundColor: entry.cancelled
             ? theme.palette.action.disabledBackground
-            : alpha(entry.classInfo.color, 0.9),
+            : alpha(entry.classInfo.color, 0.26),
           boxShadow: `0 4px 18px ${alpha(theme.palette.common.black, 0.14)}`,
         } : undefined,
         '&:focus-visible': clickable ? {

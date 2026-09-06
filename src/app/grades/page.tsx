@@ -251,7 +251,6 @@ export default function GradesPage() {
   // server-side via after(), surviving a tab close) and polls for the
   // result. See src/lib/powerschoolClient.ts.
   const handleSyncOutcome = (data: Awaited<ReturnType<typeof syncPowerSchoolAndWait>>) => {
-    const nowStr = dayjs().format('MMM D, h:mm A');
     const result = data.result as Record<string, number> | null;
     if (data.status === 'success') {
       const parts: string[] = [];
@@ -264,8 +263,12 @@ export default function GradesPage() {
         ? `Synced — ${parts.join(', ')}.`
         : `Synced — already up to date (${result?.classCount ?? 0} classes, ${result?.assignmentCount ?? 0} assignments).`;
       setSnackbar({ open: true, message: summary, severity: 'success' });
-      setLastSyncAt(nowStr);
-      fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'lastSyncAt', value: nowStr }) }).catch(() => {});
+      // The server (runPowerSchoolSyncInner, shared by this manual flow and
+      // the scheduled cron) already persisted `lastSyncAt` as the real
+      // source of truth — this just avoids waiting on a refetch for the
+      // caption to update in this tab right now. Stored/passed as ISO so
+      // the single render site below formats it in the viewer's locale.
+      setLastSyncAt(new Date().toISOString());
       refetchClasses();
       refetchHomework();
     } else if (data.status === 'error') {
@@ -329,7 +332,7 @@ export default function GradesPage() {
         </Box>
         {lastSyncAt && (
           <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-            Last synced {lastSyncAt}
+            Last synced {dayjs(lastSyncAt).isValid() ? dayjs(lastSyncAt).format('MMM D, h:mm A') : lastSyncAt}
           </Typography>
         )}
         <Button

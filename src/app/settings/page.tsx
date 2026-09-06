@@ -707,28 +707,28 @@ function SettingsInner() {
               </ToggleButton>
             </ToggleButtonGroup>
 
-            {/* Accent color */}
+            {/* Theme (primary + accent color pair) */}
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              Accent color — used for buttons, icons, and highlights throughout the app.
+              Theme — each swatch is a primary + accent color pair used for buttons, icons, and highlights throughout the app.
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.25 }}>
               {ACCENT_PRESETS.map((preset) => {
-                const selected = accentColor === preset.color;
+                const selected = accentColor === preset.name;
                 return (
-                  <Tooltip key={preset.color} title={preset.name} arrow>
+                  <Tooltip key={preset.name} title={preset.name} arrow>
                     <Box
-                      onClick={() => setAccentColor(preset.color)}
+                      onClick={() => setAccentColor(preset.name)}
                       sx={{
                         width: 34,
                         height: 34,
                         borderRadius: '50%',
-                        bgcolor: preset.color,
+                        background: `linear-gradient(135deg, ${preset.primary} 50%, ${preset.accent} 50%)`,
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         border: selected ? '2.5px solid white' : '2.5px solid transparent',
-                        outline: selected ? `2.5px solid ${preset.color}` : '2.5px solid transparent',
+                        outline: selected ? `2.5px solid ${preset.primary}` : '2.5px solid transparent',
                         transition: 'transform 0.15s, outline 0.15s',
                         '&:hover': { transform: 'scale(1.18)' },
                       }}

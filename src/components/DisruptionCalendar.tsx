@@ -15,6 +15,7 @@ import TodayIcon from '@mui/icons-material/Today';
 import AddIcon from '@mui/icons-material/Add';
 import type { ScheduleDisruption } from '@/types';
 import { DISRUPTION_TYPES } from '@/lib/disruptionTypes';
+import { contrastTextFor } from '@/lib/theme';
 
 export { DISRUPTION_TYPES };
 
@@ -29,10 +30,12 @@ interface Props {
 
 export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove }: Props) {
   const theme = useTheme();
+  const isLight = theme.palette.mode === 'light';
   // Native HTML5 drag-and-drop (used for "drag to move" below) doesn't fire
   // from touch input, so don't advertise it on phone-width / touch screens.
   const isTouch = useMediaQuery('(pointer: coarse)');
   const [month, setMonth]       = useState(() => dayjs().startOf('month'));
+  const isCurrentMonth = month.isSame(dayjs(), 'month');
   const [dragId, setDragId]     = useState<string | null>(null);
   // The specific date-cell a multi-day disruption's chip was picked up
   // from — needed so dropping preserves the span length regardless of
@@ -79,8 +82,20 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
           {month.format('MMMM YYYY')}
         </Typography>
         <Tooltip title="Jump to today's month">
-          <IconButton size="small" onClick={() => setMonth(dayjs().startOf('month'))}>
-            <TodayIcon />
+          <IconButton
+            size="small"
+            onClick={() => setMonth(dayjs().startOf('month'))}
+            sx={{
+              border: '1px solid',
+              borderColor: isCurrentMonth ? 'divider' : 'primary.main',
+              bgcolor: isCurrentMonth ? 'transparent' : 'primary.main',
+              color: isCurrentMonth ? 'text.secondary' : 'primary.contrastText',
+              '&:hover': {
+                bgcolor: isCurrentMonth ? alpha(theme.palette.primary.main, 0.08) : 'primary.dark',
+              },
+            }}
+          >
+            <TodayIcon fontSize="small" />
           </IconButton>
         </Tooltip>
         <IconButton size="small" onClick={() => setMonth((m) => m.add(1, 'month'))}>
@@ -150,18 +165,25 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
                   ? 'primary.light'
                   : 'divider',
                 borderWidth: isDragTarget || isToday ? 2 : 1,
+                // Weekend cells get a faint neutral wash (NOT alpha() on top
+                // of an already-translucent action.hover — that replaces
+                // rather than compounds the alpha channel, which is how this
+                // ended up as a flat, washed-out mid-grey block in dark
+                // mode). Hover gets its own primary-tinted treatment instead
+                // of reusing that same grey, so the two states read as
+                // distinct affordances rather than one bleeding into the other.
                 bgcolor: isDragTarget
                   ? alpha(theme.palette.primary.main, 0.1)
                   : isToday
                   ? alpha(theme.palette.primary.main, 0.05)
                   : isWeekend && inMonth
-                  ? alpha(theme.palette.action.hover, 0.4)
+                  ? (isLight ? 'rgba(0,0,0,0.035)' : 'rgba(255,255,255,0.05)')
                   : 'transparent',
                 opacity: inMonth ? 1 : 0.3,
                 cursor: inMonth ? 'pointer' : 'default',
                 transition: 'border-color 0.12s, background-color 0.12s',
                 '&:hover': inMonth
-                  ? { bgcolor: isDragTarget ? alpha(theme.palette.primary.main, 0.12) : alpha(theme.palette.action.hover, 0.55) }
+                  ? { bgcolor: isDragTarget ? alpha(theme.palette.primary.main, 0.12) : alpha(theme.palette.primary.main, 0.08) }
                   : {},
                 display: 'flex',
                 flexDirection: 'column',
@@ -205,16 +227,20 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
                       height: 20,
                       width: '100%',
                       cursor: 'grab',
-                      bgcolor: alpha(info.color, 0.15),
-                      color: info.color,
-                      border: `1px solid ${alpha(info.color, 0.35)}`,
+                      // Solid background + a computed WCAG-AA-safe text color
+                      // — was a translucent tint with same-hue text, which
+                      // failed contrast badly for several disruption types
+                      // (e.g. ~1.7:1 for the early_out gold in light mode).
+                      bgcolor: info.color,
+                      color: contrastTextFor(info.color),
+                      border: 'none',
                       fontWeight: 600,
                       '& .MuiChip-label': { px: 0.75, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
                       '&:active': { cursor: 'grabbing' },
-                      '&:hover': { bgcolor: alpha(info.color, 0.28) },
+                      '&:hover': { filter: 'brightness(0.92)' },
                       pointerEvents: 'auto',
                       opacity: dragId === dis.id ? 0.4 : 1,
-                      transition: 'opacity 0.1s, background-color 0.12s',
+                      transition: 'opacity 0.1s, filter 0.12s',
                     }}
                   />
                 );
@@ -266,9 +292,9 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
             sx={{
               fontSize: '0.68rem',
               height: 22,
-              bgcolor: alpha(t.color, 0.12),
-              color: t.color,
-              border: `1px solid ${alpha(t.color, 0.3)}`,
+              bgcolor: t.color,
+              color: contrastTextFor(t.color),
+              border: 'none',
             }}
           />
         ))}

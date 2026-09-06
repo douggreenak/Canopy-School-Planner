@@ -72,17 +72,25 @@ export default function YearView({ year, classes, disruptions, onDateClick, seme
                   (!semesterEnd || !dayjs(cell.date).isAfter(dayjs(semesterEnd), 'day'));
                 const hasClasses = inSemester && classes.some((c) => c.days.includes(dayOfWeek));
 
+                // Disruption/"has classes" cues are conveyed by a colored tint
+                // plus a solid-color accent underline — never by tinting the
+                // day-number text itself, which at the alpha needed to look
+                // like a subtle marker (not a bold alert) can't clear AA
+                // contrast against text this small (was ~1.7:1 for no_school
+                // in light mode). The underline carries the full-strength
+                // color instead, where WCAG's text-contrast rule doesn't apply.
                 let bg = 'transparent';
                 let color = theme.palette.text.primary;
+                let accentColor: string | undefined;
                 if (isToday) {
                   bg = theme.palette.primary.main;
                   color = theme.palette.primary.contrastText;
                 } else if (disruption?.type === 'no_school') {
-                  bg = alpha(theme.palette.error.main, 0.12);
-                  color = theme.palette.error.main;
+                  bg = alpha(theme.palette.error.main, 0.14);
+                  accentColor = theme.palette.error.main;
                 } else if (disruption) {
-                  bg = alpha(theme.palette.warning.main, 0.15);
-                  color = theme.palette.warning.dark ?? theme.palette.warning.main;
+                  bg = alpha(theme.palette.warning.main, 0.16);
+                  accentColor = theme.palette.warning.main;
                 } else if (hasClasses) {
                   bg = alpha(theme.palette.primary.main, 0.1);
                 } else {
@@ -96,10 +104,19 @@ export default function YearView({ year, classes, disruptions, onDateClick, seme
                 return (
                   <Tooltip key={i} title={label} arrow>
                     <Box
+                      role="button"
+                      tabIndex={0}
+                      aria-label={label}
                       onClick={() => onDateClick(cell.date)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onDateClick(cell.date);
+                        }
+                      }}
                       sx={{
-                        width: 24,
-                        height: 24,
+                        width: 28,
+                        height: 28,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -108,9 +125,11 @@ export default function YearView({ year, classes, disruptions, onDateClick, seme
                         fontWeight: isToday ? 600 : 400,
                         backgroundColor: bg,
                         color,
+                        boxShadow: accentColor ? `inset 0 -2px 0 ${accentColor}` : 'none',
                         cursor: 'pointer',
                         transition: 'all 0.15s',
                         '&:hover': { boxShadow: `0 0 0 2px ${theme.palette.primary.main}` },
+                        '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 1 },
                         mx: 'auto',
                       }}
                     >

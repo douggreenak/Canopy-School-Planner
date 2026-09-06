@@ -104,17 +104,22 @@ export default function ClassDetailDialog({ open, onClose, entry, date, disrupti
           <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.5 }}>
             {dateObj.format('dddd, MMM D')}{isToday && ' · Today'}{isPast && !isToday && ' · Past'}
           </Typography>
-          <Typography
-            variant="h5"
-            sx={{
-              fontWeight: 500,
-              color: cancelled ? 'text.disabled' : 'text.primary',
-              textDecoration: cancelled ? 'line-through' : 'none',
-              wordBreak: 'break-word',
-            }}
-          >
-            {classInfo.name}
-          </Typography>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
+            <Typography
+              variant="h5"
+              sx={{
+                fontWeight: 500,
+                color: cancelled ? 'text.disabled' : 'text.primary',
+                textDecoration: cancelled ? 'line-through' : 'none',
+                wordBreak: 'break-word',
+              }}
+            >
+              {classInfo.name}
+            </Typography>
+            {classInfo.isAp && (
+              <Chip label="AP" size="small" color="secondary" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700 }} />
+            )}
+          </Stack>
         </Box>
         <IconButton size="small" onClick={onClose} aria-label="Close" sx={{ flexShrink: 0 }}>
           <CloseIcon />

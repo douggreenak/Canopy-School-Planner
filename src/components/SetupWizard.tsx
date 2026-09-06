@@ -20,6 +20,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
 import Chip from '@mui/material/Chip';
+import { alpha } from '@mui/material/styles';
 import SchoolIcon from '@mui/icons-material/School';
 import SyncIcon from '@mui/icons-material/Sync';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -165,26 +166,26 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
               <LinearProgress
                 variant="determinate"
                 value={((step + 1) / STEPS.length) * 100}
-                sx={{
+                sx={(theme) => ({
                   height: 4,
                   borderRadius: 2,
-                  bgcolor: 'rgba(255,255,255,0.25)',
-                  '& .MuiLinearProgress-bar': { bgcolor: 'white', borderRadius: 2 },
-                }}
+                  bgcolor: alpha(theme.palette.primary.contrastText, 0.25),
+                  '& .MuiLinearProgress-bar': { bgcolor: theme.palette.primary.contrastText, borderRadius: 2 },
+                })}
               />
             </Box>
           ) : (
             <Stepper
               activeStep={step}
               alternativeLabel
-              sx={{
+              sx={(theme) => ({
                 '& .MuiStepLabel-label': { color: 'primary.contrastText', opacity: 0.7 },
                 '& .MuiStepLabel-label.Mui-active': { opacity: 1, fontWeight: 600 },
-                '& .MuiStepIcon-root': { color: 'rgba(255,255,255,0.3)' },
-                '& .MuiStepIcon-root.Mui-active': { color: 'white' },
-                '& .MuiStepIcon-root.Mui-completed': { color: 'rgba(255,255,255,0.8)' },
-                '& .MuiStepConnector-line': { borderColor: 'rgba(255,255,255,0.3)' },
-              }}
+                '& .MuiStepIcon-root': { color: alpha(theme.palette.primary.contrastText, 0.3) },
+                '& .MuiStepIcon-root.Mui-active': { color: theme.palette.primary.contrastText },
+                '& .MuiStepIcon-root.Mui-completed': { color: alpha(theme.palette.primary.contrastText, 0.8) },
+                '& .MuiStepConnector-line': { borderColor: alpha(theme.palette.primary.contrastText, 0.3) },
+              })}
             >
               {STEPS.map((label) => (
                 <Step key={label}><StepLabel>{label}</StepLabel></Step>

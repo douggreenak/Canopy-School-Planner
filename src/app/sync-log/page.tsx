@@ -22,12 +22,13 @@ import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutlined';
 import GradingIcon from '@mui/icons-material/Grading';
 import FlagIcon from '@mui/icons-material/Flag';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
 import { useSyncLog, useClasses } from '@/lib/hooks';
 import type { SyncLogEntry } from '@/types';
 
 dayjs.extend(relativeTime);
 
-type ChangeFilter = 'all' | 'added' | 'removed' | 'score_changed' | 'grade_changed' | 'flag_changed';
+type ChangeFilter = 'all' | 'added' | 'removed' | 'score_changed' | 'grade_changed' | 'flag_changed' | 'none';
 
 function changeIcon(type: SyncLogEntry['changeType']) {
   switch (type) {
@@ -36,6 +37,7 @@ function changeIcon(type: SyncLogEntry['changeType']) {
     case 'score_changed': return <GradingIcon fontSize="small" sx={{ color: 'primary.main' }} />;
     case 'grade_changed': return <ShowChartIcon fontSize="small" sx={{ color: 'primary.main' }} />;
     case 'flag_changed': return <FlagIcon fontSize="small" sx={{ color: 'warning.main' }} />;
+    case 'none': return <CheckCircleOutlineIcon fontSize="small" sx={{ color: 'text.disabled' }} />;
   }
 }
 
@@ -46,6 +48,7 @@ function changeColor(type: SyncLogEntry['changeType'], theme: Theme) {
     case 'score_changed':
     case 'grade_changed': return theme.palette.primary.main;
     case 'flag_changed': return theme.palette.warning.main;
+    case 'none': return theme.palette.text.disabled;
   }
 }
 
@@ -56,6 +59,7 @@ function changeLabel(type: SyncLogEntry['changeType']) {
     case 'score_changed': return 'Score';
     case 'grade_changed': return 'Grade';
     case 'flag_changed': return 'Flag';
+    case 'none': return 'No changes';
   }
 }
 
@@ -144,6 +148,7 @@ export default function SyncLogPage() {
           <ToggleButton value="score_changed">Scores</ToggleButton>
           <ToggleButton value="grade_changed">Grades</ToggleButton>
           <ToggleButton value="flag_changed">Flags</ToggleButton>
+          <ToggleButton value="none">No changes</ToggleButton>
         </ToggleButtonGroup>
       </Stack>
 
@@ -176,7 +181,14 @@ export default function SyncLogPage() {
                   ({dayjs(occurredAt).fromNow()})
                 </Typography>
                 <Box sx={{ flex: 1 }} />
-                <Chip label={`${items.length} change${items.length === 1 ? '' : 's'}`} size="small" />
+                <Chip
+                  label={
+                    items.length === 1 && items[0].changeType === 'none'
+                      ? 'No changes'
+                      : `${items.length} change${items.length === 1 ? '' : 's'}`
+                  }
+                  size="small"
+                />
               </Stack>
               <Divider />
             </CardContent>
@@ -213,7 +225,7 @@ export default function SyncLogPage() {
                           variant="outlined"
                         />
                         <Chip
-                          label={entry.entityType === 'homework' ? 'Assignment' : entry.entityType === 'class' ? 'Class' : entry.entityType}
+                          label={entry.entityType === 'homework' ? 'Assignment' : entry.entityType === 'class' ? 'Class' : 'Sync'}
                           size="small"
                           variant="outlined"
                           sx={{ height: 18, fontSize: '0.65rem' }}
