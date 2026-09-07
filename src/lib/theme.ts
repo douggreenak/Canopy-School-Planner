@@ -1,46 +1,47 @@
 'use client';
 // ============================================================
-// Canopy — Material UI Theme  (light + dark, dynamic accent)
+// Canopy — Material UI Theme  (light + dark, 2-color accent themes)
 // ============================================================
 import { createTheme, alpha, type Theme } from '@mui/material/styles';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
+// Each theme is exactly two brand colors — `primary` (buttons, selected nav,
+// links, the dominant brand color) and `accent` (MUI's `secondary` palette
+// slot — used wherever a second, distinguishing brand color is useful: the
+// AP-class chip, velocity/highlight callouts, etc). Modeled on an Alaska
+// Airlines–style blue/green pairing rather than the old single-hue system.
+// Both colors in every preset are pre-verified (see contrastTextFor below
+// and the palette's own test coverage) to clear WCAG AA 4.5:1 for whichever
+// of white / near-black text they pick.
 export interface AccentPreset {
   name: string;
-  color: string;
+  primary: string;
+  accent: string;
 }
 
 export const ACCENT_PRESETS: AccentPreset[] = [
-  // Greens
-  { name: 'Forest',   color: '#2E7D32' },
-  { name: 'Canopy',   color: '#388E3C' },
-  { name: 'Moss',     color: '#558B2F' },
-  { name: 'Sage',     color: '#7CB342' },
-  { name: 'Jade',     color: '#00796B' },
-  { name: 'Fern',     color: '#33691E' },
-  // Blues & Teals
-  { name: 'Teal',     color: '#00838F' },
-  { name: 'Sky',      color: '#0288D1' },
-  { name: 'Ocean',    color: '#0277BD' },
-  { name: 'Navy',     color: '#283593' },
-  { name: 'Slate',    color: '#455A64' },
-  // Purples
-  { name: 'Twilight', color: '#3949AB' },
-  { name: 'Violet',   color: '#6A1B9A' },
-  { name: 'Plum',     color: '#880E4F' },
-  // Warm
-  { name: 'Gold',     color: '#F57F17' },
-  { name: 'Sunset',   color: '#E65100' },
-  { name: 'Crimson',  color: '#C62828' },
-  { name: 'Earth',    color: '#6D4C41' },
-  { name: 'Dusk',     color: '#4E342E' },
-  // Neutrals
-  { name: 'Graphite', color: '#424242' },
-  { name: 'Onyx',     color: '#1A1A1A' },
+  { name: 'Canopy',  primary: '#2E7D32', accent: '#1565C0' }, // green + blue — the app's namesake default
+  { name: 'Alaska',  primary: '#0060A9', accent: '#00854A' }, // blue + green — literal Alaska Airlines homage
+  { name: 'Glacier', primary: '#00695C', accent: '#0277BD' }, // teal + sky blue
+  { name: 'Aurora',  primary: '#3949AB', accent: '#00796B' }, // indigo + teal
+  { name: 'Sunset',  primary: '#BF360C', accent: '#6A1B9A' }, // deep orange + purple
+  { name: 'Harbor',  primary: '#26418F', accent: '#C77800' }, // navy + amber
+  { name: 'Berry',   primary: '#8E1550', accent: '#00838F' }, // plum + teal
+  { name: 'Slate',   primary: '#37474F', accent: '#B36A00' }, // graphite + amber
 ];
 
-export const DEFAULT_ACCENT = '#388E3C'; // Canopy green
+export const DEFAULT_ACCENT = 'Canopy';
+
+export function resolveAccentPreset(nameOrLegacyValue: string | undefined): AccentPreset {
+  const found = ACCENT_PRESETS.find((p) => p.name.toLowerCase() === (nameOrLegacyValue ?? '').toLowerCase());
+  // Falls back to the default for both an unset value and a pre-restructure
+  // install's saved raw hex (that old single-color scheme has no 1:1
+  // mapping onto a primary+accent pair) — a fresh pick from the Settings
+  // page is one click away, and this is a low-user personal app under
+  // active development, so a full hue-matching migration isn't worth it.
+  return found ?? ACCENT_PRESETS[0];
+}
 
 // ---- Small hex-RGB mix helper (no new dependency) ----
 // Blends `amount` (0-1) of `tint` into `base`, returning an opaque hex
@@ -60,11 +61,41 @@ function mix(base: string, tint: string, amount: number): string {
   return `#${[c('r'), c('g'), c('b')].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
+// ---- WCAG contrast helpers ----
+// MUI's own getContrastText only enforces a 3:1 ratio; this app targets AA's
+// 4.5:1 for normal text, so every place that needs a readable color on top
+// of an arbitrary/user-chosen background (theme primary/accent swatches,
+// disruption-type chips, etc.) should go through this instead of trusting
+// MUI's default pick.
+function relativeLuminance(hex: string): number {
+  const { r, g, b } = hexToRgb(hex);
+  const lin = (c: number) => {
+    const cs = c / 255;
+    return cs <= 0.03928 ? cs / 12.92 : Math.pow((cs + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+export function contrastRatio(hexA: string, hexB: string): number {
+  const lA = relativeLuminance(hexA);
+  const lB = relativeLuminance(hexB);
+  const [lighter, darker] = lA > lB ? [lA, lB] : [lB, lA];
+  return (lighter + 0.05) / (darker + 0.05);
+}
+/**
+ * The WCAG-AA-safe text color to put on top of `bgHex` — prefers solid
+ * white, falling back to MUI's own translucent-black token only when white
+ * can't clear 4.5:1 against this particular background.
+ */
+export function contrastTextFor(bgHex: string): string {
+  return contrastRatio(bgHex, '#ffffff') >= 4.5 ? '#ffffff' : 'rgba(0, 0, 0, 0.87)';
+}
+
 export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_ACCENT): Theme {
   const isLight = mode === 'light';
+  const { primary, accent } = resolveAccentPreset(accentColor);
 
-  // Neutral bases with NO baked-in hue — accentColor supplies the tint below,
-  // so every one of the 19 accent presets (not just green) reads as
+  // Neutral bases with NO baked-in hue — the theme's primary color supplies
+  // the tint below, so every preset (not just Canopy green) reads as
   // intentional throughout the app, not just on buttons/icons.
   const canvasBase = isLight ? '#f3f3f1' : '#111111';
   const paperBase   = isLight ? '#ffffff' : '#1a1a1a';
@@ -75,32 +106,31 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
     palette: {
       mode,
       primary: {
-        main: accentColor,
-        // MUI auto-derives light/dark/contrastText when only main is set
+        main: primary,
+        contrastText: contrastTextFor(primary),
       },
       secondary: {
-        main: isLight ? '#5f6368' : '#9aa0a6',
-        light: '#80868b',
-        dark: '#3c4043',
+        main: accent,
+        contrastText: contrastTextFor(accent),
       },
       error:   { main: isLight ? '#d93025' : '#f28b82' },
       warning: { main: isLight ? '#f9ab00' : '#fdd663' },
       success: { main: isLight ? '#2E7D32' : '#81c995' },
       info:    { main: isLight ? '#0277BD' : '#4fc3f7' },
       background: {
-        default: mix(canvasBase, accentColor, isLight ? 0.09 : 0.16),
-        paper:   mix(paperBase, accentColor, isLight ? 0.035 : 0.075),
+        default: mix(canvasBase, primary, isLight ? 0.09 : 0.16),
+        paper:   mix(paperBase, primary, isLight ? 0.035 : 0.075),
       },
       text: {
         primary:   isLight ? '#1b1b1b' : '#e8e8e8',
         secondary: isLight ? '#5f6368' : '#9aa0a6',
       },
-      divider: dividerBase ? mix(dividerBase, accentColor, 0.20) : 'rgba(255,255,255,0.16)',
+      divider: dividerBase ? mix(dividerBase, primary, 0.20) : 'rgba(255,255,255,0.16)',
       action: {
         // Material's own state-layer spec: hover 8%, selected 12% — this was
         // sitting well under that (4%/7%), which read as flat/low-contrast.
         hover:    isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.11)',
-        selected: isLight ? alpha(accentColor, 0.12) : alpha(accentColor, 0.24),
+        selected: isLight ? alpha(primary, 0.12) : alpha(primary, 0.24),
       },
     },
     typography: {
@@ -132,6 +162,20 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
           contained: {
             boxShadow: 'none',
             '&:hover': { boxShadow: '0 2px 8px rgba(0,0,0,0.18)' },
+          },
+        },
+      },
+      MuiIconButton: {
+        styleOverrides: {
+          // Default `size="small"` IconButton is ~5px padding around a
+          // ~20px icon — a ~30px hit area, well under the ~40-44px touch-
+          // target guideline. Applied once here (rather than at each of the
+          // many call sites across the app) so every small icon button —
+          // edit/delete actions, dialog close buttons, calendar nav — gets
+          // a consistent, larger click zone without changing how the icon
+          // itself looks.
+          sizeSmall: {
+            padding: 10,
           },
         },
       },
@@ -192,7 +236,7 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
           paper: ({ theme }) => ({
             borderRight: `1px solid ${theme.palette.divider}`,
             boxShadow: 'none',
-            backgroundColor: mix(drawerBase, accentColor, isLight ? 0.11 : 0.19),
+            backgroundColor: mix(drawerBase, primary, isLight ? 0.11 : 0.19),
           }),
         },
       },

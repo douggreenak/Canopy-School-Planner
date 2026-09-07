@@ -2,7 +2,7 @@
 // ============================================================
 // Client-side data fetching hooks
 // ============================================================
-import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import type { SchoolClass, Homework, Exam, Task, ScheduleDisruption, GradeHistoryEntry, SyncLogEntry, AppSettings } from '@/types';
 
 // Global state to deduplicate ongoing requests and provide a basic cache.
@@ -92,6 +92,60 @@ function getSnapshot<T>(url: string): T | null {
 export function clearClientCache() {
   globalCache.clear();
   ongoingRequests.clear();
+}
+
+/**
+ * Debounces a callback — used by the Settings page's autosave text fields so
+ * a fast typist doesn't fire one request per keystroke. Returns a stable
+ * function reference; always calls the LATEST `fn` passed in (via a ref),
+ * so callers don't need to worry about stale closures the way a plain
+ * useCallback-wrapped debounce would.
+ */
+export function useDebouncedCallback<A extends unknown[]>(fn: (...args: A) => void, delayMs: number): (...args: A) => void {
+  const fnRef = useRef(fn);
+  // Assigning ref.current directly during render is unsafe (disallowed by
+  // the react-hooks/refs lint rule) — commit the latest `fn` in an effect
+  // instead. Safe here because the returned callback is only ever invoked
+  // later from a real event (a keystroke), well after effects have flushed.
+  useEffect(() => { fnRef.current = fn; });
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  return useCallback((...args: A) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => fnRef.current(...args), delayMs);
+  }, [delayMs]);
+}
+
+export type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+/**
+ * Tracks a brief "Saving… / Saved" state for one autosaving Settings
+ * section — call markSaving() right before the request, then markSaved()/
+ * markError() when it settles. "Saved" reverts to idle on its own after a
+ * couple seconds; "saving"/"error" don't auto-clear (an error should stay
+ * visible until the next attempt).
+ */
+export function useAutosaveStatus() {
+  const [status, setStatus] = useState<AutosaveStatus>('idle');
+  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const markSaving = useCallback(() => {
+    if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+    setStatus('saving');
+  }, []);
+  const markSaved = useCallback(() => {
+    setStatus('saved');
+    if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+    clearTimerRef.current = setTimeout(() => setStatus('idle'), 2000);
+  }, []);
+  const markError = useCallback(() => {
+    if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+    setStatus('error');
+  }, []);
+
+  useEffect(() => () => { if (clearTimerRef.current) clearTimeout(clearTimerRef.current); }, []);
+
+  return { status, markSaving, markSaved, markError };
 }
 
 async function fetchWithDeduplication<T>(url: string, forceRefresh = false): Promise<T> {

@@ -36,7 +36,8 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import CloseIcon from '@mui/icons-material/Close';
 import MeetingRoomOutlinedIcon from '@mui/icons-material/MeetingRoomOutlined';
 import LaptopOutlinedIcon from '@mui/icons-material/LaptopOutlined';
-import { useHomework, useTasks, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { useHomework, useTasks, useClasses, useDisruptions, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { buildDaySchedule } from '@/lib/calendar';
 import { nextMeetingDate } from '@/lib/schedule';
 import { suggestRebalancing } from '@/lib/heatmap';
 import { completedForStage, loadLastStageTemplate, saveLastStageTemplate } from '@/lib/stages';
@@ -100,6 +101,30 @@ export default function TasksPage() {
   const { data: homework, refetch: refetchHw, mutate: mutateHw } = useHomework();
   const { data: tasks, loading, refetch: refetchTasks, mutate: mutateTasks } = useTasks();
   const { data: classes } = useClasses();
+  const { data: disruptions } = useDisruptions();
+
+  // classId::dueDate -> that class's meeting on that date is cancelled by a
+  // disruption. Powers the "Class cancelled" flag on an "in class" item
+  // whose class isn't actually meeting that day (see TaskRow's
+  // classDisrupted prop) — only computed for dates that actually have an
+  // in-class item due, not the whole visible range.
+  const disruptedClassInstances = useMemo(() => {
+    const flagged = new Set<string>();
+    if (!classes || !disruptions || disruptions.length === 0) return flagged;
+    const items = [...(homework ?? []), ...(tasks ?? [])];
+    const relevantDates = new Set(
+      items.filter((i) => i.dueTiming === 'in_class' && i.classId && i.dueDate).map((i) => i.dueDate),
+    );
+    for (const date of relevantDates) {
+      const day = buildDaySchedule(date, classes, disruptions);
+      for (const entry of day.classes) {
+        if (entry.cancelled) flagged.add(`${entry.classInfo.id}::${date}`);
+      }
+    }
+    return flagged;
+  }, [classes, disruptions, homework, tasks]);
+  const isClassDisrupted = (classId: string | undefined, dueDate: string) =>
+    !!classId && disruptedClassInstances.has(`${classId}::${dueDate}`);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -110,12 +135,14 @@ export default function TasksPage() {
   const [addKind, setAddKind] = useState<ItemKind>('task');
   const [editingHw, setEditingHw] = useState<Homework | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  // dueTiming defaults to 'in_class' — previously unset, which left every
+  // new item with no When chip at all until the user picked one by hand.
   const [hwForm, setHwForm] = useState<Homework>({
     id: '', classId: '', title: '', description: '', dueDate: '',
-    completed: false, priority: 'medium', source: 'manual',
+    completed: false, priority: 'medium', source: 'manual', dueTiming: 'in_class',
   });
   const [taskForm, setTaskForm] = useState<Task>({
-    id: '', title: '', description: '', dueDate: '', completed: false, priority: 'medium', category: 'General',
+    id: '', title: '', description: '', dueDate: '', completed: false, priority: 'medium', category: 'General', dueTiming: 'in_class',
   });
 
   // Item detail dialog — tracks which row (task or homework) is open by
@@ -169,11 +196,29 @@ export default function TasksPage() {
     [homework],
   );
 
+  // IDs that were JUST marked complete — kept visible in the To Do tab for
+  // one beat after checking (see markRecentlyCompleted below) so TaskRow's
+  // green completion-fill animation has time to actually play before the
+  // row would otherwise instantly vanish from this filtered list.
+  const [recentlyCompletedIds, setRecentlyCompletedIds] = useState<Set<string>>(new Set());
+  const RECENT_COMPLETE_LINGER_MS = 700;
+  const markRecentlyCompleted = (id: string) => {
+    setRecentlyCompletedIds((prev) => new Set(prev).add(id));
+    setTimeout(() => {
+      setRecentlyCompletedIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, RECENT_COMPLETE_LINGER_MS);
+  };
+
   const merged = useMemo((): ListItem[] => {
     const hwItems: ListItem[] = manualHomework.map((d) => ({ kind: 'homework', data: d }));
     const taskItems: ListItem[] = (tasks || []).map((d) => ({ kind: 'task', data: d }));
     let list = [...hwItems, ...taskItems];
-    if (tab === 0) list = list.filter((item) => !item.data.completed);
+    if (tab === 0) list = list.filter((item) => !item.data.completed || recentlyCompletedIds.has(item.data.id));
     else if (tab === 1) list = list.filter((item) => item.data.completed);
     return list.sort((a, b) => {
       const ad = a.data.dueDate, bd = b.data.dueDate;
@@ -182,9 +227,13 @@ export default function TasksPage() {
       if (!bd) return -1;
       return dayjs(ad).diff(dayjs(bd));
     });
-  }, [manualHomework, tasks, tab]);
+  }, [manualHomework, tasks, tab, recentlyCompletedIds]);
 
-  const pendingCount = manualHomework.filter((h) => !h.completed).length + (tasks || []).filter((t) => !t.completed).length;
+  // Matches the same "still lingering post-completion" exception as the To
+  // Do list filter above, so the tab's count never disagrees with what's
+  // actually shown in it (e.g. "To Do (3)" while only 2 rows are visible).
+  const pendingCount = manualHomework.filter((h) => !h.completed || recentlyCompletedIds.has(h.id)).length
+    + (tasks || []).filter((t) => !t.completed || recentlyCompletedIds.has(t.id)).length;
   const doneCount = manualHomework.filter((h) => h.completed).length + (tasks || []).filter((t) => t.completed).length;
 
   const rebalancingByHwId = useMemo(() => {
@@ -207,7 +256,7 @@ export default function TasksPage() {
     // a convenience default only, not an enforced setting: it's fully
     // editable/clearable right here, per item.
     const template = loadLastStageTemplate();
-    setTaskForm({ id: uuid(), title: '', description: '', dueDate: dayjs().format('YYYY-MM-DD'), completed: false, priority: 'medium', category: 'General', classId: undefined, stages: template });
+    setTaskForm({ id: uuid(), title: '', description: '', dueDate: dayjs().format('YYYY-MM-DD'), completed: false, priority: 'medium', category: 'General', classId: undefined, stages: template, dueTiming: 'in_class' });
     setDialogOpen(true);
   };
 
@@ -273,6 +322,7 @@ export default function TasksPage() {
 
   const toggleHw = async (hw: Homework) => {
     const next = !hw.completed;
+    if (next) markRecentlyCompleted(hw.id);
     const stages = hw.stages ?? [];
     const nextStageId = stages.length > 0 ? (next ? stages[stages.length - 1].id : undefined) : hw.stageId;
     mutateHw((prev) => prev ? prev.map((h) => h.id === hw.id ? { ...h, completed: next, stageId: nextStageId } : h) : prev);
@@ -287,6 +337,7 @@ export default function TasksPage() {
 
   const toggleTask = async (task: Task) => {
     const next = !task.completed;
+    if (next) markRecentlyCompleted(task.id);
     const stages = task.stages ?? [];
     const nextStageId = stages.length > 0 ? (next ? stages[stages.length - 1].id : undefined) : task.stageId;
     mutateTasks((prev) => prev ? prev.map((t) => t.id === task.id ? { ...t, completed: next, stageId: nextStageId } : t) : prev);
@@ -371,7 +422,7 @@ export default function TasksPage() {
 
   const quickAddHomework = async (cls: SchoolClass) => {
     const due = nextMeetingDate(cls.days || []) || dayjs().add(1, 'day').format('YYYY-MM-DD');
-    const task: Task = { id: uuid(), title: 'Homework', description: '', dueDate: due, completed: false, priority: 'medium', category: 'Homework', classId: cls.id, stages: loadLastStageTemplate() };
+    const task: Task = { id: uuid(), title: 'Homework', description: '', dueDate: due, completed: false, priority: 'medium', category: 'Homework', classId: cls.id, stages: loadLastStageTemplate(), dueTiming: 'in_class' };
     mutateTasks((prev) => prev ? [task, ...prev] : [task]);
     try {
       await apiPost('/api/tasks', task);
@@ -519,6 +570,7 @@ export default function TasksPage() {
                 classChip={cls ? { name: cls.name, color: cls.color } : null}
                 categoryLabel="Homework"
                 dueTiming={hw.dueTiming}
+                classDisrupted={isClassDisrupted(hw.classId, hw.dueDate)}
                 priority={hw.priority}
                 stageChip={stageChip(hw)}
                 rebalanceHint={rebalance && !hw.completed ? (
@@ -549,6 +601,7 @@ export default function TasksPage() {
               classChip={taskCls ? { name: taskCls.name, color: taskCls.color } : null}
               categoryLabel={task.category}
               dueTiming={task.dueTiming}
+              classDisrupted={isClassDisrupted(task.classId, task.dueDate)}
               priority={task.priority}
               stageChip={stageChip(task)}
               onToggle={() => toggleTask(task)}

@@ -19,13 +19,14 @@ export async function GET(request: Request) {
     }
   }
 
-  if (!process.env.DATABASE_URL) {
-    cache = { at: Date.now(), ok: false };
-    return Response.json({ ok: false });
-  }
-
+  // Note: this deliberately does NOT short-circuit to `ok: false` when
+  // DATABASE_URL is unset — locally, `@neondatabase/serverless` is replaced
+  // by a dev-only shim (see the "LOCAL DEV/DEMO SHIM" comment at the top of
+  // that package) that ignores the connection string and always works
+  // against an in-memory Postgres, so a missing env var doesn't necessarily
+  // mean the database is actually unreachable. Let the query itself decide.
   try {
-    const sql = neon(process.env.DATABASE_URL);
+    const sql = neon(process.env.DATABASE_URL ?? '');
     await sql`SELECT 1`;
     cache = { at: Date.now(), ok: true };
     return Response.json({ ok: true });

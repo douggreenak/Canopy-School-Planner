@@ -29,6 +29,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import RoomIcon from '@mui/icons-material/Room';
 import PersonIcon from '@mui/icons-material/Person';
 import { useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { contrastTextFor } from '@/lib/theme';
 import dynamic from 'next/dynamic';
 // Only needed once the Add/Edit dialog actually opens — deferring it to its
 // own chunk keeps it out of this page's initial JS. It's mounted
@@ -156,7 +157,7 @@ export default function ClassesPage() {
                     <Chip key={d} label={DAY_NAMES[d]} size="small" variant="outlined" />
                   ))}
                 </Box>
-                <Chip label={cls.semester} size="small" sx={{ mt: 1, backgroundColor: cls.color + '18', color: cls.color, fontWeight: 500 }} />
+                <Chip label={cls.semester} size="small" sx={{ mt: 1, backgroundColor: cls.color, color: contrastTextFor(cls.color), fontWeight: 500 }} />
               </CardContent>
             </Card>
           </Grid>

@@ -16,6 +16,7 @@ import type {
 } from '@/types';
 import { v4 as uuid } from 'uuid';
 import { parseStages } from '@/lib/stages';
+import { detectApFromName } from '@/lib/apDetection';
 
 // The Neon HTTP driver is stateless (each query is an independent fetch, no
 // socket to pool), so a single client can be reused across requests/invocations
@@ -561,7 +562,7 @@ export async function addClass(c: SchoolClass, userId: string): Promise<void> {
       ${c.semester}, ${c.source ?? null}, ${c.sourceId ?? null},
       ${c.grade ?? null}, ${c.gradePercent ?? null},
       ${c.categoryWeights ? JSON.stringify(c.categoryWeights) : null}::jsonb, ${c.weightSource ?? null},
-      ${c.isAp ?? false}
+      ${c.isAp ?? detectApFromName(c.name)}
     )
   `;
 }
@@ -1196,7 +1197,7 @@ export async function syncClassesFromSource(
             ${cls.semester}, ${source}, ${cls.sourceId ?? null},
             ${cls.grade ?? null}, ${cls.gradePercent ?? null},
             ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
-            ${cls.weightSource ?? null}, ${cls.isAp ?? false}
+            ${cls.weightSource ?? null}, ${cls.isAp ?? detectApFromName(cls.name)}
           )
         `);
         idMap.set(cls.id, cls.id);
@@ -1255,7 +1256,7 @@ export async function syncClassesFromSource(
           ${cls.semester}, ${source}, ${null},
           ${cls.grade ?? null}, ${cls.gradePercent ?? null},
           ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
-          ${cls.weightSource ?? null}, ${cls.isAp ?? false}
+          ${cls.weightSource ?? null}, ${cls.isAp ?? detectApFromName(cls.name)}
         )
       `);
       idMap.set(cls.id, cls.id);
@@ -1315,7 +1316,7 @@ export async function syncClassesFromSource(
           ${cls.semester}, ${source}, ${cls.sourceId ?? null},
           ${cls.grade ?? null}, ${cls.gradePercent ?? null},
           ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
-          ${cls.weightSource ?? null}, ${cls.isAp ?? false}
+          ${cls.weightSource ?? null}, ${cls.isAp ?? detectApFromName(cls.name)}
         )
       `);
       idMap.set(cls.id, cls.id);

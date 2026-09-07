@@ -20,6 +20,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import type { SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
+import { detectApFromName } from '@/lib/apDetection';
 
 interface Props {
   open: boolean;
@@ -77,6 +78,12 @@ export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
   const [form, setForm] = useState<SchoolClass>(empty);
   const [weightRows, setWeightRows] = useState<WeightRow[]>([]);
   const [showWeights, setShowWeights] = useState(false);
+  // Whether the user has manually touched the AP switch this session — until
+  // they do, a brand-new class's AP flag live-suggests itself from the name
+  // typed so far (see updateName below). Editing an existing class never
+  // auto-suggests: its stored isAp (possibly a deliberate manual override)
+  // is left exactly as-is.
+  const [apTouched, setApTouched] = useState(false);
 
   useEffect(() => {
     const base = initial ?? { ...empty, id: uuid() };
@@ -84,10 +91,19 @@ export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
     const rows = weightsToRows(base.categoryWeights);
     setWeightRows(rows);
     setShowWeights(rows.length > 0);
+    setApTouched(!!initial);
   }, [initial, open]);
 
   const update = (field: keyof SchoolClass, value: unknown) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateName = (value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      name: value,
+      isAp: !apTouched ? detectApFromName(value) : prev.isAp,
+    }));
   };
 
   const toggleDay = (day: number) => {
@@ -149,7 +165,7 @@ export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
       <DialogContent>
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Grid size={12}>
-            <TextField fullWidth label="Class Name" value={form.name} onChange={(e) => update('name', e.target.value)} />
+            <TextField fullWidth label="Class Name" value={form.name} onChange={(e) => updateName(e.target.value)} />
           </Grid>
           <Grid size={6}>
             <TextField fullWidth label="Teacher" value={form.teacher} onChange={(e) => update('teacher', e.target.value)} />
@@ -210,12 +226,18 @@ export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
           {/* AP / weighted-GPA flag */}
           <Grid size={12}>
             <FormControlLabel
-              control={<Switch checked={!!form.isAp} onChange={(e) => update('isAp', e.target.checked)} />}
+              control={
+                <Switch
+                  checked={!!form.isAp}
+                  onChange={(e) => { setApTouched(true); update('isAp', e.target.checked); }}
+                />
+              }
               label={
                 <Box>
                   <Typography variant="body2" sx={{ fontWeight: 500 }}>AP Class</Typography>
                   <Typography variant="caption" color="text.secondary">
                     Counts as weighted (+1.0) in the Transcript page&apos;s weighted GPA.
+                    {!initial && !apTouched && ' Auto-detected from the class name — flip this if it\'s wrong.'}
                   </Typography>
                 </Box>
               }

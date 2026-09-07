@@ -39,7 +39,8 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import CloseIcon from '@mui/icons-material/Close';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
-import { useClasses, useDisruptions, useSettings, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { useClasses, useDisruptions, useSettings, useHomework, useTasks, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { buildDueCountMap } from '@/lib/dueCounts';
 import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, getWeekSchedule, buildLathropEarlyOutTemplate, weekViewStart } from '@/lib/schedule';
 import dynamic from 'next/dynamic';
 // Only one of Day/Week/Year is ever visible at once (tab-switched) — deferring
@@ -128,6 +129,14 @@ function SchedulePageInner() {
 
   const { data: classes, loading: cLoading } = useClasses();
   const { data: disruptions, loading: dLoading, refetch } = useDisruptions();
+  const { data: homework } = useHomework();
+  const { data: tasks } = useTasks();
+  // classId::date -> count of assignments due at that class instance —
+  // powers the small badge on each class's calendar block (Day/Week views).
+  const dueCounts = useMemo(
+    () => buildDueCountMap([...(homework ?? []), ...(tasks ?? [])]),
+    [homework, tasks],
+  );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ScheduleDisruption | null>(null);
   const [form, setForm] = useState<ScheduleDisruption>({
@@ -318,7 +327,7 @@ function SchedulePageInner() {
         <Tabs
           value={VIEW_MODE_INDEX[view]}
           onChange={(_, v: number) => setView(VIEW_MODES[v])}
-          sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
+          sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           <Tab label="Day" />
           <Tab label="Week" />
@@ -350,6 +359,7 @@ function SchedulePageInner() {
                 date={selectedDate.format('YYYY-MM-DD')}
                 onClassClick={handleDayClick}
                 hasClasses={!!classes && classes.length > 0}
+                dueCounts={dueCounts}
               />
             )}
             {view === 'week' && weekSchedule && (
@@ -357,6 +367,7 @@ function SchedulePageInner() {
                 schedule={weekSchedule}
                 weekStart={weekViewStart(selectedDate).format('YYYY-MM-DD')}
                 onClassClick={handleWeekClick}
+                dueCounts={dueCounts}
               />
             )}
             {view === 'year' && disruptions && (

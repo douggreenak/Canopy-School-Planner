@@ -30,6 +30,14 @@ body {
   100% { box-shadow: 0 0 0 0   rgba(211, 47, 47, 0);    }
 }
 
+/* Task-complete "fill" — a green circle grows from the checkbox out across
+   the whole row, then fades, when a task is checked off. See TaskRow.tsx. */
+@keyframes taskCompleteFill {
+  0%   { clip-path: circle(0% at var(--fill-origin-x, 24px) 50%); opacity: 0.55; }
+  70%  { opacity: 0.4; }
+  100% { clip-path: circle(150% at var(--fill-origin-x, 24px) 50%); opacity: 0; }
+}
+
 /* ─── Scrollbar ─────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 8px;

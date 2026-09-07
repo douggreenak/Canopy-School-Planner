@@ -15,6 +15,7 @@ import { DAY_START_MIN, DAY_END_MIN, TOTAL_HEIGHT, PX_PER_HOUR, TIME_GUTTER, hou
 import dayjs from 'dayjs';
 import type { DaySchedule, ScheduleEntry } from '@/types';
 import { disruptionTypeLabel } from '@/lib/disruptionTypes';
+import { dueCountFor } from '@/lib/dueCounts';
 
 interface Props {
   schedule: DaySchedule[];
@@ -22,6 +23,8 @@ interface Props {
   // Optional click handler. Receives both the entry and its date so the
   // page shows the correct day-specific dialog.
   onClassClick?: (entry: ScheduleEntry, date: string) => void;
+  // classId::date -> count of homework/tasks due at that class instance.
+  dueCounts?: Map<string, number>;
 }
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -83,9 +86,10 @@ interface ClassBlockProps {
   date: string;
   onClassClick?: (entry: ScheduleEntry, date: string) => void;
   debug: boolean;
+  dueCount: number;
 }
 
-const ClassBlock = memo(({ entry, top, height, theme, date, onClassClick, debug }: ClassBlockProps) => {
+const ClassBlock = memo(({ entry, top, height, theme, date, onClassClick, debug, dueCount }: ClassBlockProps) => {
   const clickable = !!onClassClick;
 
   if (debug) {
@@ -125,9 +129,14 @@ const ClassBlock = memo(({ entry, top, height, theme, date, onClassClick, debug 
         cursor: clickable ? 'pointer' : 'default',
         transition: 'background-color 0.12s',
         '&:hover': clickable ? {
+          // Was alpha(..., 0.9) — near-opaque enough that the label's fixed
+          // text.primary color failed WCAG AA against several class colors
+          // in dark mode (as low as 1.67:1). A much lower hover alpha still
+          // reads as a clear "raised" state (vs. the 0.14 resting fill) and
+          // keeps text.primary legible against every swatch in both modes.
           backgroundColor: entry.cancelled
             ? theme.palette.action.disabledBackground
-            : alpha(entry.classInfo.color, 0.9),
+            : alpha(entry.classInfo.color, 0.26),
           boxShadow: `0 4px 18px ${alpha(theme.palette.common.black, 0.14)}`,
         } : undefined,
         '&:focus-visible': clickable ? {
@@ -137,6 +146,30 @@ const ClassBlock = memo(({ entry, top, height, theme, date, onClassClick, debug 
         zIndex: 1,
       }}
     >
+      {dueCount > 0 && (
+        <Box
+          aria-label={`${dueCount} assignment${dueCount === 1 ? '' : 's'} due`}
+          sx={{
+            position: 'absolute',
+            top: 2,
+            right: 2,
+            minWidth: 14,
+            height: 14,
+            px: '3px',
+            borderRadius: '7px',
+            bgcolor: 'error.main',
+            color: 'error.contrastText',
+            fontSize: '0.58rem',
+            fontWeight: 700,
+            lineHeight: '14px',
+            textAlign: 'center',
+            zIndex: 2,
+            animation: 'popIn 0.3s ease-out',
+          }}
+        >
+          {dueCount}
+        </Box>
+      )}
       <Typography
         variant="caption"
         sx={{
@@ -149,6 +182,7 @@ const ClassBlock = memo(({ entry, top, height, theme, date, onClassClick, debug 
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
+          pr: dueCount > 0 ? 2 : 0,
         }}
       >
         {entry.classInfo.name}
@@ -177,7 +211,7 @@ ClassBlock.displayName = 'ClassBlock';
 // 550 px ≈ 8.6 hours, covering a typical 7 AM–3:30 PM school day.
 const BODY_MAX_HEIGHT = 550;
 
-export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
+export default function WeekView({ schedule, weekStart, onClassClick, dueCounts }: Props) {
   const theme = useTheme();
   const debug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debugSchedule') === '1';
   const start = dayjs(weekStart);
@@ -344,6 +378,10 @@ export default function WeekView({ schedule, weekStart, onClassClick }: Props) {
                       date={day.date}
                       onClassClick={onClassClick}
                       debug={debug}
+                      // No badge when this specific meeting is cancelled —
+                      // "1 due at this class" is misleading when the class
+                      // isn't actually meeting.
+                      dueCount={entry.cancelled ? 0 : dueCountFor(dueCounts, entry.classInfo.id, day.date)}
                     />
                   ))}
 

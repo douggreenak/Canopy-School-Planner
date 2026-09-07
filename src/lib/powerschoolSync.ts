@@ -13,6 +13,7 @@ import {
   addSyncLogEntries,
   addGradeHistoryEntries,
   setSyncStatus,
+  setSetting,
   tryAcquireSyncLock,
   releaseSyncLock,
 } from '@/lib/db';
@@ -74,8 +75,22 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
     const hwStats = await syncHomeworkFromSource('powerschool', remappedAssignments, userId, syncId);
     result.log.push(`Assignments: ${hwStats.added} added, ${hwStats.updated} updated, ${hwStats.removed} removed`);
 
+    // Every completed sync leaves at least one sync_log row — including a
+    // "nothing changed" sync — so the Log tab (and a human checking it) can
+    // always tell a scheduled sync actually ran, not just that one never
+    // happened to change anything.
     const allLogEntries = [...classStats.logEntries, ...hwStats.logEntries];
-    if (allLogEntries.length > 0) await addSyncLogEntries(userId, allLogEntries);
+    if (allLogEntries.length === 0) {
+      allLogEntries.push({
+        syncId,
+        entityType: 'sync',
+        entityId: syncId,
+        label: 'Sync completed',
+        changeType: 'none',
+        detail: `No changes — ${classStats.added + classStats.updated} classes, ${hwStats.added + hwStats.updated} assignments checked.`,
+      });
+    }
+    await addSyncLogEntries(userId, allLogEntries);
 
     const gradeSnapshots = result.classes
       .filter((cls) => cls.gradePercent !== undefined || cls.grade)
@@ -91,10 +106,17 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
     for (const line of result.log) console.log(`[ps] ${line}`);
     console.log('=== end sync ===');
 
+    // Written here — the one place both the manual "Sync Now" flow and the
+    // scheduled cron flow both pass through — so a scheduled sync (which has
+    // no browser tab open to do it client-side) still updates the "Last
+    // synced" caption on the Grades page.
+    const finishedAtIso = new Date().toISOString();
+    await setSetting('lastSyncAt', finishedAtIso, userId);
+
     await setSyncStatus(userId, {
       syncId,
       status: 'success',
-      finishedAt: new Date().toISOString(),
+      finishedAt: finishedAtIso,
       log: result.log,
       result: {
         classCount: classStats.added + classStats.updated,

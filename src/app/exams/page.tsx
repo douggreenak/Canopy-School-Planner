@@ -33,6 +33,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import { useExams, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
 import { letterFromPercent } from '@/lib/grades';
+import { contrastTextFor } from '@/lib/theme';
 import type { Exam, SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
 
@@ -163,7 +164,17 @@ export default function ExamsPage() {
               <Chip
                 size="small"
                 label={getClassName(exam.classId)}
-                sx={{ backgroundColor: getClassColor(exam.classId) + '18', color: getClassColor(exam.classId), fontWeight: 500, fontSize: '0.7rem', mb: 1 }}
+                sx={{
+                  // Solid background + a computed WCAG-AA-safe text color —
+                  // a same-hue tint (bg alpha ~9%, text = the raw swatch)
+                  // fails contrast badly for several of the class-color
+                  // swatches, same underlying issue as the disruption chips.
+                  backgroundColor: getClassColor(exam.classId) || 'action.selected',
+                  color: getClassColor(exam.classId) ? contrastTextFor(getClassColor(exam.classId)) : 'text.primary',
+                  fontWeight: 500,
+                  fontSize: '0.7rem',
+                  mb: 1,
+                }}
               />
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 1 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -208,7 +219,10 @@ export default function ExamsPage() {
   };
 
   return (
-    <Box sx={{ pb: 10 }}>
+    // pb was 10 (80px) — exactly equal to the fixed FAB's own footprint
+    // (56px + bottom:24px), so the last card touched it with zero visual
+    // gap. Bumped enough to leave a clear buffer above the FAB.
+    <Box sx={{ pb: 14 }}>
       <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 0.5 }}>Exams</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Upcoming tests and exams — set a weight to see how the score could affect your grade.

@@ -59,6 +59,8 @@ const LoginScreen = dynamic(() => import('@/components/LoginScreen'), {
   ),
 });
 import SaveStatusIndicator, { SaveStatusIcon } from '@/components/SaveStatusIndicator';
+import GlobalShortcuts from '@/components/GlobalShortcuts';
+import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal';
 import { clearClientCache, apiGet } from '@/lib/hooks';
 
 const DRAWER_WIDTH   = 256;
@@ -260,6 +262,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('open-setup-wizard', handler);
   }, []);
 
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setShortcutsOpen(true);
+    window.addEventListener('open-keyboard-shortcuts', handler);
+    return () => window.removeEventListener('open-keyboard-shortcuts', handler);
+  }, []);
+
   useEffect(() => {
     if (!currentUser) return;
     // apiGet — shares the cache/dedup layer with the Settings page's own
@@ -429,6 +439,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         required={wizardRequired}
         onClose={() => { setWizardOpen(false); setWizardRequired(false); }}
       />
+      <GlobalShortcuts />
+      <KeyboardShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
       {/* Mobile top bar */}
       {isMobile && (
