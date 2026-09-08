@@ -119,14 +119,6 @@ export default function ItemDetailDialog({ open, item, kind, linkedClass, onClos
   const overdue = !item.completed && dueValid && due!.endOf('day').isBefore(dayjs());
   const kindLabel = kind === 'homework' ? 'Homework' : 'Task';
 
-  // Color the top stripe by priority for a quick at-a-glance signal.
-  const stripeColor =
-    item.priority === 'high'
-      ? theme.palette.error.main
-      : item.priority === 'medium'
-        ? theme.palette.warning.main
-        : theme.palette.action.disabled;
-
   const handleEdit = () => {
     onClose();
     onEdit(item);
@@ -139,8 +131,11 @@ export default function ItemDetailDialog({ open, item, kind, linkedClass, onClos
 
   return (
     <Dialog open={open} onClose={onClose} onKeyDown={onKeyDown} maxWidth="sm" fullWidth fullScreen={fullScreen}>
-      {/* Priority-colored top stripe — subtle visual link to the list row. */}
-      <Box sx={{ height: 6, bgcolor: stripeColor }} />
+      {/* A plain brand-accent stripe, not priority-colored — priority already
+          has its own chip below, and coloring the whole top edge by priority
+          (red/orange/gray) read as a severity/status bar, which competed with
+          the actual status text just underneath it. */}
+      <Box sx={{ height: 6, bgcolor: theme.palette.secondary.main }} />
 
       <Box sx={{ display: 'flex', alignItems: 'flex-start', px: 3, pt: 2.5, pb: 1, gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>

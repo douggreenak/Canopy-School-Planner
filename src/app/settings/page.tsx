@@ -68,7 +68,7 @@ function localHourLabel(utcHour: number): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 import { useThemeMode } from '@/components/ThemeRegistry';
-import { ACCENT_PRESETS } from '@/lib/theme';
+import { ACCENT_PRESETS, resolvePresetColors } from '@/lib/theme';
 import TimezonePicker from '@/components/TimezonePicker';
 import type { SchoolClass } from '@/types';
 
@@ -81,7 +81,7 @@ export default function SettingsPage() {
 }
 
 function SettingsInner() {
-  const { mode: themeMode, setMode: setThemeMode, accentColor, setAccentColor } = useThemeMode();
+  const { mode: themeMode, resolved: resolvedThemeMode, setMode: setThemeMode, accentColor, setAccentColor } = useThemeMode();
   const { data: importedClasses, loading: classesLoading, refetch: refetchClasses } = useClasses();
   const refetchClassesList = refetchClasses; // alias — same hook instance
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -752,6 +752,11 @@ function SettingsInner() {
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2.5, rowGap: 1.5 }}>
               {ACCENT_PRESETS.map((preset) => {
                 const selected = accentColor === preset.name;
+                // Swatch must track the *currently applied* mode's calibration —
+                // showing the light-mode hex while dark mode is active (and the
+                // app is actually rendering primaryDark/accentDark everywhere)
+                // made the swatch a poor preview of what you'd actually get.
+                const { primary: swatchPrimary, accent: swatchAccent } = resolvePresetColors(preset, resolvedThemeMode);
                 return (
                   <Tooltip key={preset.name} title={preset.name} arrow>
                     <Box
@@ -776,7 +781,7 @@ function SettingsInner() {
                           width: '100%',
                           height: '100%',
                           borderRadius: '50%',
-                          bgcolor: preset.primary,
+                          bgcolor: swatchPrimary,
                           boxSizing: 'border-box',
                           border: '3px solid',
                           borderColor: selected ? 'text.primary' : 'transparent',
@@ -792,7 +797,7 @@ function SettingsInner() {
                           width: 18,
                           height: 18,
                           borderRadius: '50%',
-                          bgcolor: preset.accent,
+                          bgcolor: swatchAccent,
                           boxSizing: 'border-box',
                           border: '2px solid',
                           borderColor: 'background.paper',

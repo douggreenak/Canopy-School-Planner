@@ -56,6 +56,22 @@ export const ACCENT_PRESETS: AccentPreset[] = [
 
 export const DEFAULT_ACCENT = 'Canopy';
 
+/**
+ * The actual primary/accent hex a preset renders as in a given resolved
+ * mode — light modes get the light calibration, dark gets the dark one.
+ * `getTheme` and any UI previewing a preset (the Settings swatch picker)
+ * both go through this, so a swatch can never show a different color than
+ * what the app actually paints once that mode is active — the previous bug
+ * ("colors look right in the swatch but different once applied") was
+ * exactly this: the swatch always showed the light-mode hex even while
+ * dark mode (rendering primaryDark/accentDark) was active.
+ */
+export function resolvePresetColors(preset: AccentPreset, resolvedMode: 'light' | 'dark'): { primary: string; accent: string } {
+  return resolvedMode === 'light'
+    ? { primary: preset.primary, accent: preset.accent }
+    : { primary: preset.primaryDark, accent: preset.accentDark };
+}
+
 export function resolveAccentPreset(nameOrLegacyValue: string | undefined): AccentPreset {
   const found = ACCENT_PRESETS.find((p) => p.name.toLowerCase() === (nameOrLegacyValue ?? '').toLowerCase());
   // Falls back to the default for both an unset value and a pre-restructure
@@ -122,8 +138,7 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
   // `primary.main`/`color="primary"` usage across the app (icons, nav
   // labels, buttons) is automatically legible in dark mode too, with zero
   // per-component special-casing.
-  const primary = isLight ? preset.primary : preset.primaryDark;
-  const accent  = isLight ? preset.accent  : preset.accentDark;
+  const { primary, accent } = resolvePresetColors(preset, mode);
 
   // Neutral bases with NO baked-in hue — the theme's primary color supplies
   // the tint below, so every preset (not just Canopy green) reads as

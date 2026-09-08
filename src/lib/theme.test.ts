@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ACCENT_PRESETS, DEFAULT_ACCENT, resolveAccentPreset, contrastTextFor, contrastRatio } from '@/lib/theme';
+import { ACCENT_PRESETS, DEFAULT_ACCENT, resolveAccentPreset, resolvePresetColors, getTheme, contrastTextFor, contrastRatio } from '@/lib/theme';
 
 const AA_NORMAL_TEXT = 4.5;
 
@@ -64,6 +64,30 @@ describe('ACCENT_PRESETS', () => {
         expect(contrastRatio(hex, DARK_CANVAS), `${preset.name} ${label} (${hex}) vs dark canvas`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
       }
     }
+  });
+});
+
+describe('resolvePresetColors', () => {
+  // Regression test: the Settings page's theme swatch used to always render
+  // preset.primary/accent (the light-mode hex) even while dark mode was
+  // active, so it drifted from what getTheme() actually applies as
+  // palette.primary.main/secondary.main — a swatch that doesn't match what
+  // you get once you pick it. Every preset, in both modes, must agree.
+  it("matches what getTheme() actually applies as primary.main/secondary.main, for every preset in both modes", () => {
+    for (const preset of ACCENT_PRESETS) {
+      for (const mode of ['light', 'dark'] as const) {
+        const { primary, accent } = resolvePresetColors(preset, mode);
+        const theme = getTheme(mode, preset.name);
+        expect(primary).toBe(theme.palette.primary.main);
+        expect(accent).toBe(theme.palette.secondary.main);
+      }
+    }
+  });
+
+  it('picks the light calibration in light mode and the dark calibration in dark mode', () => {
+    const preset = ACCENT_PRESETS.find((p) => p.name === 'Alaska')!;
+    expect(resolvePresetColors(preset, 'light')).toEqual({ primary: preset.primary, accent: preset.accent });
+    expect(resolvePresetColors(preset, 'dark')).toEqual({ primary: preset.primaryDark, accent: preset.accentDark });
   });
 });
 
