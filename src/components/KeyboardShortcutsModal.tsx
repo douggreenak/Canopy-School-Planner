@@ -12,6 +12,7 @@ import Divider from '@mui/material/Divider';
 import CloseIcon from '@mui/icons-material/Close';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
 import { SHORTCUT_GROUPS } from '@/lib/keyboardShortcuts';
+import { useEnterConfirm } from '@/lib/hooks';
 
 interface Props {
   open: boolean;
@@ -45,7 +46,7 @@ function KeyCap({ label }: { label: string }) {
 
 export default function KeyboardShortcutsModal({ open, onClose }: Props) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog open={open} onClose={onClose} onKeyDown={useEnterConfirm(open, onClose)} maxWidth="xs" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <KeyboardIcon color="primary" />
         <Box sx={{ flex: 1 }}>Keyboard Shortcuts</Box>

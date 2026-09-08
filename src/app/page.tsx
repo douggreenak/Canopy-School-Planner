@@ -19,6 +19,7 @@ import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Button from '@mui/material/Button';
 import Skeleton from '@mui/material/Skeleton';
+import Tooltip from '@mui/material/Tooltip';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
@@ -39,7 +40,7 @@ import dynamic from 'next/dynamic';
 const DayView = dynamic(() => import('@/components/DayView'));
 const WeekView = dynamic(() => import('@/components/WeekView'));
 const YearView = dynamic(() => import('@/components/YearView'));
-import { disruptionTypeLabel } from '@/lib/disruptionTypes';
+import { disruptionTypeLabel, DISRUPTION_TYPES } from '@/lib/disruptionTypes';
 import WhatshotIcon from '@mui/icons-material/Whatshot';
 
 dayjs.extend(isoWeek);
@@ -371,7 +372,7 @@ export default function Dashboard() {
             />
           )}
           {tab === 3 && (() => {
-            const heatmapDays = buildHeatmap(homework ?? [], tasks ?? []);
+            const heatmapDays = buildHeatmap(homework ?? [], tasks ?? [], disruptions ?? []);
             // Hue-distinct blue -> yellow -> red scale (low -> medium -> high
             // workload) using the app's fixed semantic tokens — deliberately
             // NOT theme.palette.primary, since the user's chosen accent color
@@ -393,12 +394,13 @@ export default function Dashboard() {
                 <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
                   {heatmapDays.map((day) => {
                     const isWeekend = [0, 6].includes(dayjs(day.date).day());
-                    return (
+                    const disruptionColor = day.disruption ? DISRUPTION_TYPES.find((t) => t.value === day.disruption!.type)?.color : undefined;
+                    const cell = (
                     <Box
                       key={day.date}
                       role="button"
                       tabIndex={0}
-                      aria-label={`${dayjs(day.date).format('dddd, MMM D')}${day.total > 0 ? `, ${day.total} due` : ''}`}
+                      aria-label={`${dayjs(day.date).format('dddd, MMM D')}${day.total > 0 ? `, ${day.total} due` : ''}${day.disruption ? `, ${day.disruption.label}` : ''}`}
                       onClick={() => { setSelectedDate(dayjs(day.date)); setTab(0); }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -414,7 +416,10 @@ export default function Dashboard() {
                         borderRadius: 1.5,
                         bgcolor: day.intensity === 0 ? (isWeekend ? alpha(theme.palette.text.secondary, 0.06) : 'action.hover') : intensityColors[day.intensity],
                         border: '1px solid',
-                        borderStyle: isWeekend ? 'dashed' : 'solid',
+                        // A disrupted day gets the same dashed treatment as a
+                        // weekend — "the normal schedule doesn't apply here" —
+                        // regardless of disruption type.
+                        borderStyle: isWeekend || day.disruption ? 'dashed' : 'solid',
                         borderColor: day.date === todayStr ? 'primary.main' : 'divider',
                         display: 'flex',
                         flexDirection: 'column',
@@ -441,8 +446,29 @@ export default function Dashboard() {
                           {day.total}
                         </Typography>
                       )}
+                      {disruptionColor && (
+                        <Box
+                          aria-hidden
+                          sx={{
+                            position: 'absolute',
+                            top: 3,
+                            right: 3,
+                            width: 7,
+                            height: 7,
+                            borderRadius: '50%',
+                            bgcolor: disruptionColor,
+                            border: '1px solid',
+                            borderColor: 'background.paper',
+                          }}
+                        />
+                      )}
                     </Box>
                     );
+                    return day.disruption ? (
+                      <Tooltip key={day.date} title={day.disruption.label} arrow>
+                        {cell}
+                      </Tooltip>
+                    ) : cell;
                   })}
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mt: 2, flexWrap: 'wrap' }}>

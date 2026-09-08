@@ -36,7 +36,7 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import CloseIcon from '@mui/icons-material/Close';
 import MeetingRoomOutlinedIcon from '@mui/icons-material/MeetingRoomOutlined';
 import LaptopOutlinedIcon from '@mui/icons-material/LaptopOutlined';
-import { useHomework, useTasks, useClasses, useDisruptions, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { useHomework, useTasks, useClasses, useDisruptions, apiPost, apiPut, apiDelete, useEnterConfirm } from '@/lib/hooks';
 import { buildDaySchedule } from '@/lib/calendar';
 import { nextMeetingDate } from '@/lib/schedule';
 import { suggestRebalancing } from '@/lib/heatmap';
@@ -625,7 +625,14 @@ export default function TasksPage() {
       </Stack>
 
       {/* ===== Add / Edit dialog ===== */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+      <Dialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onKeyDown={useEnterConfirm(dialogOpen && (addKind === 'homework' ? !!hwForm.title : !!taskForm.title), handleSave)}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={fullScreen}
+      >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box sx={{ flex: 1 }}>
             {editingHw ? 'Edit Homework' : editingTask ? 'Edit Task' : 'Add Task'}
@@ -763,7 +770,13 @@ export default function TasksPage() {
       </Dialog>
 
       {/* Clear done confirmation */}
-      <Dialog open={clearDoneOpen} onClose={() => !clearing && setClearDoneOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog
+        open={clearDoneOpen}
+        onClose={() => !clearing && setClearDoneOpen(false)}
+        onKeyDown={useEnterConfirm(clearDoneOpen && !clearing, handleClearDone)}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle>Clear all done?</DialogTitle>
         <DialogContent>
           <DialogContentText>

@@ -20,6 +20,7 @@ import { useTheme } from '@mui/material/styles';
 import { simulateWhatIf, overallGrade } from '@/lib/gradeEngine';
 import { gradeColor, letterFromPercent } from '@/lib/grades';
 import type { SchoolClass, Homework } from '@/types';
+import { useEnterConfirm } from '@/lib/hooks';
 
 interface Props {
   open: boolean;
@@ -59,7 +60,7 @@ export default function WhatIfDialog({ open, onClose, cls, homework }: Props) {
   const hasWeights = categories.length > 0;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog open={open} onClose={onClose} onKeyDown={useEnterConfirm(open, onClose)} maxWidth="xs" fullWidth>
       <DialogTitle>What-if Grade Calculator</DialogTitle>
       <DialogContent>
         {!hasWeights && (

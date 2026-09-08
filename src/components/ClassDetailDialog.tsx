@@ -28,6 +28,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import BlockIcon from '@mui/icons-material/Block';
 import type { ScheduleEntry, ScheduleDisruption } from '@/types';
+import { useEnterConfirm } from '@/lib/hooks';
 
 interface Props {
   open: boolean;
@@ -67,6 +68,16 @@ export default function ClassDetailDialog({ open, onClose, entry, date, disrupti
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
+  // Defined before the early return below (rather than alongside the other
+  // entry-derived values further down) so useEnterConfirm — a hook-shaped
+  // helper — is always called unconditionally, on every render.
+  const goToGrades = () => {
+    if (!entry) return;
+    onClose();
+    router.push(`/grades/${entry.classInfo.id}`);
+  };
+  const onKeyDown = useEnterConfirm(open && !!entry, entry?.classInfo.source === 'powerschool' ? goToGrades : onClose);
+
   if (!entry) return null;
   const { classInfo, startTime, endTime, cancelled } = entry;
   const dur = durationMinutes(startTime, endTime);
@@ -84,17 +95,13 @@ export default function ClassDetailDialog({ open, onClose, entry, date, disrupti
   // Sort meeting days for consistent display ("Mon, Tue, Wed…").
   const sortedDays = [...classInfo.days].sort();
 
-  const goToGrades = () => {
-    onClose();
-    router.push(`/grades/${classInfo.id}`);
-  };
   const goToClasses = () => {
     onClose();
     router.push('/classes');
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+    <Dialog open={open} onClose={onClose} onKeyDown={onKeyDown} maxWidth="sm" fullWidth fullScreen={fullScreen}>
       {/* Colored top stripe — same pattern as the Grades pages, ties the
           dialog visually to the class block the user clicked. */}
       <Box sx={{ height: 6, bgcolor: classInfo.color }} />

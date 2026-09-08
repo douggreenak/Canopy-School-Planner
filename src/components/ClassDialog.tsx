@@ -21,6 +21,7 @@ import { useTheme } from '@mui/material/styles';
 import type { SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
 import { detectApFromName } from '@/lib/apDetection';
+import { useEnterConfirm } from '@/lib/hooks';
 
 interface Props {
   open: boolean;
@@ -153,7 +154,14 @@ export default function ClassDialog({ open, onClose, onSave, initial }: Props) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      onKeyDown={useEnterConfirm(open && !!form.name, handleSave)}
+      maxWidth="sm"
+      fullWidth
+      fullScreen={fullScreen}
+    >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Box sx={{ flex: 1 }}>{initial ? 'Edit Class' : 'Add Class'}</Box>
         {fullScreen && (

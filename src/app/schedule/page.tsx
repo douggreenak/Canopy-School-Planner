@@ -39,7 +39,7 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import CloseIcon from '@mui/icons-material/Close';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
-import { useClasses, useDisruptions, useSettings, useHomework, useTasks, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { useClasses, useDisruptions, useSettings, useHomework, useTasks, apiPost, apiPut, apiDelete, useEnterConfirm } from '@/lib/hooks';
 import { buildDueCountMap } from '@/lib/dueCounts';
 import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, getWeekSchedule, buildLathropEarlyOutTemplate, weekViewStart } from '@/lib/schedule';
 import dynamic from 'next/dynamic';
@@ -408,7 +408,14 @@ function SchedulePageInner() {
       </Paper>
 
       {/* ===== Disruption add/edit dialog ===== */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+      <Dialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onKeyDown={useEnterConfirm(dialogOpen && !!form.date, handleSave)}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={fullScreen}
+      >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box sx={{ flex: 1 }}>{editing ? 'Edit Disruption' : 'Add Disruption'}</Box>
           {fullScreen && (
@@ -557,7 +564,13 @@ function SchedulePageInner() {
       </Dialog>
 
       {/* ===== Delete disruption confirmation ===== */}
-      <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)} maxWidth="xs" fullWidth>
+      <Dialog
+        open={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onKeyDown={useEnterConfirm(!!confirmDelete, () => handleDelete(confirmDelete!.id))}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle>Delete disruption?</DialogTitle>
         <DialogContent>
           <DialogContentText>

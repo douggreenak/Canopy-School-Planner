@@ -4,7 +4,6 @@ import dayjs from 'dayjs';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import Grid from '@mui/material/Grid';
@@ -39,7 +38,6 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import StorageIcon from '@mui/icons-material/Storage';
 import SyncIcon from '@mui/icons-material/Sync';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import ErrorIcon from '@mui/icons-material/Error';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import KeyIcon from '@mui/icons-material/Key';
 import ToggleButton from '@mui/material/ToggleButton';
@@ -49,7 +47,7 @@ import DarkModeIcon from '@mui/icons-material/DarkMode';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import PaletteIcon from '@mui/icons-material/Palette';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
-import { useClasses, apiGet, useDebouncedCallback, useAutosaveStatus } from '@/lib/hooks';
+import { useClasses, apiGet, useDebouncedCallback, useAutosaveStatus, useEnterConfirm } from '@/lib/hooks';
 import InlineSaveIndicator from '@/components/InlineSaveIndicator';
 import type { AppSettings } from '@/types';
 import { buildLathropEarlyOutTemplate } from '@/lib/schedule';
@@ -89,6 +87,17 @@ function SettingsInner() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
   const [syncing, setSyncing] = useState<string | null>(null);
+
+  // Each settings section is its own collapsible accordion instead of one
+  // long stack of always-open cards — only Appearance and School are open
+  // by default, everything else expands on demand. Keeps the page from
+  // reading as "rows and rows of boxes" when most visits only touch one thing.
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    'settings-appearance': true,
+    'settings-school': true,
+  });
+  const toggleSection = (id: string) => setExpandedSections((prev) => ({ ...prev, [id]: !prev[id] }));
+  const openSection = (id: string) => setExpandedSections((prev) => ({ ...prev, [id]: true }));
 
   // Setup status from /api/setup
   const [setupStatus, setSetupStatus] = useState<{
@@ -660,49 +669,14 @@ function SettingsInner() {
   };
 
   // ---- Render ----
-
-  const healthChip = (() => {
-    if (liveHealth.checking) {
-      return (
-        <Chip
-          size="small"
-          icon={<CircularProgress size={12} sx={{ color: 'inherit !important' }} />}
-          label="Checking database…"
-          variant="outlined"
-        />
-      );
-    }
-    if (liveHealth.ok === null) return null;
-    if (liveHealth.ok) {
-      return (
-        <Chip
-          size="small"
-          color="success"
-          icon={<CheckCircleIcon />}
-          label="Database connected"
-          onClick={() => refreshLiveHealth(true)}
-          clickable
-        />
-      );
-    }
-    return (
-      <Chip
-        size="small"
-        color="error"
-        icon={<ErrorIcon />}
-        label={liveHealth.error ? `Database error: ${liveHealth.error}` : 'Database error'}
-        onClick={() => refreshLiveHealth(true)}
-        clickable
-      />
-    );
-  })();
+  // No top-of-page "Database connected" indicator — a healthy connection
+  // isn't information a user needs to see on every visit; the Alert below
+  // (liveHealth.ok === false) still surfaces an actual problem when there
+  // is one, with a Retry action.
 
   return (
     <Box>
-      <Stack direction="row" spacing={1.5} sx={{ mb: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400 }}>Settings</Typography>
-        {healthChip}
-      </Stack>
+      <Typography variant="h1" sx={{ fontSize: '1.75rem', fontWeight: 400, mb: 1 }}>Settings</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Configure your school, appearance, and PowerSchool integration. Your data syncs across every device automatically.
       </Typography>
@@ -713,6 +687,7 @@ function SettingsInner() {
           { label: 'School', id: 'settings-school' },
           { label: 'Bell Schedule', id: 'settings-bell' },
           { label: 'PowerSchool', id: 'settings-powerschool' },
+          { label: 'Class Schedule', id: 'settings-wizard' },
           { label: 'Calendar', id: 'settings-calendar' },
           { label: 'Account', id: 'settings-account' },
         ].map((s) => (
@@ -722,7 +697,10 @@ function SettingsInner() {
             size="small"
             variant="outlined"
             clickable
-            onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            onClick={() => {
+              openSection(s.id);
+              document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
           />
         ))}
       </Stack>
@@ -738,12 +716,13 @@ function SettingsInner() {
         )}
 
         {/* ===== APPEARANCE ===== */}
-        <Card id="settings-appearance">
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Accordion id="settings-appearance" expanded={!!expandedSections['settings-appearance']} onChange={() => toggleSection('settings-appearance')} disableGutters sx={{ '&:before': { display: 'none' } }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <PaletteIcon color="primary" /> Appearance
             </Typography>
-
+          </AccordionSummary>
+          <AccordionDetails>
             {/* Light / Dark / System */}
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Theme mode — System follows your device preference.
@@ -770,7 +749,7 @@ function SettingsInner() {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
               Theme — each swatch is a primary + accent color pair used for buttons, icons, and highlights throughout the app.
             </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.25 }}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2.5, rowGap: 1.5 }}>
               {ACCENT_PRESETS.map((preset) => {
                 const selected = accentColor === preset.name;
                 return (
@@ -778,20 +757,48 @@ function SettingsInner() {
                     <Box
                       onClick={() => setAccentColor(preset.name)}
                       sx={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: '50%',
-                        background: `linear-gradient(135deg, ${preset.primary} 50%, ${preset.accent} 50%)`,
+                        position: 'relative',
+                        width: 38,
+                        height: 38,
                         cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        border: selected ? '2.5px solid white' : '2.5px solid transparent',
-                        outline: selected ? `2.5px solid ${preset.primary}` : '2.5px solid transparent',
-                        transition: 'transform 0.15s, outline 0.15s',
-                        '&:hover': { transform: 'scale(1.18)' },
+                        transition: 'transform 0.15s',
+                        '&:hover': { transform: 'scale(1.12)' },
                       }}
-                    />
+                    >
+                      {/* Primary — the larger, dominant circle. A diagonal
+                          split (the previous design) blends the two colors
+                          into a muddy seam at this size and gives no visual
+                          cue for which half is "primary" — a big circle +
+                          a small distinct accent badge reads unambiguously
+                          as "this theme's two colors" instead. */}
+                      <Box
+                        sx={{
+                          width: '100%',
+                          height: '100%',
+                          borderRadius: '50%',
+                          bgcolor: preset.primary,
+                          boxSizing: 'border-box',
+                          border: '3px solid',
+                          borderColor: selected ? 'text.primary' : 'transparent',
+                        }}
+                      />
+                      {/* Accent — ringed in the page background so it reads
+                          as a separate chip, not a blended gradient. */}
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          bottom: -3,
+                          right: -3,
+                          width: 18,
+                          height: 18,
+                          borderRadius: '50%',
+                          bgcolor: preset.accent,
+                          boxSizing: 'border-box',
+                          border: '2px solid',
+                          borderColor: 'background.paper',
+                        }}
+                      />
+                    </Box>
                   </Tooltip>
                 );
               })}
@@ -807,18 +814,20 @@ function SettingsInner() {
             >
               Show keyboard shortcuts
             </Button>
-          </CardContent>
-        </Card>
+          </AccordionDetails>
+        </Accordion>
 
         {/* ===== SCHOOL INFORMATION ===== */}
-        <Card id="settings-school">
-          <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+        <Accordion id="settings-school" expanded={!!expandedSections['settings-school']} onChange={() => toggleSection('settings-school')} disableGutters sx={{ '&:before': { display: 'none' } }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <SchoolIcon color="primary" /> School Information
               </Typography>
               <InlineSaveIndicator status={schoolSaveStatus.status} />
             </Box>
+          </AccordionSummary>
+          <AccordionDetails>
             <Grid container spacing={2}>
               <Grid size={12}>
                 <TextField
@@ -874,18 +883,20 @@ function SettingsInner() {
                 </Typography>
               </Grid>
             </Grid>
-          </CardContent>
-        </Card>
+          </AccordionDetails>
+        </Accordion>
 
         {/* ===== BELL SCHEDULES ===== */}
-        <Card id="settings-bell">
-          <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+        <Accordion id="settings-bell" expanded={!!expandedSections['settings-bell']} onChange={() => toggleSection('settings-bell')} disableGutters sx={{ '&:before': { display: 'none' } }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <CalendarMonthIcon color="primary" /> Early Dismissal Times
               </Typography>
               <InlineSaveIndicator status={bellSaveStatus.status} />
             </Box>
+          </AccordionSummary>
+          <AccordionDetails>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Set your school&apos;s exact period times for early-out days — used instead of estimating whenever a disruption on the Schedule page is marked &quot;Early Out&quot;.
             </Typography>
@@ -966,13 +977,13 @@ function SettingsInner() {
                 </Box>
               </Box>
             )}
-          </CardContent>
-        </Card>
+          </AccordionDetails>
+        </Accordion>
 
         {/* ===== POWERSCHOOL ===== */}
-        <Card id="settings-powerschool">
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Accordion id="settings-powerschool" expanded={!!expandedSections['settings-powerschool']} onChange={() => toggleSection('settings-powerschool')} disableGutters sx={{ '&:before': { display: 'none' } }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <SyncIcon color="primary" /> PowerSchool Import
               <Chip label="Optional" size="small" variant="outlined" />
               {setupStatus?.hasPowerschool && (
@@ -980,6 +991,8 @@ function SettingsInner() {
               )}
               <InlineSaveIndicator status={psSaveStatus.status} />
             </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
             <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>
               Import your class schedule, assignments, and current grades from PowerSchool. Log in once — future imports reuse the saved credentials so you can sync with a single click.
             </Alert>
@@ -1102,17 +1115,19 @@ function SettingsInner() {
                 </Grid>
               )}
             </Grid>
-          </CardContent>
-        </Card>
+          </AccordionDetails>
+        </Accordion>
 
         {/* ===== SCHEDULE WIZARD ===== */}
-        <Card>
-          <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+        <Accordion id="settings-wizard" expanded={!!expandedSections['settings-wizard']} onChange={() => toggleSection('settings-wizard')} disableGutters sx={{ '&:before': { display: 'none' } }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <CalendarMonthIcon color="primary" />
               <Typography variant="h6">Class Schedule (Days &amp; Times)</Typography>
               <Chip label="Optional" size="small" variant="outlined" />
             </Box>
+          </AccordionSummary>
+          <AccordionDetails>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Different from Early Dismissal Times above — this sets each class&apos;s normal meeting days and period times. Pick from classes imported from PowerSchool and set the days, period, and times the app should use. PowerSchool syncs will preserve these manual schedule fields.
             </Typography>
@@ -1371,27 +1386,46 @@ function SettingsInner() {
                 )}
               </Card>
             </Collapse>
-          </CardContent>
-        </Card>
+          </AccordionDetails>
+        </Accordion>
 
         {/* ===== CALENDAR FEED ===== */}
-        <Card id="settings-calendar">
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Accordion id="settings-calendar" expanded={!!expandedSections['settings-calendar']} onChange={() => toggleSection('settings-calendar')} disableGutters sx={{ '&:before': { display: 'none' } }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <CalendarMonthIcon color="primary" /> Calendar Feed (iCal)
             </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Copy this URL into <strong>Google Calendar</strong>, <strong>Apple Calendar</strong>, or <strong>Outlook</strong> to see your schedule, exams, and homework on your phone and computer. This link is unique to your account.
+              Subscribe once and your schedule, exams, and homework stay up to date automatically — including cancellations and schedule changes. This link is unique to your account.
             </Typography>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2, flexWrap: 'wrap' }}>
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={<CalendarMonthIcon />}
+                disabled={!calendarUrl}
+                component="a"
+                href={calendarUrl ? calendarUrl.replace(/^https?:\/\//, 'webcal://') : undefined}
+                sx={{ flexShrink: 0 }}
+              >
+                Subscribe in Calendar App
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                Opens your device&apos;s default calendar app (Apple Calendar, Google Calendar, Outlook) and subscribes automatically.
+              </Typography>
+            </Box>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }}>
               <TextField
                 fullWidth
-                label="Your Calendar URL"
+                size="small"
+                label="Or copy the URL manually"
                 value={calendarUrl}
                 placeholder="Loading…"
                 slotProps={{ input: { readOnly: true, sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
               />
-              <Button variant="contained" startIcon={<ContentCopyIcon />} onClick={copyCalendarUrl} disabled={!calendarUrl} sx={{ flexShrink: 0 }}>
+              <Button variant="outlined" startIcon={<ContentCopyIcon />} onClick={copyCalendarUrl} disabled={!calendarUrl} sx={{ flexShrink: 0 }}>
                 Copy
               </Button>
             </Box>
@@ -1412,15 +1446,17 @@ function SettingsInner() {
             >
               Regenerate link (invalidates old one)
             </Button>
-          </CardContent>
-        </Card>
+          </AccordionDetails>
+        </Accordion>
 
         {/* ===== ACCOUNT ===== */}
-        <Card id="settings-account">
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Accordion id="settings-account" expanded={!!expandedSections['settings-account']} onChange={() => toggleSection('settings-account')} disableGutters sx={{ '&:before': { display: 'none' } }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <KeyIcon color="primary" /> Account
             </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
             <Typography variant="body2" sx={{ fontWeight: 600, mb: 1.5 }}>Change Password</Typography>
             <Stack spacing={2} sx={{ maxWidth: 400 }}>
               <TextField
@@ -1484,15 +1520,23 @@ function SettingsInner() {
                 Change Password
               </Button>
             </Stack>
-          </CardContent>
-        </Card>
+          </AccordionDetails>
+        </Accordion>
 
         {/* ===== DANGER ZONE ===== */}
-        <Card sx={{ borderColor: 'error.main', borderWidth: 1, borderStyle: 'solid' }}>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1, color: 'error.main' }}>
+        <Accordion
+          id="settings-danger"
+          expanded={!!expandedSections['settings-danger']}
+          onChange={() => toggleSection('settings-danger')}
+          disableGutters
+          sx={{ '&:before': { display: 'none' }, borderColor: 'error.main', borderWidth: 1, borderStyle: 'solid' }}
+        >
+          <AccordionSummary expandIcon={<ExpandMoreIcon color="error" />}>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'error.main' }}>
               <DeleteForeverIcon color="error" /> Danger Zone
             </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Permanently delete your account and all associated data — classes, grades, homework, tasks, and settings. This cannot be undone.
             </Typography>
@@ -1504,13 +1548,19 @@ function SettingsInner() {
             >
               Delete My Account
             </Button>
-          </CardContent>
-        </Card>
+          </AccordionDetails>
+        </Accordion>
 
       </Stack>
 
       {/* Start New Semester dialog */}
-      <Dialog open={newSemesterOpen} onClose={() => setNewSemesterOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog
+        open={newSemesterOpen}
+        onClose={() => setNewSemesterOpen(false)}
+        onKeyDown={useEnterConfirm(newSemesterOpen && !!newSemStart && !!newSemEnd && newSemEnd >= newSemStart && syncing !== 'new-semester', startNewSemester)}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle>Start a new semester</DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ mb: 2 }}>
@@ -1557,7 +1607,13 @@ function SettingsInner() {
       </Dialog>
 
       {/* Delete account confirmation dialog */}
-      <Dialog open={deleteAccountOpen} onClose={() => { setDeleteAccountOpen(false); setDeleteAccountError(''); setDeleteConfirmText(''); setDeletePassword(''); }} maxWidth="xs" fullWidth>
+      <Dialog
+        open={deleteAccountOpen}
+        onClose={() => { setDeleteAccountOpen(false); setDeleteAccountError(''); setDeleteConfirmText(''); setDeletePassword(''); }}
+        onKeyDown={useEnterConfirm(deleteAccountOpen && !deletingAccount && deleteConfirmText === 'DELETE' && !!deletePassword, handleDeleteAccount)}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle sx={{ color: 'error.main' }}>Delete account?</DialogTitle>
         <DialogContent>
           <DialogContentText>

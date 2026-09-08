@@ -3,6 +3,7 @@
 // Client-side data fetching hooks
 // ============================================================
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+import type { KeyboardEvent } from 'react';
 import type { SchoolClass, Homework, Exam, Task, ScheduleDisruption, GradeHistoryEntry, SyncLogEntry, AppSettings } from '@/types';
 
 // Global state to deduplicate ongoing requests and provide a basic cache.
@@ -114,6 +115,33 @@ export function useDebouncedCallback<A extends unknown[]>(fn: (...args: A) => vo
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => fnRef.current(...args), delayMs);
   }, [delayMs]);
+}
+
+/**
+ * Wire onto a Dialog's `onKeyDown` so Enter confirms and closes it — the
+ * same action its primary button would take — instead of doing nothing.
+ * Returns a no-op handler while `enabled` is false (e.g. the dialog isn't
+ * open, or its primary action is currently disabled), so spreading it
+ * unconditionally is safe.
+ *
+ * Deliberately skips:
+ *  - Shift+Enter (so multiline TextFields can still insert a newline)
+ *  - plain Enter inside a <textarea> (same reason — no modifier needed there)
+ *  - any keydown a descendant already called preventDefault() on — MUI's
+ *    Select/Autocomplete/DatePicker all preventDefault() on the Enter that
+ *    opens or commits their own popup, and since a real DOM event still only
+ *    reaches this handler in the bubble phase *after* those run, checking
+ *    `defaultPrevented` reliably means "a popup already used this Enter".
+ */
+export function useEnterConfirm(enabled: boolean, onConfirm: () => void): (e: KeyboardEvent) => void {
+  return (e: KeyboardEvent) => {
+    if (!enabled) return;
+    if (e.key !== 'Enter' || e.shiftKey || e.defaultPrevented) return;
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'TEXTAREA' || target.closest('[contenteditable="true"]')) return;
+    e.preventDefault();
+    onConfirm();
+  };
 }
 
 export type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';

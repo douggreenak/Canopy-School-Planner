@@ -49,6 +49,22 @@ describe('ACCENT_PRESETS', () => {
     const names = ACCENT_PRESETS.map((p) => p.name);
     expect(new Set(names).size).toBe(names.length);
   });
+
+  // Regression test for the actual "dark green on dark green" bug report:
+  // reusing a preset's light-mode primary/accent (calibrated so *white text
+  // on it* clears AA) directly as literal text/icon color against the dark
+  // mode near-black canvas measured well under AA for nearly every preset.
+  // primaryDark/accentDark are what getTheme() actually uses for
+  // palette.primary.main/secondary.main in dark mode instead — verify each
+  // one independently clears AA against a representative dark background.
+  it("every preset's primaryDark/accentDark clears AA 4.5:1 as text on the dark-mode canvas", () => {
+    const DARK_CANVAS = '#161616'; // approx background.default/paper/drawer after their tint mix
+    for (const preset of ACCENT_PRESETS) {
+      for (const [label, hex] of [['primaryDark', preset.primaryDark], ['accentDark', preset.accentDark]] as const) {
+        expect(contrastRatio(hex, DARK_CANVAS), `${preset.name} ${label} (${hex}) vs dark canvas`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+      }
+    }
+  });
 });
 
 describe('resolveAccentPreset', () => {

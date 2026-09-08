@@ -16,6 +16,7 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Alert from '@mui/material/Alert';
 import GradingIcon from '@mui/icons-material/Grading';
+import { useEnterConfirm } from '@/lib/hooks';
 
 interface Props {
   open: boolean;
@@ -49,7 +50,7 @@ export default function FinalGradeDialog({ open, onClose, currentGrade, classNam
   const hasGrade = currentGrade != null;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog open={open} onClose={onClose} onKeyDown={useEnterConfirm(open, onClose)} maxWidth="xs" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
         <GradingIcon color="primary" fontSize="small" />
         Final Grade Calculator

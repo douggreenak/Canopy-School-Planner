@@ -1,6 +1,8 @@
 // Workload heatmap + rebalancing — pure functions, no DB/fetch.
 import dayjs from 'dayjs';
-import type { Homework, Task } from '@/types';
+import type { Homework, Task, ScheduleDisruption } from '@/types';
+import { disruptionCoversDate } from './calendar';
+import { disruptionTypeLabel } from './disruptionTypes';
 
 export type HeatmapDay = {
   date: string; // ISO YYYY-MM-DD
@@ -9,13 +11,37 @@ export type HeatmapDay = {
   total: number;
   // 0 = no load, 1 = light, 2 = moderate, 3 = heavy
   intensity: 0 | 1 | 2 | 3;
+  // Present when a schedule disruption (no-school day, early out, etc.)
+  // covers this date — lets the UI flag it alongside the workload count
+  // instead of showing a plain, context-free number.
+  disruption?: { type: ScheduleDisruption['type']; label: string };
 };
+
+// Absolute item-count bands, not relative-to-the-busiest-day-in-window.
+// Relative scaling always paints the single busiest day of any 14-day
+// window red/"Heavy", even during a genuinely quiet stretch where that day
+// only has one thing due — the opposite of what "Heavy" should signal.
+// These fixed thresholds are calibrated to a typical high-school day's
+// combined homework + task load.
+function intensityFor(total: number): 0 | 1 | 2 | 3 {
+  if (total === 0) return 0;
+  if (total <= 2) return 1; // Light
+  if (total <= 4) return 2; // Moderate
+  return 3; // Heavy
+}
 
 /**
  * Build a 14-day forward-looking workload heatmap from today (inclusive).
- * Counts homework + tasks due on each day. Intensity is relative to the peak.
+ * Counts homework + tasks due on each day, and flags any day a schedule
+ * disruption (no-school, early-out, 1-6, etc.) covers so the UI can surface
+ * that context next to the workload count.
  */
-export function buildHeatmap(homework: Homework[], tasks: Task[], days = 14): HeatmapDay[] {
+export function buildHeatmap(
+  homework: Homework[],
+  tasks: Task[],
+  disruptions: ScheduleDisruption[] = [],
+  days = 14,
+): HeatmapDay[] {
   const today = dayjs().startOf('day');
   const counts = new Map<string, { hw: number; task: number }>();
 
@@ -37,19 +63,18 @@ export function buildHeatmap(homework: Homework[], tasks: Task[], days = 14): He
     }
   }
 
-  const entries = Array.from(counts.entries()).map(([date, { hw, task }]) => ({
-    date,
-    hwCount: hw,
-    taskCount: task,
-    total: hw + task,
-  }));
-
-  const max = Math.max(...entries.map((e) => e.total), 1);
-
-  return entries.map((e) => ({
-    ...e,
-    intensity: (e.total === 0 ? 0 : e.total / max <= 0.33 ? 1 : e.total / max <= 0.66 ? 2 : 3) as 0 | 1 | 2 | 3,
-  }));
+  return Array.from(counts.entries()).map(([date, { hw, task }]) => {
+    const total = hw + task;
+    const disruption = disruptions.find((d) => disruptionCoversDate(d, date));
+    return {
+      date,
+      hwCount: hw,
+      taskCount: task,
+      total,
+      intensity: intensityFor(total),
+      disruption: disruption ? { type: disruption.type, label: disruption.label || disruptionTypeLabel(disruption.type) } : undefined,
+    };
+  });
 }
 
 export type RebalanceSuggestion = {

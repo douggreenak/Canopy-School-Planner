@@ -36,6 +36,7 @@ import MeetingRoomOutlinedIcon from '@mui/icons-material/MeetingRoomOutlined';
 import LaptopOutlinedIcon from '@mui/icons-material/LaptopOutlined';
 import StageTracker from '@/components/StageTracker';
 import type { SchoolClass, TaskStage, DueTiming } from '@/types';
+import { useEnterConfirm } from '@/lib/hooks';
 
 // Common shape both Task and Homework satisfy (Homework is adapted to it —
 // see tasks/page.tsx — with `category` filled in as "Homework"). `stages` is
@@ -96,12 +97,26 @@ const PRIORITY_COLOR: Record<DetailItem['priority'], 'error' | 'warning' | 'defa
 export default function ItemDetailDialog({ open, item, kind, linkedClass, onClose, onToggleComplete, onSetStage, onEdit, onDelete }: Props) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
+  // Defined before the early return below (rather than alongside the other
+  // item-derived values further down) so useEnterConfirm — a hook-shaped
+  // helper — is always called unconditionally, on every render.
+  const usesStages = (item?.stages.length ?? 0) > 0;
+  const handleToggle = () => {
+    if (!item) return;
+    onToggleComplete(item);
+    // Update the dialog's view by closing it; reopening with fresh state would
+    // require parent re-trigger. Closing keeps the action feeling complete and
+    // returns focus to the list, where the optimistic flip is already visible.
+    onClose();
+  };
+  const onKeyDown = useEnterConfirm(open && !!item, usesStages ? onClose : handleToggle);
+
   if (!item) return null;
 
   const due = item.dueDate ? dayjs(item.dueDate) : null;
   const dueValid = due && due.isValid();
   const overdue = !item.completed && dueValid && due!.endOf('day').isBefore(dayjs());
-  const usesStages = item.stages.length > 0;
   const kindLabel = kind === 'homework' ? 'Homework' : 'Task';
 
   // Color the top stripe by priority for a quick at-a-glance signal.
@@ -111,14 +126,6 @@ export default function ItemDetailDialog({ open, item, kind, linkedClass, onClos
       : item.priority === 'medium'
         ? theme.palette.warning.main
         : theme.palette.action.disabled;
-
-  const handleToggle = () => {
-    onToggleComplete(item);
-    // Update the dialog's view by closing it; reopening with fresh state would
-    // require parent re-trigger. Closing keeps the action feeling complete and
-    // returns focus to the list, where the optimistic flip is already visible.
-    onClose();
-  };
 
   const handleEdit = () => {
     onClose();
@@ -131,7 +138,7 @@ export default function ItemDetailDialog({ open, item, kind, linkedClass, onClos
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+    <Dialog open={open} onClose={onClose} onKeyDown={onKeyDown} maxWidth="sm" fullWidth fullScreen={fullScreen}>
       {/* Priority-colored top stripe — subtle visual link to the list row. */}
       <Box sx={{ height: 6, bgcolor: stripeColor }} />
 

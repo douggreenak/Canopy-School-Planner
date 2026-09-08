@@ -32,6 +32,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import TimezonePicker from '@/components/TimezonePicker';
+import { useEnterConfirm } from '@/lib/hooks';
 
 // PowerSchool moved ahead of School Info — connecting it is the single
 // highest-leverage step (it pre-fills classes/schedule automatically), so
@@ -174,6 +175,25 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
 
   const canSyncPS = psUrl.trim() && psUser.trim() && psPass.trim();
 
+  // Enter confirms whichever primary action the *currently visible* step's
+  // contained button performs — matching each step's own onClick/disabled
+  // exactly, since a step change swaps out what "primary" even means.
+  const primaryAction = () => {
+    if (step === 0) { setStep(1); return; }
+    if (step === 1) {
+      if (confirmSkipPs) { setDeclinedPowerSchool(true); setConfirmSkipPs(false); setStep(2); }
+      else syncPowerSchool();
+      return;
+    }
+    if (step === 2) { saveSchoolInfo(); return; }
+    handleClose(); // step === 3
+  };
+  const primaryEnabled =
+    step === 0 ? true :
+    step === 1 ? (confirmSkipPs ? true : (!!canSyncPS && !busy)) :
+    step === 2 ? !busy :
+    true; // step === 3
+
   return (
     <Dialog
       open={open}
@@ -181,6 +201,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
       fullWidth
       fullScreen={fullScreen}
       onClose={required ? undefined : handleClose}
+      onKeyDown={useEnterConfirm(open && primaryEnabled, primaryAction)}
       sx={{ '& .MuiDialog-paper': { borderRadius: fullScreen ? 0 : 3 } }}
     >
       <DialogContent sx={{ p: 0 }}>

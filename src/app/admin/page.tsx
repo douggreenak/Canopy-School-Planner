@@ -29,6 +29,7 @@ import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import DeleteIcon from '@mui/icons-material/Delete';
 import type { SystemStats } from '@/lib/db';
+import { useEnterConfirm } from '@/lib/hooks';
 
 function StatCard({ label, value, icon, sub }: { label: string; value: number | string; icon: React.ReactNode; sub?: string }) {
   return (
@@ -252,7 +253,13 @@ export default function AdminPage() {
       )}
 
       {/* Delete confirmation dialog */}
-      <Dialog open={!!confirmUsername} onClose={() => { if (!deleting) { setConfirmUsername(null); setDeleteConfirmText(''); } }} maxWidth="xs" fullWidth>
+      <Dialog
+        open={!!confirmUsername}
+        onClose={() => { if (!deleting) { setConfirmUsername(null); setDeleteConfirmText(''); } }}
+        onKeyDown={useEnterConfirm(!!confirmUsername && !deleting && deleteConfirmText === confirmUsername, handleDeleteConfirm)}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle>Delete user?</DialogTitle>
         <DialogContent>
           <DialogContentText>

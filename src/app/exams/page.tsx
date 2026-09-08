@@ -31,7 +31,7 @@ import RoomIcon from '@mui/icons-material/Room';
 import CloseIcon from '@mui/icons-material/Close';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
-import { useExams, useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { useExams, useClasses, apiPost, apiPut, apiDelete, useEnterConfirm } from '@/lib/hooks';
 import { letterFromPercent } from '@/lib/grades';
 import { contrastTextFor } from '@/lib/theme';
 import type { Exam, SchoolClass } from '@/types';
@@ -281,11 +281,18 @@ export default function ExamsPage() {
         </>
       )}
 
-      <Fab color="primary" sx={{ position: 'fixed', bottom: 24, right: 24 }} onClick={() => openDialog()}>
+      <Fab color="secondary" sx={{ position: 'fixed', bottom: 24, right: 24 }} onClick={() => openDialog()}>
         <AddIcon />
       </Fab>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth fullScreen={fullScreen}>
+      <Dialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onKeyDown={useEnterConfirm(dialogOpen && !!form.title, handleSave)}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={fullScreen}
+      >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box sx={{ flex: 1 }}>{editing ? 'Edit Exam' : 'Add Exam'}</Box>
           {fullScreen && (

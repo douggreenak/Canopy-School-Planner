@@ -28,7 +28,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import RoomIcon from '@mui/icons-material/Room';
 import PersonIcon from '@mui/icons-material/Person';
-import { useClasses, apiPost, apiPut, apiDelete } from '@/lib/hooks';
+import { useClasses, apiPost, apiPut, apiDelete, useEnterConfirm } from '@/lib/hooks';
 import { contrastTextFor } from '@/lib/theme';
 import dynamic from 'next/dynamic';
 // Only needed once the Add/Edit dialog actually opens — deferring it to its
@@ -117,7 +117,7 @@ export default function ClassesPage() {
             Add classes manually, or connect PowerSchool in Settings to import them automatically.
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Fab variant="extended" color="primary" onClick={() => { setEditing(null); setDialogOpen(true); }}>
+            <Fab variant="extended" color="secondary" onClick={() => { setEditing(null); setDialogOpen(true); }}>
               <AddIcon sx={{ mr: 1 }} /> Add Class
             </Fab>
             <Button variant="outlined" href="/settings">
@@ -167,7 +167,7 @@ export default function ClassesPage() {
       {/* FAB */}
       {classes && classes.length > 0 && (
         <Fab
-          color="primary"
+          color="secondary"
           sx={{ position: 'fixed', bottom: 24, right: 24 }}
           onClick={() => { setEditing(null); setDialogOpen(true); }}
         >
@@ -199,7 +199,13 @@ export default function ClassesPage() {
       />
 
       {/* Delete confirmation */}
-      <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)} maxWidth="xs" fullWidth>
+      <Dialog
+        open={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onKeyDown={useEnterConfirm(!!confirmDelete, () => { handleDelete(confirmDelete!.id); setConfirmDelete(null); })}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle>Delete class?</DialogTitle>
         <DialogContent>
           <DialogContentText>

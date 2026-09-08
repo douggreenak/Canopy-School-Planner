@@ -328,8 +328,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const drawerWidth = isMobile ? DRAWER_WIDTH : collapsed ? COLLAPSED_WIDTH : DRAWER_WIDTH;
 
-  // Sidebar header brand area — subtle tint using primary color
-  const headerBg = alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.06 : 0.12);
+  // Sidebar header brand area — subtle tint using primary color. Dark mode
+  // stays lighter-touch than light mode since it's layered on top of the
+  // drawer's own primary-tinted background (see MuiDrawer in theme.ts) —
+  // stacking two full-strength tints reads as an overly heavy wash.
+  const headerBg = alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.06 : 0.07);
 
   const drawerContent = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>

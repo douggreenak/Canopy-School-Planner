@@ -9,26 +9,49 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 // Each theme is exactly two brand colors — `primary` (buttons, selected nav,
 // links, the dominant brand color) and `accent` (MUI's `secondary` palette
 // slot — used wherever a second, distinguishing brand color is useful: the
-// AP-class chip, velocity/highlight callouts, etc). Modeled on an Alaska
-// Airlines–style blue/green pairing rather than the old single-hue system.
-// Both colors in every preset are pre-verified (see contrastTextFor below
-// and the palette's own test coverage) to clear WCAG AA 4.5:1 for whichever
-// of white / near-black text they pick.
+// AP-class chip, FAB "add" buttons, velocity/highlight callouts, etc).
+// Modeled on an Alaska Airlines–style blue/green pairing rather than the
+// old single-hue system.
+//
+// Every preset carries TWO calibrations per color — `primary`/`accent` for
+// light mode, `primaryDark`/`accentDark` for dark mode — not just one pair
+// reused everywhere. A color picked so *white text on it* clears WCAG AA
+// (right for a light-mode filled button) is a fundamentally different
+// requirement from *it as text/an icon directly on the near-black dark-mode
+// canvas* — reusing the light-mode value there (the app's original design)
+// measured well under 4.5:1 for nearly every preset, which is exactly why
+// dark mode read as muddy ("dark green on dark green") while light mode
+// looked fine. The …Dark variants are each individually verified (see
+// theme.test.ts) to clear 4.5:1 against the actual dark background, so the
+// exact same component code (an icon or a nav label colored `primary.main`)
+// is legible in both modes without special-casing every call site.
 export interface AccentPreset {
   name: string;
   primary: string;
   accent: string;
+  primaryDark: string;
+  accentDark: string;
 }
 
 export const ACCENT_PRESETS: AccentPreset[] = [
-  { name: 'Canopy',  primary: '#2E7D32', accent: '#1565C0' }, // green + blue — the app's namesake default
-  { name: 'Alaska',  primary: '#0060A9', accent: '#00854A' }, // blue + green — literal Alaska Airlines homage
-  { name: 'Glacier', primary: '#00695C', accent: '#0277BD' }, // teal + sky blue
-  { name: 'Aurora',  primary: '#3949AB', accent: '#00796B' }, // indigo + teal
-  { name: 'Sunset',  primary: '#BF360C', accent: '#6A1B9A' }, // deep orange + purple
-  { name: 'Harbor',  primary: '#26418F', accent: '#C77800' }, // navy + amber
-  { name: 'Berry',   primary: '#8E1550', accent: '#00838F' }, // plum + teal
-  { name: 'Slate',   primary: '#37474F', accent: '#B36A00' }, // graphite + amber
+  // green + blue — the app's namesake default
+  { name: 'Canopy',  primary: '#2E7D32', accent: '#1565C0', primaryDark: '#6FAE72', accentDark: '#5B9BDB' },
+  // blue + green — Alaska Airlines' own brand colors: Midnight Blue
+  // (primary palette) + Tropical Green (secondary palette), straight from
+  // their brand guidelines rather than an approximation.
+  { name: 'Alaska',  primary: '#01426A', accent: '#B3D57D', primaryDark: '#7BA3C2', accentDark: '#C3DE96' },
+  // teal + sky blue
+  { name: 'Glacier', primary: '#00695C', accent: '#0277BD', primaryDark: '#5CA79C', accentDark: '#4DA3D9' },
+  // indigo + teal
+  { name: 'Aurora',  primary: '#3949AB', accent: '#00796B', primaryDark: '#8C97D4', accentDark: '#4DA89D' },
+  // deep orange + purple
+  { name: 'Sunset',  primary: '#BF360C', accent: '#6A1B9A', primaryDark: '#E08064', accentDark: '#B583D1' },
+  // navy + amber
+  { name: 'Harbor',  primary: '#26418F', accent: '#C77800', primaryDark: '#8C9AC9', accentDark: '#E0983D' },
+  // plum + teal
+  { name: 'Berry',   primary: '#8E1550', accent: '#00838F', primaryDark: '#CC88AC', accentDark: '#42A8B3' },
+  // graphite + amber
+  { name: 'Slate',   primary: '#37474F', accent: '#B36A00', primaryDark: '#93A0A6', accentDark: '#D4922E' },
 ];
 
 export const DEFAULT_ACCENT = 'Canopy';
@@ -92,11 +115,23 @@ export function contrastTextFor(bgHex: string): string {
 
 export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_ACCENT): Theme {
   const isLight = mode === 'light';
-  const { primary, accent } = resolveAccentPreset(accentColor);
+  const preset = resolveAccentPreset(accentColor);
+  // The dark-mode-calibrated variants (see the ACCENT_PRESETS comment above)
+  // become `primary.main`/`secondary.main` themselves in dark mode — not
+  // just a color used in one or two special spots — so every existing
+  // `primary.main`/`color="primary"` usage across the app (icons, nav
+  // labels, buttons) is automatically legible in dark mode too, with zero
+  // per-component special-casing.
+  const primary = isLight ? preset.primary : preset.primaryDark;
+  const accent  = isLight ? preset.accent  : preset.accentDark;
 
   // Neutral bases with NO baked-in hue — the theme's primary color supplies
   // the tint below, so every preset (not just Canopy green) reads as
-  // intentional throughout the app, not just on buttons/icons.
+  // intentional throughout the app, not just on buttons/icons. Dark mode's
+  // tint percentage is lower than light mode's despite using a brighter
+  // primary now — otherwise the now-brighter color would wash out the
+  // near-black canvas far more per percentage point than the old (darker)
+  // primary value did.
   const canvasBase = isLight ? '#f3f3f1' : '#111111';
   const paperBase   = isLight ? '#ffffff' : '#1a1a1a';
   const drawerBase  = isLight ? '#f6f6f4' : '#141414';
@@ -118,8 +153,8 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
       success: { main: isLight ? '#2E7D32' : '#81c995' },
       info:    { main: isLight ? '#0277BD' : '#4fc3f7' },
       background: {
-        default: mix(canvasBase, primary, isLight ? 0.09 : 0.16),
-        paper:   mix(paperBase, primary, isLight ? 0.035 : 0.075),
+        default: mix(canvasBase, primary, isLight ? 0.09 : 0.07),
+        paper:   mix(paperBase, primary, isLight ? 0.035 : 0.035),
       },
       text: {
         primary:   isLight ? '#1b1b1b' : '#e8e8e8',
@@ -236,7 +271,7 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
           paper: ({ theme }) => ({
             borderRight: `1px solid ${theme.palette.divider}`,
             boxShadow: 'none',
-            backgroundColor: mix(drawerBase, primary, isLight ? 0.11 : 0.19),
+            backgroundColor: mix(drawerBase, primary, isLight ? 0.11 : 0.08),
           }),
         },
       },
