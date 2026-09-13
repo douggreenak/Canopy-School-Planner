@@ -52,19 +52,32 @@ export default function ThemeRegistry({ children }: { children: React.ReactNode 
     if (storedAccent) setAccentState(storedAccent);
   }, []);
 
-  // Also sync from DB on mount (cross-device). Goes through apiGet's shared
-  // cache/dedup rather than a raw fetch — pages using useSettings() (or
-  // another apiGet('/api/settings') caller, e.g. the Settings page's own
-  // initial load) mount around the same tick, and this collapses what would
-  // otherwise be several concurrent requests for the same data into one.
+  // Also sync from DB on mount (cross-device) — and unconditionally, not
+  // just when localStorage happens to be empty. It used to only apply the
+  // DB's value on a device with NO cached value yet, which made the DB sync
+  // effectively once-per-device instead of ongoing: the very first mount on
+  // any device immediately cached whatever it saw into localStorage, so
+  // every mount after that skipped the DB entirely — a theme changed on
+  // your phone would never reach your laptop, because the laptop already
+  // had its own (now-stale) cached value from before. The DB is the actual
+  // source of truth for a signed-in account; localStorage here is only a
+  // same-device cache for an instant first paint (the effect above) before
+  // this fetch resolves, not a per-device override that should ever "win"
+  // over what's saved to the account.
+  //
+  // Goes through apiGet's shared cache/dedup rather than a raw fetch — pages
+  // using useSettings() (or another apiGet('/api/settings') caller, e.g. the
+  // Settings page's own initial load) mount around the same tick, and this
+  // collapses what would otherwise be several concurrent requests for the
+  // same data into one.
   useEffect(() => {
     apiGet<Partial<AppSettings>>('/api/settings')
       .then((s) => {
-        if (s.themeMode && !localStorage.getItem(MODE_KEY)) {
+        if (s.themeMode) {
           setModeState(s.themeMode);
           localStorage.setItem(MODE_KEY, s.themeMode);
         }
-        if (s.accentColor && !localStorage.getItem(ACCENT_KEY)) {
+        if (s.accentColor) {
           setAccentState(s.accentColor);
           localStorage.setItem(ACCENT_KEY, s.accentColor);
         }
