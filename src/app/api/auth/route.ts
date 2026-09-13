@@ -9,6 +9,7 @@ import {
   updateUserPassword,
   deleteUserAndAllData,
   initializeDatabase,
+  setSetting,
 } from '@/lib/db';
 import {
   hashPassword,
@@ -73,6 +74,14 @@ export async function POST(request: NextRequest) {
       const id = uuid();
       const passwordHash = await hashPassword(password);
       await createUser(id, username.trim(), passwordHash);
+      // Lathrop Mode defaults ON for every new account — this app's bell
+      // schedule/early-out defaults are all built around Lathrop High
+      // School, so a fresh install should already reflect that rather than
+      // needing an extra opt-in click. Stored as a real setting (not left
+      // to an implicit "undefined means on" client guess) so it's a single
+      // source of truth every consumer — Settings, the setup wizard, the
+      // server-side post-sync auto-schedule — can rely on identically.
+      await setSetting('lathropMode', 'true', id).catch(() => {});
       const { cookie } = await createSession(id);
       return new Response(
         JSON.stringify({ success: true, user: { id, username: username.trim().toLowerCase(), role: 'user' } }),

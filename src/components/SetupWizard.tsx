@@ -95,7 +95,11 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
   // Done step's live status banner so it doesn't show some unrelated
   // previous sync's leftover status after a user who declined PowerSchool.
   const [syncStarted, setSyncStarted] = useState(false);
-  const [manualLathropEnabled, setManualLathropEnabled] = useState(false);
+  // Matches the server-side default set at registration (see /api/auth's
+  // 'register' action) — Lathrop Mode is already on by the time this wizard
+  // ever runs, so its toggle should read that way from the start rather than
+  // showing "Enable Lathrop Mode" as if it still needed a click.
+  const [manualLathropEnabled, setManualLathropEnabled] = useState(true);
 
   // Live status of the background sync kicked off below — the same
   // subscribable store the Settings/Grades pages and the sidebar's
@@ -640,19 +644,6 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                       "Running in the background — this can take a minute or two. Feel free to head to the Dashboard now; it'll keep going, and you can check progress anytime from Settings."}
                   </Typography>
                 </Alert>
-              )}
-
-              {syncStarted && psStatus.log.length > 0 && psStatus.status !== 'running' && (
-                <Accordion sx={{ width: '100%' }}>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography variant="body2" sx={{ textAlign: 'left' }}>Sync log ({psStatus.log.length} entries)</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <Box sx={{ fontSize: '0.72rem', maxHeight: 160, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1, textAlign: 'left' }}>
-                      {psStatus.log.map((line, i) => <div key={i}>{line}</div>)}
-                    </Box>
-                  </AccordionDetails>
-                </Accordion>
               )}
 
               {/* Manual schedule setup nudge — only relevant when the user

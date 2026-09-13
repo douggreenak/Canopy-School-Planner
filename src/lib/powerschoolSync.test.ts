@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   addGradeHistoryEntries: vi.fn(),
   setSyncStatus: vi.fn(),
   setSetting: vi.fn(),
+  getSettings: vi.fn(),
+  getClasses: vi.fn(),
+  updateClass: vi.fn(),
   tryAcquireSyncLock: vi.fn(),
   releaseSyncLock: vi.fn(),
 }));
@@ -27,6 +30,9 @@ vi.mock('@/lib/db', () => ({
   addGradeHistoryEntries: mocks.addGradeHistoryEntries,
   setSyncStatus: mocks.setSyncStatus,
   setSetting: mocks.setSetting,
+  getSettings: mocks.getSettings,
+  getClasses: mocks.getClasses,
+  updateClass: mocks.updateClass,
   tryAcquireSyncLock: mocks.tryAcquireSyncLock,
   releaseSyncLock: mocks.releaseSyncLock,
 }));
@@ -50,6 +56,11 @@ beforeEach(() => {
   mocks.setSetting.mockResolvedValue(undefined);
   mocks.addSyncLogEntries.mockResolvedValue(undefined);
   mocks.releaseSyncLock.mockResolvedValue(undefined);
+  // Lathrop Mode off by default in these tests — its own behavior is
+  // covered by the dedicated describe block below.
+  mocks.getSettings.mockResolvedValue({ lathropMode: 'false' });
+  mocks.getClasses.mockResolvedValue([]);
+  mocks.updateClass.mockResolvedValue(undefined);
 });
 
 describe('runPowerSchoolSync', () => {
@@ -100,5 +111,53 @@ describe('runPowerSchoolSync', () => {
 
     expect(mocks.releaseSyncLock).toHaveBeenCalledWith('user1');
     expect(mocks.setSyncStatus).toHaveBeenCalledWith('user1', expect.objectContaining({ status: 'error' }));
+  });
+});
+
+// Regression coverage for a real bug: the Lathrop bell schedule used to be
+// applied only from a client-side handler that ran after a sync it was
+// itself watching — so a sync with no browser tab open to see it through
+// (the cron job, or the onboarding wizard's now-backgrounded sync) never
+// got the real A/B schedule applied, and classes were left with whatever
+// flat day/time PowerSchool itself reports (often every weekday, same
+// time — reading as a straight "1-6 schedule"). It's now applied here,
+// server-side, unconditionally on every sync when Lathrop Mode is on.
+describe('runPowerSchoolSync — Lathrop Mode auto-apply', () => {
+  const PERIOD_3_CLASS = { id: 'local-1', name: 'AP Chemistry', period: 3, days: [1, 2, 3, 4, 5] };
+  const UNMAPPED_CLASS = { id: 'local-2', name: 'Independent Study', period: 9, days: [1, 2, 3, 4, 5] };
+
+  it('applies the real Lathrop schedule to every mapped class when the setting is on', async () => {
+    mocks.getSettings.mockResolvedValue({ lathropMode: 'true' });
+    mocks.getClasses.mockResolvedValue([PERIOD_3_CLASS, UNMAPPED_CLASS]);
+
+    await runPowerSchoolSync('user1', CREDS, 'sync1');
+
+    // Period 3 maps to a real Lathrop slot — updated with real days/times,
+    // not left at whatever flat pattern it arrived with.
+    expect(mocks.updateClass).toHaveBeenCalledTimes(1);
+    const [updated, userId] = mocks.updateClass.mock.calls[0];
+    expect(userId).toBe('user1');
+    expect(updated.id).toBe('local-1');
+    expect(updated.days.length).toBeGreaterThan(0);
+    expect(updated.days).not.toEqual([1, 2, 3, 4, 5]); // not the flat "every day" pattern
+    // Period 9 (no Lathrop slot) is left alone entirely.
+    expect(mocks.updateClass).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'local-2' }), expect.anything());
+  });
+
+  it('does nothing when Lathrop Mode is off', async () => {
+    mocks.getSettings.mockResolvedValue({ lathropMode: 'false' });
+    mocks.getClasses.mockResolvedValue([PERIOD_3_CLASS]);
+
+    await runPowerSchoolSync('user1', CREDS, 'sync1');
+
+    expect(mocks.updateClass).not.toHaveBeenCalled();
+  });
+
+  it('never fails the sync itself if the Lathrop step throws', async () => {
+    mocks.getSettings.mockRejectedValue(new Error('db unreachable'));
+
+    await runPowerSchoolSync('user1', CREDS, 'sync1');
+
+    expect(mocks.setSyncStatus).toHaveBeenCalledWith('user1', expect.objectContaining({ status: 'success' }));
   });
 });

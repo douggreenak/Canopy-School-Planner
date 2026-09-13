@@ -27,6 +27,71 @@ export function buildLathropEarlyOutTemplate(classes?: SchoolClass[]): Record<nu
   return tpl;
 }
 
+type LathropSlot = 'ext' | 1 | 2 | 3 | 4 | 5 | 6;
+
+// Lathrop High School's real weekly bell schedule: Monday and Friday run all
+// six periods straight through; Tuesday-Thursday alternate odd/even periods
+// plus an Extension/Advisory block — genuinely different days, not a
+// straight "periods 1-6 every day" pattern. That flat pattern is exactly
+// what a class keeps if this template is never actually applied to it
+// (whether newly synced from PowerSchool or added manually) — the bug
+// computeLathropSchedule below exists to fix.
+const LATHROP_WEEK_TEMPLATE: Record<number, Partial<Record<LathropSlot, { start: string; end: string }>>> = {
+  1: { 1: { start: '07:30', end: '08:24' }, 2: { start: '08:31', end: '09:25' }, 3: { start: '09:32', end: '10:26' }, 4: { start: '11:04', end: '11:58' }, 5: { start: '12:05', end: '12:59' }, 6: { start: '13:06', end: '14:00' } },
+  2: { ext: { start: '07:30', end: '08:05' }, 1: { start: '08:13', end: '09:26' }, 2: { start: '09:34', end: '10:47' }, 4: { start: '11:26', end: '12:39' }, 5: { start: '12:47', end: '14:00' } },
+  3: { ext: { start: '07:30', end: '08:05' }, 2: { start: '08:13', end: '09:26' }, 3: { start: '09:34', end: '10:47' }, 5: { start: '11:26', end: '12:39' }, 6: { start: '12:47', end: '14:00' } },
+  4: { ext: { start: '07:30', end: '08:05' }, 1: { start: '08:13', end: '09:26' }, 3: { start: '09:34', end: '10:47' }, 4: { start: '11:26', end: '12:39' }, 6: { start: '12:47', end: '14:00' } },
+  5: { 1: { start: '07:30', end: '08:24' }, 2: { start: '08:31', end: '09:25' }, 3: { start: '09:32', end: '10:26' }, 4: { start: '11:04', end: '11:58' }, 5: { start: '12:05', end: '12:59' }, 6: { start: '13:06', end: '14:00' } },
+};
+
+function isLathropExtensionClass(name: string): boolean {
+  return /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(name || '');
+}
+
+export interface LathropScheduleUpdate {
+  startTime: string;
+  endTime: string;
+  days: number[];
+  dayTimes: Record<number, { startTime: string; endTime: string }>;
+}
+
+/**
+ * Computes one class's slot in the real Lathrop weekly bell schedule above.
+ * The single source of truth for "apply the Lathrop schedule" — used both
+ * client-side (Settings' "Apply Default Bell Schedule" button and the
+ * Lathrop Mode toggle) and server-side (runPowerSchoolSync, so newly synced
+ * classes get the real schedule immediately, with no UI needing to be open
+ * to trigger it). Returns null for a class that isn't period 1-6 or an
+ * Extension/Advisory block — left alone rather than guessed at.
+ */
+export function computeLathropSchedule(cls: { name: string; period: number | string }): LathropScheduleUpdate | null {
+  const periodNum = parseInt(String(cls.period ?? ''), 10);
+  let slot: LathropSlot | null = null;
+  if (isLathropExtensionClass(cls.name)) slot = 'ext';
+  else if (periodNum >= 1 && periodNum <= 6) slot = periodNum as LathropSlot;
+  if (slot === null) return null;
+
+  const days: number[] = [];
+  const dayTimes: Record<number, { startTime: string; endTime: string }> = {};
+  for (let d = 1; d <= 5; d++) {
+    const slotTime = LATHROP_WEEK_TEMPLATE[d]?.[slot];
+    if (slotTime) {
+      days.push(d);
+      dayTimes[d] = { startTime: slotTime.start, endTime: slotTime.end };
+    }
+  }
+  if (days.length === 0) return null;
+
+  const firstDay = days[0];
+  const representative = dayTimes[firstDay];
+  return {
+    startTime: representative.startTime,
+    endTime: representative.endTime,
+    days: days.sort((a, b) => a - b),
+    dayTimes,
+  };
+}
+
 /**
  * Find the next date a class meets, given its weekly day pattern.
  * Returns an ISO date string (YYYY-MM-DD). Returns '' if the class has no

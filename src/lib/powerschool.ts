@@ -370,11 +370,17 @@ async function loginToPowerSchool(browser: Browser, creds: PowerSchoolCredential
   }
 
   // Some PowerSchool instances complete login in-place (no page navigation),
-  // so we explicitly load the home page to verify the session cookie works.
-  try {
-    await page.goto(`${baseUrl}/guardian/home.html`, navOpts);
-  } catch {
-    // non-fatal — maybe already there
+  // so we explicitly load the home page to verify the session cookie works —
+  // but only when we're not already sitting on it: the common case is the
+  // login POST itself redirecting straight to guardian/home.html, and this
+  // extra full page load (a real, noticeable chunk of onboarding's "verify
+  // the password" wait) is pure waste when that already happened.
+  if (!page.url().startsWith(`${baseUrl}/guardian/home.html`)) {
+    try {
+      await page.goto(`${baseUrl}/guardian/home.html`, navOpts);
+    } catch {
+      // non-fatal — maybe already there
+    }
   }
 
   // Verify we're logged in by checking for common post-login elements

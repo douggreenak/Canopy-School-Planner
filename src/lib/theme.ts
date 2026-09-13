@@ -39,7 +39,17 @@ export const ACCENT_PRESETS: AccentPreset[] = [
   // blue + green — Alaska Airlines' own brand colors: Midnight Blue
   // (primary palette) + Tropical Green (secondary palette), straight from
   // their brand guidelines rather than an approximation.
-  { name: 'Alaska',  primary: '#01426A', accent: '#B3D57D', primaryDark: '#7BA3C2', accentDark: '#C3DE96' },
+  //
+  // primaryDark/accentDark are deliberately NOT just "the light hex, pushed
+  // just light enough to clear 4.5:1" — that's what the previous values
+  // (#7BA3C2, #C3DE96) were, and desaturating a brand color that far to hit
+  // a contrast target reads as generic grey/pastel rather than "Alaska" at
+  // all once it's actually on screen, even though it technically passed.
+  // These instead keep real saturation (a true sky blue, a true grass
+  // green) and only lighten as far as contrast actually requires — both
+  // still individually verified at 4.5:1+ against the dark canvas in
+  // theme.test.ts, just without giving up the color's identity to get there.
+  { name: 'Alaska',  primary: '#01426A', accent: '#B3D57D', primaryDark: '#3AA3E0', accentDark: '#8DC63F' },
   // teal + sky blue
   { name: 'Glacier', primary: '#00695C', accent: '#0277BD', primaryDark: '#5CA79C', accentDark: '#4DA3D9' },
   // indigo + teal
@@ -234,32 +244,36 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
     },
     components: {
       MuiButton: {
+        // Makes `secondary` (the accent color) every Button's default —
+        // MUI's own built-in default is 'primary', and since virtually no
+        // call site in the app ever passed a `color` prop explicitly, that
+        // meant EVERY button rendered primary regardless of variant, and the
+        // accent color the user picks in Settings only ever showed up on the
+        // couple of components that explicitly opted into
+        // `color="secondary"` (the two page FABs, the AP chip). A call site
+        // that genuinely wants the old primary-CTA look can still pass
+        // `color="primary"` explicitly; `color="error"`/`"inherit"` etc. are
+        // untouched either way.
+        defaultProps: {
+          color: 'secondary',
+        },
         styleOverrides: {
-          // A function (not a static object) so it can key off ownerState —
-          // previously every Button rendered in `primary` regardless of
-          // variant, since MUI's own default `color` prop IS 'primary' and
-          // almost nothing in the app ever passed a color explicitly. The
-          // accent/secondary color the user picks in Settings was then only
-          // ever visible on the couple of components that explicitly opt
-          // into `color="secondary"` (the two page FABs, the AP chip) — every
-          // ordinary Button ignored it completely. Outlined/text buttons —
-          // the secondary/tertiary action in a dialog or toolbar, as opposed
-          // to its one `contained` primary CTA — now render in the accent
-          // color by default instead, so a theme's second color actually
-          // shows up throughout the app rather than in two isolated spots.
-          // `accentOnCanvas` (not the raw accent) is used here specifically
-          // because this is the bare-text/border case `accessibleForeground`
-          // exists for — see its doc comment.
+          // A function (not a static object) so it can key off ownerState.
+          // `accentOnCanvas` (not the raw accent) is used for outlined/text
+          // specifically because that's the bare-text/border case
+          // `accessibleForeground` exists for — see its doc comment; a
+          // `contained` secondary button already gets a correct, guaranteed-
+          // readable fill+text pair straight from the theme's own
+          // `secondary.main`/`secondary.contrastText`, no override needed.
           root: ({ ownerState }) => {
-            const usesDefaultColor = !ownerState.color || ownerState.color === 'primary';
-            const isSecondaryStyled = usesDefaultColor && ownerState.variant !== 'contained';
+            const isAccentStyled = ownerState.color === 'secondary' && ownerState.variant !== 'contained';
             return {
               borderRadius: 20,
               padding: '8px 24px',
               fontSize: '0.875rem',
               transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
               '&:active': { transform: 'scale(0.96)' },
-              ...(isSecondaryStyled && {
+              ...(isAccentStyled && {
                 color: accentOnCanvas,
                 ...(ownerState.variant === 'outlined' && { borderColor: alpha(accentOnCanvas, isLight ? 0.5 : 0.6) }),
                 '&:hover': {

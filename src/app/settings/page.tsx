@@ -50,7 +50,7 @@ import KeyboardIcon from '@mui/icons-material/Keyboard';
 import { useClasses, apiGet, useDebouncedCallback, useAutosaveStatus, useEnterConfirm } from '@/lib/hooks';
 import InlineSaveIndicator from '@/components/InlineSaveIndicator';
 import type { AppSettings } from '@/types';
-import { buildLathropEarlyOutTemplate } from '@/lib/schedule';
+import { buildLathropEarlyOutTemplate, computeLathropSchedule } from '@/lib/schedule';
 import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
 import { fetchPowerSchoolStatusNow } from '@/lib/powerschoolStatusStore';
 import ScheduleIcon from '@mui/icons-material/Schedule';
@@ -190,7 +190,12 @@ function SettingsInner() {
   const [calendarUrl, setCalendarUrl] = useState('');
   const [calendarReady, setCalendarReady] = useState(false);
 
-  const [lathropMode, setLathropMode] = useState(false);
+  // Defaults true — every new account has this persisted explicitly at
+  // registration (see /api/auth's 'register' action), but this optimistic
+  // default also covers a pre-existing account that predates that and has no
+  // saved value yet, so Lathrop Mode reads as "on" everywhere before the
+  // settings fetch below resolves either way.
+  const [lathropMode, setLathropMode] = useState(true);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [autoSyncHour, setAutoSyncHour] = useState(12);
 
@@ -279,8 +284,11 @@ function SettingsInner() {
         if (s.powerschoolUrl) setPsUrl(s.powerschoolUrl);
         if (s.powerschoolUsername) setPsUser(s.powerschoolUsername);
         if (s.lunchTimes) setLunchTimes(typeof s.lunchTimes === 'string' ? JSON.parse(s.lunchTimes) : s.lunchTimes);
-        const isLathrop = s.lathropMode === true || s.lathropMode === 'true';
-        if (s.lathropMode) setLathropMode(isLathrop);
+        // Undefined (no saved row — a pre-existing account from before
+        // Lathrop Mode defaulted on) reads as "on", matching the initial
+        // useState default above rather than silently disagreeing with it.
+        const isLathrop = s.lathropMode === undefined ? true : (s.lathropMode === true || s.lathropMode === 'true');
+        setLathropMode(isLathrop);
         if (s.powerschoolAutoSync) {
           try {
             const parsed = typeof s.powerschoolAutoSync === 'string' ? JSON.parse(s.powerschoolAutoSync) : s.powerschoolAutoSync;
@@ -525,36 +533,16 @@ function SettingsInner() {
     if (!classes || classes.length === 0) return;
     setSyncing('apply-default');
     try {
-      type SlotKey = 'ext' | 1 | 2 | 3 | 4 | 5 | 6;
-      const weekTemplate: Record<number, Partial<Record<SlotKey, { start: string; end: string }>>> = {
-        1: { 1: { start: '07:30', end: '08:24' }, 2: { start: '08:31', end: '09:25' }, 3: { start: '09:32', end: '10:26' }, 4: { start: '11:04', end: '11:58' }, 5: { start: '12:05', end: '12:59' }, 6: { start: '13:06', end: '14:00' } },
-        2: { ext: { start: '07:30', end: '08:05' }, 1: { start: '08:13', end: '09:26' }, 2: { start: '09:34', end: '10:47' }, 4: { start: '11:26', end: '12:39' }, 5: { start: '12:47', end: '14:00' } },
-        3: { ext: { start: '07:30', end: '08:05' }, 2: { start: '08:13', end: '09:26' }, 3: { start: '09:34', end: '10:47' }, 5: { start: '11:26', end: '12:39' }, 6: { start: '12:47', end: '14:00' } },
-        4: { ext: { start: '07:30', end: '08:05' }, 1: { start: '08:13', end: '09:26' }, 3: { start: '09:34', end: '10:47' }, 4: { start: '11:26', end: '12:39' }, 6: { start: '12:47', end: '14:00' } },
-        5: { 1: { start: '07:30', end: '08:24' }, 2: { start: '08:31', end: '09:25' }, 3: { start: '09:32', end: '10:26' }, 4: { start: '11:04', end: '11:58' }, 5: { start: '12:05', end: '12:59' }, 6: { start: '13:06', end: '14:00' } },
-      };
-      const isExtension = (name: string) => /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(name || '');
       const promises: Promise<Response>[] = [];
       let skipped = 0;
       for (const c of classes) {
-        const periodNum = parseInt(String(c.period ?? ''), 10);
-        let slot: SlotKey | null = null;
-        if (isExtension(c.name)) slot = 'ext';
-        else if (periodNum >= 1 && periodNum <= 6) slot = periodNum as SlotKey;
-        if (slot === null) { skipped++; continue; }
-        const days: number[] = [];
-        const dayTimes: Record<number, { startTime: string; endTime: string }> = {};
-        for (let d = 1; d <= 5; d++) {
-          const slotTime = weekTemplate[d]?.[slot];
-          if (slotTime) {
-            days.push(d);
-            dayTimes[d] = { startTime: slotTime.start, endTime: slotTime.end };
-          }
-        }
-        if (days.length === 0) { skipped++; continue; }
-        const firstDay = days[0];
-        const representative = dayTimes[firstDay];
-        const updated = { ...c, startTime: representative.startTime, endTime: representative.endTime, days: days.sort((a, b) => a - b), dayTimes } as SchoolClass;
+        // computeLathropSchedule (src/lib/schedule.ts) is the single source
+        // of truth for the real weekly A/B bell schedule — also used
+        // server-side (runPowerSchoolSync) so a fresh sync gets it applied
+        // without needing this page open at all.
+        const result = computeLathropSchedule(c);
+        if (!result) { skipped++; continue; }
+        const updated = { ...c, ...result } as SchoolClass;
         promises.push(fetch('/api/classes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }));
       }
       await Promise.all(promises);

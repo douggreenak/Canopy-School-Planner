@@ -7,6 +7,7 @@
 // ============================================================
 import { v4 as uuid } from 'uuid';
 import { scrapePowerSchool } from '@/lib/powerschool';
+import { computeLathropSchedule } from '@/lib/schedule';
 import {
   syncClassesFromSource,
   syncHomeworkFromSource,
@@ -14,6 +15,9 @@ import {
   addGradeHistoryEntries,
   setSyncStatus,
   setSetting,
+  getSettings,
+  getClasses,
+  updateClass,
   tryAcquireSyncLock,
   releaseSyncLock,
 } from '@/lib/db';
@@ -74,6 +78,34 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
 
     const hwStats = await syncHomeworkFromSource('powerschool', remappedAssignments, userId, syncId);
     result.log.push(`Assignments: ${hwStats.added} added, ${hwStats.updated} updated, ${hwStats.removed} removed`);
+
+    // Lathrop Mode's bell schedule is applied here — server-side, after
+    // every sync — rather than only from a client-side "if the Settings tab
+    // happens to still be open when this finishes" handler. That client-only
+    // version is exactly why newly-synced classes could sit with whatever
+    // flat day/time PowerSchool itself reports (often every weekday, same
+    // time — i.e. a straight "1-6 schedule" look) instead of Lathrop's real
+    // alternating A/B block schedule: nothing was watching a background
+    // sync (this cron job has no UI at all, and the onboarding wizard no
+    // longer awaits the sync either) to ever apply it. Never lets a
+    // scheduling hiccup here fail the sync itself.
+    try {
+      const settings = await getSettings(userId);
+      const lathropMode = settings.lathropMode === true || settings.lathropMode === 'true';
+      if (lathropMode) {
+        const classes = await getClasses(userId);
+        let applied = 0;
+        for (const cls of classes) {
+          const update = computeLathropSchedule(cls);
+          if (!update) continue;
+          await updateClass({ ...cls, ...update }, userId);
+          applied++;
+        }
+        if (applied > 0) result.log.push(`Lathrop bell schedule applied to ${applied} class${applied === 1 ? '' : 'es'}.`);
+      }
+    } catch (err) {
+      result.log.push(`Lathrop schedule apply skipped: ${(err as Error).message}`);
+    }
 
     // Every completed sync leaves at least one sync_log row — including a
     // "nothing changed" sync — so the Log tab (and a human checking it) can
