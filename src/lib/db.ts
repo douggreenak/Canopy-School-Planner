@@ -16,7 +16,7 @@ import type {
 } from '@/types';
 import { v4 as uuid } from 'uuid';
 import { parseStages } from '@/lib/stages';
-import { detectApFromName } from '@/lib/apDetection';
+import { detectApFromName, resolveIsApOnSync } from '@/lib/apDetection';
 
 // The Neon HTTP driver is stateless (each query is an independent fetch, no
 // socket to pool), so a single client can be reused across requests/invocations
@@ -1150,6 +1150,15 @@ export async function syncClassesFromSource(
         if (prior.endTime?.trim()) merged.endTime = prior.endTime;
         if (prior.dayTimes && Object.keys(prior.dayTimes).length > 0) merged.dayTimes = prior.dayTimes;
         if (prior.period && Number(prior.period) > 0) merged.period = prior.period;
+        // Re-run AP name detection on every sync, not just at initial insert.
+        // A class synced before is_ap existed (or before its name happened to
+        // read as AP) was stuck at false forever otherwise — the prior merge
+        // here just carried `prior.isAp` straight through unchanged, and
+        // nothing ever re-evaluated it. Only ever upgrades false -> true;
+        // never clears a flag the user (or a past detection) already set,
+        // so a deliberate manual "not AP" uncheck still can't be un-done by
+        // a later sync.
+        merged.isAp = resolveIsApOnSync(prior.isAp, merged.name);
 
         // Category-weight manual-sticks rule: once set manually, sync never overwrites.
         if (prior.weightSource === 'manual') {
@@ -1295,6 +1304,9 @@ export async function syncClassesFromSource(
       if (prior.endTime?.trim()) merged.endTime = prior.endTime;
       if (prior.dayTimes && Object.keys(prior.dayTimes).length > 0) merged.dayTimes = prior.dayTimes;
       if (prior.period && Number(prior.period) > 0) merged.period = prior.period;
+      // See the PowerSchool merge branch above for why this re-runs on every
+      // sync instead of just carrying `prior.isAp` through unchanged.
+      merged.isAp = resolveIsApOnSync(prior.isAp, merged.name);
 
       writeQueries.push(sql`
         UPDATE classes SET
