@@ -50,6 +50,7 @@ import ShowChartIcon from '@mui/icons-material/ShowChart';
 import { useClasses, useHomework, useGradeHistory, useSettings } from '@/lib/hooks';
 import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
 import { fetchPowerSchoolStatusNow } from '@/lib/powerschoolStatusStore';
+import SyncReminderDialog from '@/components/SyncReminderDialog';
 import { missingWorkImpact } from '@/lib/gradeEngine';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
@@ -144,6 +145,7 @@ export default function GradesPage() {
   const { data: gradeHistory } = useGradeHistory();
   const { data: settingsData } = useSettings();
   const [syncing, setSyncing] = useState(false);
+  const [syncReminderOpen, setSyncReminderOpen] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
   const [sortMode, setSortMode] = useState<'period' | 'grade'>('period');
   const [activeTab, setActiveTab] = useState<'grades' | 'transcript' | 'sync-log'>('grades');
@@ -339,12 +341,18 @@ export default function GradesPage() {
         <Button
           variant="contained"
           startIcon={syncing ? <CircularProgress size={16} color="inherit" /> : <SyncIcon />}
-          onClick={syncNow}
+          onClick={() => setSyncReminderOpen(true)}
           disabled={syncing}
         >
           {syncing ? 'Syncing…' : 'Sync Now'}
         </Button>
       </Box>
+
+      <SyncReminderDialog
+        open={syncReminderOpen}
+        onClose={() => setSyncReminderOpen(false)}
+        onConfirm={syncNow}
+      />
 
       <Tabs
         value={activeTab}

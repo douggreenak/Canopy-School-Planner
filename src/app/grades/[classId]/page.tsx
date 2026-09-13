@@ -63,6 +63,7 @@ import EventIcon from '@mui/icons-material/Event';
 import { useClasses, useHomework, useGradeHistory, useSyncLog } from '@/lib/hooks';
 import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
 import { fetchPowerSchoolStatusNow } from '@/lib/powerschoolStatusStore';
+import SyncReminderDialog from '@/components/SyncReminderDialog';
 import {
   gradeColor,
   letterFromPercent,
@@ -95,6 +96,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
   const { data: classes, loading: loadingClasses, refetch: refetchClasses } = useClasses();
   const { data: homework, loading: loadingHomework, refetch: refetchHomework } = useHomework();
   const [syncing, setSyncing] = useState(false);
+  const [syncReminderOpen, setSyncReminderOpen] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
   const [query, setQuery] = useState('');
   const [sortMode, setSortMode] = useState<'due-desc' | 'due-asc' | 'category'>('due-desc');
@@ -359,12 +361,18 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
             variant="outlined"
             size="small"
             startIcon={syncing ? <CircularProgress size={14} color="inherit" /> : <SyncIcon />}
-            onClick={syncNow}
+            onClick={() => setSyncReminderOpen(true)}
             disabled={syncing}
           >
             {syncing ? 'Syncing…' : 'Sync'}
           </Button>
         </Box>
+
+        <SyncReminderDialog
+          open={syncReminderOpen}
+          onClose={() => setSyncReminderOpen(false)}
+          onConfirm={syncNow}
+        />
       </Stack>
 
       {/* ===== Class header card =====

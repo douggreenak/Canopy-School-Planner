@@ -49,6 +49,7 @@ import PaletteIcon from '@mui/icons-material/Palette';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
 import { useClasses, apiGet, useDebouncedCallback, useAutosaveStatus, useEnterConfirm } from '@/lib/hooks';
 import InlineSaveIndicator from '@/components/InlineSaveIndicator';
+import SyncReminderDialog from '@/components/SyncReminderDialog';
 import type { AppSettings } from '@/types';
 import { buildLathropEarlyOutTemplate, computeLathropSchedule } from '@/lib/schedule';
 import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
@@ -87,6 +88,7 @@ function SettingsInner() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
   const [syncing, setSyncing] = useState<string | null>(null);
+  const [syncReminderOpen, setSyncReminderOpen] = useState(false);
 
   // Each settings section is its own collapsible accordion instead of one
   // long stack of always-open cards — only Appearance and School are open
@@ -1051,7 +1053,11 @@ function SettingsInner() {
                   <Button
                     variant="contained"
                     startIcon={syncing === 'powerschool' ? <CircularProgress size={16} color="inherit" /> : <SyncIcon />}
-                    onClick={syncPowerSchool}
+                    // Only nag with the "there's already autosync" reminder
+                    // for an actual re-sync of an already-connected account —
+                    // not the very first "Import from PowerSchool", which
+                    // has no prior automatic sync to point to yet.
+                    onClick={() => { if (setupStatus?.hasPowerschool) setSyncReminderOpen(true); else syncPowerSchool(); }}
                     disabled={!!syncing || (!setupStatus?.hasPowerschool && (!psUrl || !psUser || !psPass))}
                   >
                     {syncing === 'powerschool' ? 'Syncing…' : setupStatus?.hasPowerschool ? 'Sync Now' : 'Import from PowerSchool'}
@@ -1621,6 +1627,12 @@ function SettingsInner() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <SyncReminderDialog
+        open={syncReminderOpen}
+        onClose={() => setSyncReminderOpen(false)}
+        onConfirm={syncPowerSchool}
+      />
 
       <Snackbar
         open={snackbar.open}
