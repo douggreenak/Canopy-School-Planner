@@ -50,8 +50,19 @@ export function buildDaySchedule(
   const oneToSixPeriods = disruption?.type === '1_6'
     ? new Set(disruption.periodOverrides.map((o) => o.period))
     : null;
+
+  // A "Different Day's Schedule" disruption swaps in another weekday's
+  // normal class list/times wholesale — e.g. a Thursday schedule on a
+  // Monday. Every lookup below that would otherwise use the date's own
+  // weekday (which classes meet, and their per-day times) uses the source
+  // weekday instead; falls back to the real weekday if unset so a
+  // half-configured disruption doesn't just show an empty day.
+  const scheduleDayOfWeek = disruption?.type === 'day_swap' && disruption.sourceDayOfWeek !== undefined
+    ? disruption.sourceDayOfWeek
+    : dayOfWeek;
+
   const dayClasses = classes.filter(
-    (c) => c.days.includes(dayOfWeek) || (oneToSixPeriods?.has(c.period) ?? false)
+    (c) => c.days.includes(scheduleDayOfWeek) || (oneToSixPeriods?.has(c.period) ?? false)
   );
 
   const entries: ScheduleEntry[] = dayClasses.map((classInfo) => {
@@ -62,16 +73,16 @@ export function buildDaySchedule(
     if (override) {
         return {
           classInfo,
-          startTime: override.cancelled ? (classInfo.dayTimes?.[dayOfWeek]?.startTime || classInfo.startTime) : override.startTime,
-          endTime: override.cancelled ? (classInfo.dayTimes?.[dayOfWeek]?.endTime || classInfo.endTime) : override.endTime,
+          startTime: override.cancelled ? (classInfo.dayTimes?.[scheduleDayOfWeek]?.startTime || classInfo.startTime) : override.startTime,
+          endTime: override.cancelled ? (classInfo.dayTimes?.[scheduleDayOfWeek]?.endTime || classInfo.endTime) : override.endTime,
           cancelled: override.cancelled,
         };
       }
       if (disruption.type === 'no_school') {
         return {
           classInfo,
-          startTime: classInfo.dayTimes?.[dayOfWeek]?.startTime || classInfo.startTime,
-          endTime: classInfo.dayTimes?.[dayOfWeek]?.endTime || classInfo.endTime,
+          startTime: classInfo.dayTimes?.[scheduleDayOfWeek]?.startTime || classInfo.startTime,
+          endTime: classInfo.dayTimes?.[scheduleDayOfWeek]?.endTime || classInfo.endTime,
           cancelled: true,
         };
       }
@@ -79,8 +90,8 @@ export function buildDaySchedule(
     // Use per-day override times if present, otherwise class-level times.
     return {
       classInfo,
-      startTime: classInfo.dayTimes?.[dayOfWeek]?.startTime || classInfo.startTime,
-      endTime: classInfo.dayTimes?.[dayOfWeek]?.endTime || classInfo.endTime,
+      startTime: classInfo.dayTimes?.[scheduleDayOfWeek]?.startTime || classInfo.startTime,
+      endTime: classInfo.dayTimes?.[scheduleDayOfWeek]?.endTime || classInfo.endTime,
       cancelled: false,
     };
   });

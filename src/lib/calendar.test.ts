@@ -90,4 +90,34 @@ describe('generateCalendarFeed disruption-awareness', () => {
     expect(day.classes[0].cancelled).toBe(false);
     expect(day.classes[0].startTime).toBe('10:00');
   });
+
+  it('a day_swap disruption runs the source weekday\'s classes/times instead of the actual date\'s', () => {
+    const thursdayClass: SchoolClass = {
+      id: 'c2',
+      name: 'Chemistry',
+      teacher: 'Mr. Lund',
+      room: '110',
+      color: '#0277BD',
+      period: 5,
+      startTime: '11:00',
+      endTime: '11:50',
+      days: [4], // Thursday only
+      semester: 'Spring 2026',
+    };
+    const disruption: ScheduleDisruption = {
+      id: 'd5',
+      date: '2026-01-12', // a Monday — `monday` above normally meets this day
+      type: 'day_swap',
+      sourceDayOfWeek: 4, // run Thursday's schedule instead
+      label: 'Thursday Schedule',
+      periodOverrides: [],
+    };
+    const day = buildDaySchedule('2026-01-12', [monday, thursdayClass], [disruption]);
+    // Only the Thursday class shows up — the Monday class (which doesn't
+    // meet on Thursdays) is entirely absent, not just shifted/cancelled.
+    expect(day.classes).toHaveLength(1);
+    expect(day.classes[0].classInfo.id).toBe('c2');
+    expect(day.classes[0].startTime).toBe('11:00');
+    expect(day.classes[0].cancelled).toBe(false);
+  });
 });

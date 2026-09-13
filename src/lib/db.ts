@@ -162,6 +162,9 @@ export async function initializeDatabase() {
   await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE disruptions ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE disruptions ADD COLUMN IF NOT EXISTS end_date TEXT NOT NULL DEFAULT ''`;
+  // 'day_swap' disruptions ("run Thursday's schedule on Monday") — NULL for
+  // every other type.
+  await sql`ALTER TABLE disruptions ADD COLUMN IF NOT EXISTS source_day_of_week INTEGER`;
 
   // Per-user lookup indexes. Every data query filters by user_id; without these
   // Postgres seq-scans the whole table and filters in memory, which degrades as
@@ -399,6 +402,9 @@ function dbToDisruption(row: Record<string, unknown>): ScheduleDisruption {
     type: (row.type as ScheduleDisruption['type']),
     label: (row.label as string) || '',
     periodOverrides: (row.period_overrides as PeriodOverride[]) || [],
+    sourceDayOfWeek: row.source_day_of_week === null || row.source_day_of_week === undefined
+      ? undefined
+      : Number(row.source_day_of_week),
   };
 }
 
@@ -742,8 +748,8 @@ export async function getDisruptions(userId: string): Promise<ScheduleDisruption
 export async function addDisruption(d: ScheduleDisruption, userId: string): Promise<void> {
   const sql = getDb();
   await sql`
-    INSERT INTO disruptions (id, user_id, date, end_date, type, label, period_overrides)
-    VALUES (${d.id}, ${userId}, ${d.date}, ${d.endDate || d.date}, ${d.type}, ${d.label}, ${JSON.stringify(d.periodOverrides)}::jsonb)
+    INSERT INTO disruptions (id, user_id, date, end_date, type, label, period_overrides, source_day_of_week)
+    VALUES (${d.id}, ${userId}, ${d.date}, ${d.endDate || d.date}, ${d.type}, ${d.label}, ${JSON.stringify(d.periodOverrides)}::jsonb, ${d.sourceDayOfWeek ?? null})
   `;
 }
 
@@ -752,7 +758,8 @@ export async function updateDisruption(d: ScheduleDisruption, userId: string): P
   await sql`
     UPDATE disruptions SET
       date = ${d.date}, end_date = ${d.endDate || d.date}, type = ${d.type}, label = ${d.label},
-      period_overrides = ${JSON.stringify(d.periodOverrides)}::jsonb
+      period_overrides = ${JSON.stringify(d.periodOverrides)}::jsonb,
+      source_day_of_week = ${d.sourceDayOfWeek ?? null}
     WHERE id = ${d.id} AND user_id = ${userId}
   `;
 }

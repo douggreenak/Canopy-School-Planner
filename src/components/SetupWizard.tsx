@@ -33,6 +33,8 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import TimezonePicker from '@/components/TimezonePicker';
 import { useEnterConfirm } from '@/lib/hooks';
+import { usePowerSchoolSyncStatus, pokePowerSchoolStatus } from '@/lib/powerschoolStatusStore';
+import VerifiedIcon from '@mui/icons-material/Verified';
 
 // PowerSchool moved ahead of School Info — connecting it is the single
 // highest-leverage step (it pre-fills classes/schedule automatically), so
@@ -77,9 +79,11 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
   const [psUser, setPsUser] = useState('');
   const [psPass, setPsPass] = useState('');
   const [showPsPass, setShowPsPass] = useState(false);
-  const [psSynced, setPsSynced] = useState(false);
   const [psLog, setPsLog] = useState<string[]>([]);
-  const [psSummary, setPsSummary] = useState('');
+  // Separate from `busy` (which also covers School Info's save) so the
+  // button can say "Verifying…" specifically while the fast login-only
+  // check is in flight, before the (slower, background) sync even starts.
+  const [verifying, setVerifying] = useState(false);
   // Confirmation sub-view shown when "Skip" is clicked on the PowerSchool
   // step — the user sees exactly what they're giving up before it's final.
   const [confirmSkipPs, setConfirmSkipPs] = useState(false);
@@ -87,7 +91,18 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
   // it) so the Done step can offer the manual/Lathrop path only when it's
   // actually relevant.
   const [declinedPowerSchool, setDeclinedPowerSchool] = useState(false);
+  // True once THIS wizard run has kicked off a background sync — gates the
+  // Done step's live status banner so it doesn't show some unrelated
+  // previous sync's leftover status after a user who declined PowerSchool.
+  const [syncStarted, setSyncStarted] = useState(false);
   const [manualLathropEnabled, setManualLathropEnabled] = useState(false);
+
+  // Live status of the background sync kicked off below — the same
+  // subscribable store the Settings/Grades pages and the sidebar's
+  // "Syncing PowerSchool…" indicator use, so the Done step's banner reflects
+  // reality even if the sync is still running (or finishes) after the wizard
+  // itself has been sitting on this step for a while.
+  const psStatus = usePowerSchoolSyncStatus();
 
   // ---- actions ----
 
@@ -111,50 +126,94 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
     setBusy(false);
   };
 
-  const syncPowerSchool = async () => {
+  // Two-phase: first a fast, login-only check (catches a mistyped username/
+  // password in a few seconds), THEN — only once that's confirmed — save the
+  // credentials and kick off the real sync as a background job the flow
+  // does NOT wait on, advancing to School Info right away. Previously this
+  // awaited the full scrape (classes + every assignment) before letting the
+  // user continue, which both blocked the wizard for however long that took
+  // AND meant a wrong password wasn't caught until that entire wait was over.
+  const verifyAndContinue = async () => {
     setError('');
-    setBusy(true);
     setPsLog([]);
-    setPsSummary('');
+    setVerifying(true);
+    setBusy(true);
     try {
+      const verifyRes = await fetch('/api/powerschool/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: psUrl, username: psUser, password: psPass }),
+      });
+      const verifyData = await verifyRes.json().catch(() => ({}));
+      if (verifyData.log) setPsLog(verifyData.log);
+      if (!verifyRes.ok || !verifyData.ok) {
+        setError(verifyData.error || 'Could not log in to PowerSchool — check your URL, username, and password.');
+        setVerifying(false);
+        setBusy(false);
+        return;
+      }
+      setVerifying(false);
+
+      // Credentials are good — save them, then fire the sync and move on
+      // without waiting for it. It keeps running server-side (see
+      // src/lib/powerschoolSync.ts's after()-based runner) regardless of
+      // which wizard step the user is on or whether they close the tab.
       await fetch('/api/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'save-powerschool', url: psUrl, username: psUser, password: psPass }),
       });
-      const res = await fetch('/api/powerschool', {
+      const syncRes = await fetch('/api/powerschool', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: psUrl, username: psUser, password: psPass }),
       });
-      const data = await res.json();
-      if (data.log) setPsLog(data.log);
-      if (data.success) {
-        const parts: string[] = [];
-        if (data.classAdded) parts.push(`${data.classAdded} classes added`);
-        if (data.classUpdated) parts.push(`${data.classUpdated} updated`);
-        if (data.assignmentCount) parts.push(`${data.assignmentCount} assignments synced`);
-        setPsSummary(parts.length > 0 ? parts.join(', ') : 'Sync complete — no changes.');
-        setPsSynced(true);
-        setDeclinedPowerSchool(false);
-        // A successful connection is exactly the case where scheduled sync
-        // is most worth defaulting to on — the user just proved their
-        // credentials work, so keeping data fresh going forward shouldn't
-        // need a second trip to Settings. utcHour matches the same default
-        // the Settings page's own picker starts from; easy to change there.
-        await fetch('/api/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled: true, utcHour: 12 } }),
-        }).catch(() => {});
-        setStep(2);
-      } else {
-        setError(data.error || 'PowerSchool sync failed.');
+      const syncData = await syncRes.json().catch(() => ({}));
+      if (!syncRes.ok || syncData.success === false) {
+        setError(syncData.error || 'Verified, but could not start the sync. You can retry from Settings.');
+        setBusy(false);
+        return;
       }
+      setSyncStarted(true);
+      setDeclinedPowerSchool(false);
+      // Nudges the shared status store to poll right away instead of waiting
+      // for its own cadence, so the Done step's live banner (and the
+      // sidebar's "Syncing PowerSchool…" indicator) reflect "running"
+      // immediately rather than a stale "idle" for a few seconds.
+      pokePowerSchoolStatus();
+      // A successful connection is exactly the case where scheduled sync is
+      // most worth defaulting to on — the user just proved their
+      // credentials work, so keeping data fresh going forward shouldn't need
+      // a second trip to Settings. utcHour matches the same default the
+      // Settings page's own picker starts from; easy to change there.
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled: true, utcHour: 12 } }),
+      }).catch(() => {});
+      setStep(2);
     } catch (e) {
       setError(`Connection error: ${(e as Error).message}`);
     }
+    setVerifying(false);
     setBusy(false);
+  };
+
+  // Same "X added, Y updated" phrasing the Settings page's own sync-outcome
+  // handler uses, applied here to the shared status store's `result` instead
+  // of a one-off fetch response.
+  const syncResultSummary = (result: Record<string, unknown> | null): string => {
+    if (!result) return 'Sync complete — no changes.';
+    const parts: string[] = [];
+    const classAdded = Number(result.classAdded) || 0;
+    const classUpdated = Number(result.classUpdated) || 0;
+    const classRemoved = Number(result.classRemoved) || 0;
+    const assignmentCount = Number(result.assignmentCount) || 0;
+    if (classAdded) parts.push(`${classAdded} classes added`);
+    if (classUpdated) parts.push(`${classUpdated} updated`);
+    if (classRemoved) parts.push(`${classRemoved} removed`);
+    if (assignmentCount) parts.push(`${assignmentCount} assignments synced`);
+    return parts.length > 0 ? parts.join(', ') : 'Sync complete — no changes.';
   };
 
   const toggleManualLathrop = async (enabled: boolean) => {
@@ -182,7 +241,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
     if (step === 0) { setStep(1); return; }
     if (step === 1) {
       if (confirmSkipPs) { setDeclinedPowerSchool(true); setConfirmSkipPs(false); setStep(2); }
-      else syncPowerSchool();
+      else verifyAndContinue();
       return;
     }
     if (step === 2) { saveSchoolInfo(); return; }
@@ -347,7 +406,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                   {psLog.length > 0 && (
                     <Accordion>
                       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                        <Typography variant="body2">Sync log ({psLog.length} entries)</Typography>
+                        <Typography variant="body2">Login log ({psLog.length} entries)</Typography>
                       </AccordionSummary>
                       <AccordionDetails>
                         <Box sx={{ fontSize: '0.72rem', maxHeight: 160, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
@@ -363,11 +422,11 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                         variant="contained"
                         size="large"
                         fullWidth
-                        startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <SyncIcon />}
-                        onClick={syncPowerSchool}
+                        startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <VerifiedIcon />}
+                        onClick={verifyAndContinue}
                         disabled={!canSyncPS || busy}
                       >
-                        {busy ? 'Syncing…' : 'Connect & Sync'}
+                        {verifying ? 'Verifying…' : busy ? 'Starting sync…' : 'Verify & Continue'}
                       </Button>
                       <Stack direction="row" spacing={1.5}>
                         <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy} sx={{ flex: 1 }}>
@@ -387,17 +446,21 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                         variant="contained"
                         size="large"
                         sx={{ flex: 1 }}
-                        startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <SyncIcon />}
-                        onClick={syncPowerSchool}
+                        startIcon={busy ? <CircularProgress size={18} color="inherit" /> : <VerifiedIcon />}
+                        onClick={verifyAndContinue}
                         disabled={!canSyncPS || busy}
                       >
-                        {busy ? 'Syncing…' : 'Connect & Sync'}
+                        {verifying ? 'Verifying…' : busy ? 'Starting sync…' : 'Verify & Continue'}
                       </Button>
                       <Button variant="outlined" onClick={() => setConfirmSkipPs(true)} disabled={busy}>
                         Skip
                       </Button>
                     </Stack>
                   )}
+
+                  <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'center' }}>
+                    Canopy is an independent, unofficial tool and isn&apos;t affiliated with or endorsed by PowerSchool. You connect your account at your own risk — use of your credentials here is your own responsibility.
+                  </Typography>
                 </>
               ) : (
                 // Skip confirmation — shown in place of the form so declining
@@ -552,20 +615,41 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
               <CheckCircleIcon sx={{ fontSize: 64, color: 'success.main' }} />
               <Typography variant="h5" sx={{ fontWeight: 600 }}>You&apos;re all set!</Typography>
 
-              {psSynced && psSummary && (
-                <Alert severity="success" sx={{ width: '100%', textAlign: 'left' }}>
-                  PowerSchool sync: {psSummary}
+              {/* Live PowerSchool sync status — the clear "still working in
+                  the background" indication the Done step needs, since the
+                  sync itself was kicked off back on the PowerSchool step and
+                  keeps running independently of which step the wizard is on
+                  now (or even whether it's still open at all). */}
+              {syncStarted && (
+                <Alert
+                  severity={psStatus.status === 'error' ? 'error' : psStatus.status === 'success' ? 'success' : 'info'}
+                  icon={psStatus.status === 'running' || psStatus.status === 'idle' ? <CircularProgress size={18} /> : undefined}
+                  sx={{ width: '100%', textAlign: 'left' }}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    {psStatus.status === 'success'
+                      ? 'PowerSchool sync complete'
+                      : psStatus.status === 'error'
+                      ? 'PowerSchool sync failed'
+                      : 'Canopy is syncing with PowerSchool…'}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {psStatus.status === 'success' && syncResultSummary(psStatus.result)}
+                    {psStatus.status === 'error' && (psStatus.error || 'You can retry anytime from Settings.')}
+                    {(psStatus.status === 'running' || psStatus.status === 'idle') &&
+                      "Running in the background — this can take a minute or two. Feel free to head to the Dashboard now; it'll keep going, and you can check progress anytime from Settings."}
+                  </Typography>
                 </Alert>
               )}
 
-              {psSynced && psLog.length > 0 && (
+              {syncStarted && psStatus.log.length > 0 && psStatus.status !== 'running' && (
                 <Accordion sx={{ width: '100%' }}>
                   <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography variant="body2" sx={{ textAlign: 'left' }}>Sync log ({psLog.length} entries)</Typography>
+                    <Typography variant="body2" sx={{ textAlign: 'left' }}>Sync log ({psStatus.log.length} entries)</Typography>
                   </AccordionSummary>
                   <AccordionDetails>
                     <Box sx={{ fontSize: '0.72rem', maxHeight: 160, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1, textAlign: 'left' }}>
-                      {psLog.map((line, i) => <div key={i}>{line}</div>)}
+                      {psStatus.log.map((line, i) => <div key={i}>{line}</div>)}
                     </Box>
                   </AccordionDetails>
                 </Accordion>

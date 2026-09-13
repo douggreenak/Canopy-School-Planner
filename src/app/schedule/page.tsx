@@ -55,6 +55,7 @@ const YearView = dynamic(() => import('@/components/YearView'));
 // the hydration-critical path — default ssr:true would still ship it on load.
 const ClassDetailDialog = dynamic(() => import('@/components/ClassDetailDialog'), { ssr: false });
 import DisruptionCalendar, { DISRUPTION_TYPES } from '@/components/DisruptionCalendar';
+import { WEEKDAY_NAMES } from '@/lib/disruptionTypes';
 import { buildDaySchedule, disruptionCoversDate } from '@/lib/calendar';
 import type { ScheduleDisruption, PeriodOverride, ScheduleEntry } from '@/types';
 import { v4 as uuid } from 'uuid';
@@ -254,6 +255,11 @@ function SchedulePageInner() {
     setForm({ ...form, periodOverrides: overrides });
   };
 
+  // A day-swap disruption is meaningless without a chosen source weekday —
+  // block Save (both the button and Enter-to-confirm) until one's picked,
+  // same as every other required field on this form.
+  const formValid = !!form.date && (form.type !== 'day_swap' || form.sourceDayOfWeek !== undefined);
+
   const handleSave = async () => {
     if (editing) await apiPut('/api/disruptions', form);
     else await apiPost('/api/disruptions', form);
@@ -411,7 +417,7 @@ function SchedulePageInner() {
       <Dialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
-        onKeyDown={useEnterConfirm(dialogOpen && !!form.date, handleSave)}
+        onKeyDown={useEnterConfirm(dialogOpen && formValid, handleSave)}
         maxWidth="sm"
         fullWidth
         fullScreen={fullScreen}
@@ -469,6 +475,26 @@ function SchedulePageInner() {
                 helperText="Leave blank for a single day"
               />
             </Grid>
+
+            {form.type === 'day_swap' && (
+              <Grid size={12}>
+                <Alert severity="info" sx={{ mb: 1 }}>
+                  Runs another weekday&apos;s normal class list and times on this date instead — e.g. set a Thursday schedule on a Monday. Any classes that don&apos;t meet on the chosen weekday won&apos;t show up at all that day.
+                </Alert>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Use schedule from</InputLabel>
+                  <Select
+                    value={form.sourceDayOfWeek ?? ''}
+                    label="Use schedule from"
+                    onChange={(e) => setForm({ ...form, sourceDayOfWeek: Number(e.target.value) })}
+                  >
+                    {WEEKDAY_NAMES.map((name, i) => (
+                      <MenuItem key={i} value={i}>{name}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
 
             {(form.type === 'early_out' || form.type === 'late_start' || form.type === '1_6') && (
               <Grid size={12}>
@@ -556,7 +582,7 @@ function SchedulePageInner() {
           )}
           <Stack direction="row" spacing={1}>
             <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button variant="contained" onClick={handleSave} disabled={!form.date}>
+            <Button variant="contained" onClick={handleSave} disabled={!formValid}>
               {editing ? 'Save' : 'Add'}
             </Button>
           </Stack>

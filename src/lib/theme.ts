@@ -129,6 +129,32 @@ export function contrastTextFor(bgHex: string): string {
   return contrastRatio(bgHex, '#ffffff') >= 4.5 ? '#ffffff' : 'rgba(0, 0, 0, 0.87)';
 }
 
+/**
+ * A same-hue variant of `fg` guaranteed to clear `minRatio` (default AA's
+ * 4.5:1) directly against `bg` — for using a brand color as literal
+ * foreground (text/icon/border), NOT as a filled background (that's what
+ * `contrastTextFor` is for). Several accent presets (e.g. Alaska's pale
+ * Tropical Green `#B3D57D`) were picked to read well as a *background* with
+ * dark text on top, but measure well under 4.5:1 as bare text on the light
+ * canvas — exactly the "dark green on dark green" class of bug this file
+ * already fixed once for dark mode, just for the opposite (light-canvas)
+ * case. Walks the color toward black/white (whichever the background calls
+ * for) only as far as needed, so a preset that already clears the bar
+ * (Canopy, Aurora, Sunset accents) comes back completely unchanged.
+ */
+export function accessibleForeground(fg: string, bg: string, minRatio = 4.5): string {
+  if (contrastRatio(fg, bg) >= minRatio) return fg;
+  const towardBlack = relativeLuminance(bg) > 0.5;
+  const toward = towardBlack ? '#000000' : '#ffffff';
+  let amount = 0;
+  let candidate = fg;
+  while (contrastRatio(candidate, bg) < minRatio && amount < 0.96) {
+    amount += 0.02;
+    candidate = mix(fg, toward, amount);
+  }
+  return candidate;
+}
+
 export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_ACCENT): Theme {
   const isLight = mode === 'light';
   const preset = resolveAccentPreset(accentColor);
@@ -151,6 +177,13 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
   const paperBase   = isLight ? '#ffffff' : '#1a1a1a';
   const drawerBase  = isLight ? '#f6f6f4' : '#141414';
   const dividerBase = isLight ? '#d8d8d5' : null; // dark divider stays a flat white-alpha, mixing looks muddy there
+
+  // The accent color as used directly ON the canvas (an outlined/text
+  // button's label/border) rather than as a filled background behind
+  // contrastTextFor'd text — see accessibleForeground's doc comment. Computed
+  // against canvasBase (not the primary-tinted background.default) since the
+  // tint is faint enough (7-9%) not to move the result across the 4.5:1 line.
+  const accentOnCanvas = accessibleForeground(accent, canvasBase);
 
   return createTheme({
     palette: {
@@ -202,12 +235,39 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
     components: {
       MuiButton: {
         styleOverrides: {
-          root: {
-            borderRadius: 20,
-            padding: '8px 24px',
-            fontSize: '0.875rem',
-            transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-            '&:active': { transform: 'scale(0.96)' },
+          // A function (not a static object) so it can key off ownerState —
+          // previously every Button rendered in `primary` regardless of
+          // variant, since MUI's own default `color` prop IS 'primary' and
+          // almost nothing in the app ever passed a color explicitly. The
+          // accent/secondary color the user picks in Settings was then only
+          // ever visible on the couple of components that explicitly opt
+          // into `color="secondary"` (the two page FABs, the AP chip) — every
+          // ordinary Button ignored it completely. Outlined/text buttons —
+          // the secondary/tertiary action in a dialog or toolbar, as opposed
+          // to its one `contained` primary CTA — now render in the accent
+          // color by default instead, so a theme's second color actually
+          // shows up throughout the app rather than in two isolated spots.
+          // `accentOnCanvas` (not the raw accent) is used here specifically
+          // because this is the bare-text/border case `accessibleForeground`
+          // exists for — see its doc comment.
+          root: ({ ownerState }) => {
+            const usesDefaultColor = !ownerState.color || ownerState.color === 'primary';
+            const isSecondaryStyled = usesDefaultColor && ownerState.variant !== 'contained';
+            return {
+              borderRadius: 20,
+              padding: '8px 24px',
+              fontSize: '0.875rem',
+              transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+              '&:active': { transform: 'scale(0.96)' },
+              ...(isSecondaryStyled && {
+                color: accentOnCanvas,
+                ...(ownerState.variant === 'outlined' && { borderColor: alpha(accentOnCanvas, isLight ? 0.5 : 0.6) }),
+                '&:hover': {
+                  backgroundColor: alpha(accentOnCanvas, isLight ? 0.08 : 0.14),
+                  ...(ownerState.variant === 'outlined' && { borderColor: accentOnCanvas }),
+                },
+              }),
+            };
           },
           contained: {
             boxShadow: 'none',

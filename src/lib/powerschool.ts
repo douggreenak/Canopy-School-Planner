@@ -4,6 +4,7 @@
 // Falls back to multiple selector strategies.
 // ============================================================
 import puppeteer from 'puppeteer-core';
+import type { Browser, Page } from 'puppeteer-core';
 import chromium from '@sparticuz/chromium-min';
 import { existsSync } from 'fs';
 import type { SchoolClass, Homework } from '@/types';
@@ -269,6 +270,157 @@ function parseDaysFromExpression(expression: string, letterMap?: Record<string, 
   return Array.from(days).sort((a, b) => a - b);
 }
 
+// Navigates to the PowerSchool login page, submits credentials, and confirms
+// the resulting session is actually logged in — shared by scrapePowerSchool
+// (which keeps using the returned, already-authenticated page to go on and
+// scrape) and verifyPowerSchoolLogin (which just needs the pass/fail).
+// Extracting this was what let onboarding get a fast, dedicated "check the
+// password" step instead of only ever finding out credentials were wrong
+// after waiting on a full class+assignment scrape.
+async function loginToPowerSchool(browser: Browser, creds: PowerSchoolCredentials, baseUrl: string, log: string[]): Promise<Page> {
+  const page = await browser.newPage();
+  await page.setUserAgent(
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  );
+  page.setDefaultTimeout(45000);
+
+  // ===================== LOGIN =====================
+  log.push('Navigating to PowerSchool login...');
+
+  // `networkidle2` waits until only ≤2 network connections for 500ms — some
+  // PowerSchool sites have background pings (analytics, chat widgets) that
+  // keep that false forever. `domcontentloaded` is faster and more reliable.
+  const navOpts = { waitUntil: 'domcontentloaded' as const, timeout: 30000 };
+
+  // Try both /guardian/ and /public/ login pages
+  let loginUrl = `${baseUrl}/guardian/home.html`;
+  try {
+    await page.goto(loginUrl, navOpts);
+  } catch {
+    loginUrl = `${baseUrl}/public/home.html`;
+    await page.goto(loginUrl, navOpts);
+    log.push('Used /public/ login page');
+  }
+
+  // Find username/password fields using multiple selector strategies
+  const usernameSelectors = ['#fieldAccount', '#account', 'input[name="account"]', 'input[name="username"]', 'input[type="text"]'];
+  const passwordSelectors = ['#fieldPassword', '#pw', 'input[name="pw"]', 'input[name="password"]', 'input[type="password"]'];
+  const submitSelectors = ['#btn-enter-sign-in', '#btn-enter', 'button[type="submit"]', 'input[type="submit"]', '.submitBtn'];
+
+  let usernameField: string | null = null;
+  for (const sel of usernameSelectors) {
+    if (await page.$(sel)) { usernameField = sel; break; }
+  }
+
+  let passwordField: string | null = null;
+  for (const sel of passwordSelectors) {
+    if (await page.$(sel)) { passwordField = sel; break; }
+  }
+
+  let submitBtn: string | null = null;
+  for (const sel of submitSelectors) {
+    if (await page.$(sel)) { submitBtn = sel; break; }
+  }
+
+  if (!usernameField || !passwordField) {
+    throw new Error('Could not find login form fields on the PowerSchool page. The login page layout may have changed.');
+  }
+
+  log.push(`Found login form (user: ${usernameField}, pass: ${passwordField})`);
+
+  await page.type(usernameField, creds.username, { delay: 30 });
+  await page.type(passwordField, creds.password, { delay: 30 });
+
+  // Trigger the navigation promise BEFORE clicking, so we never miss it.
+  // Fire-and-race: whichever happens first (full navigation, an error alert,
+  // or a short timeout) determines the next step. We don't fail hard on
+  // timeout — we just fall through and check if we're logged in.
+  const navigationPromise = page
+    .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 })
+    .catch(() => null);
+
+  const errorPromise = page
+    .waitForSelector('.feedback-alert, .alert-danger, .error-message, #feedback-alert', { timeout: 30000, visible: true })
+    .catch(() => null);
+
+  if (submitBtn) {
+    await page.click(submitBtn);
+  } else {
+    await page.keyboard.press('Enter');
+  }
+
+  // Race: whichever resolves first — navigation or a visible error alert
+  await Promise.race([navigationPromise, errorPromise]);
+
+  // Give the DOM a moment to settle regardless of which promise won
+  await new Promise((r) => setTimeout(r, 800));
+
+  // Check for login errors (visible error alert)
+  const loginError = await page.evaluate(() => {
+    const alertEl = document.querySelector('.feedback-alert, .alert-danger, .error-message, #feedback-alert');
+    const text = alertEl?.textContent?.trim();
+    // Some alerts exist in the DOM even when there's no error — only treat
+    // non-empty text that isn't a bare whitespace/placeholder as a real error.
+    if (!text || text.length < 3) return null;
+    return text;
+  });
+
+  if (loginError) {
+    throw new Error(`PowerSchool login failed: ${loginError}`);
+  }
+
+  // Some PowerSchool instances complete login in-place (no page navigation),
+  // so we explicitly load the home page to verify the session cookie works.
+  try {
+    await page.goto(`${baseUrl}/guardian/home.html`, navOpts);
+  } catch {
+    // non-fatal — maybe already there
+  }
+
+  // Verify we're logged in by checking for common post-login elements
+  const isLoggedIn = await page.evaluate(() => {
+    // If the login form is still visible, we're NOT logged in
+    if (document.querySelector('#fieldAccount, #fieldPassword')) return false;
+    return !!(
+      document.querySelector('#quickLookup') ||
+      document.querySelector('.studentName') ||
+      document.querySelector('#content-main') ||
+      document.querySelector('.box-round') ||
+      document.querySelector('[class*="student"]') ||
+      document.querySelector('a[href*="scores.html"]') ||
+      (document.body?.innerHTML ?? '').includes('Quick Lookup') ||
+      (document.body?.innerHTML ?? '').includes('Grades and Attendance')
+    );
+  });
+
+  if (!isLoggedIn) {
+    throw new Error('Login may have failed — could not verify logged-in state. Check your username and password.');
+  }
+
+  log.push('Logged in successfully');
+  return page;
+}
+
+/**
+ * Fast credential check: logs in and confirms the session, then closes the
+ * browser immediately rather than going on to scrape classes/assignments.
+ * Used by the onboarding wizard's PowerSchool step so a mistyped password is
+ * caught in seconds, before the flow commits to a full background sync.
+ */
+export async function verifyPowerSchoolLogin(creds: PowerSchoolCredentials): Promise<{ ok: boolean; error?: string; log: string[] }> {
+  const log: string[] = [];
+  const baseUrl = new URL(creds.url).origin;
+  const browser = await launchBrowser();
+  try {
+    await loginToPowerSchool(browser, creds, baseUrl, log);
+    return { ok: true, log };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message, log };
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
 export async function scrapePowerSchool(
   creds: PowerSchoolCredentials
 ): Promise<ScrapedSchedule> {
@@ -280,126 +432,7 @@ export async function scrapePowerSchool(
   const browser = await launchBrowser();
 
   try {
-    const page = await browser.newPage();
-    await page.setUserAgent(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    );
-    page.setDefaultTimeout(45000);
-
-    // ===================== LOGIN =====================
-    log.push('Navigating to PowerSchool login...');
-
-    // `networkidle2` waits until only ≤2 network connections for 500ms — some
-    // PowerSchool sites have background pings (analytics, chat widgets) that
-    // keep that false forever. `domcontentloaded` is faster and more reliable.
-    const navOpts = { waitUntil: 'domcontentloaded' as const, timeout: 30000 };
-
-    // Try both /guardian/ and /public/ login pages
-    let loginUrl = `${baseUrl}/guardian/home.html`;
-    try {
-      await page.goto(loginUrl, navOpts);
-    } catch {
-      loginUrl = `${baseUrl}/public/home.html`;
-      await page.goto(loginUrl, navOpts);
-      log.push('Used /public/ login page');
-    }
-
-    // Find username/password fields using multiple selector strategies
-    const usernameSelectors = ['#fieldAccount', '#account', 'input[name="account"]', 'input[name="username"]', 'input[type="text"]'];
-    const passwordSelectors = ['#fieldPassword', '#pw', 'input[name="pw"]', 'input[name="password"]', 'input[type="password"]'];
-    const submitSelectors = ['#btn-enter-sign-in', '#btn-enter', 'button[type="submit"]', 'input[type="submit"]', '.submitBtn'];
-
-    let usernameField: string | null = null;
-    for (const sel of usernameSelectors) {
-      if (await page.$(sel)) { usernameField = sel; break; }
-    }
-
-    let passwordField: string | null = null;
-    for (const sel of passwordSelectors) {
-      if (await page.$(sel)) { passwordField = sel; break; }
-    }
-
-    let submitBtn: string | null = null;
-    for (const sel of submitSelectors) {
-      if (await page.$(sel)) { submitBtn = sel; break; }
-    }
-
-    if (!usernameField || !passwordField) {
-      throw new Error('Could not find login form fields on the PowerSchool page. The login page layout may have changed.');
-    }
-
-    log.push(`Found login form (user: ${usernameField}, pass: ${passwordField})`);
-
-    await page.type(usernameField, creds.username, { delay: 30 });
-    await page.type(passwordField, creds.password, { delay: 30 });
-
-    // Trigger the navigation promise BEFORE clicking, so we never miss it.
-    // Fire-and-race: whichever happens first (full navigation, an error alert,
-    // or a short timeout) determines the next step. We don't fail hard on
-    // timeout — we just fall through and check if we're logged in.
-    const navigationPromise = page
-      .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 })
-      .catch(() => null);
-
-    const errorPromise = page
-      .waitForSelector('.feedback-alert, .alert-danger, .error-message, #feedback-alert', { timeout: 30000, visible: true })
-      .catch(() => null);
-
-    if (submitBtn) {
-      await page.click(submitBtn);
-    } else {
-      await page.keyboard.press('Enter');
-    }
-
-    // Race: whichever resolves first — navigation or a visible error alert
-    await Promise.race([navigationPromise, errorPromise]);
-
-    // Give the DOM a moment to settle regardless of which promise won
-    await new Promise((r) => setTimeout(r, 800));
-
-    // Check for login errors (visible error alert)
-    const loginError = await page.evaluate(() => {
-      const alertEl = document.querySelector('.feedback-alert, .alert-danger, .error-message, #feedback-alert');
-      const text = alertEl?.textContent?.trim();
-      // Some alerts exist in the DOM even when there's no error — only treat
-      // non-empty text that isn't a bare whitespace/placeholder as a real error.
-      if (!text || text.length < 3) return null;
-      return text;
-    });
-
-    if (loginError) {
-      throw new Error(`PowerSchool login failed: ${loginError}`);
-    }
-
-    // Some PowerSchool instances complete login in-place (no page navigation),
-    // so we explicitly load the home page to verify the session cookie works.
-    try {
-      await page.goto(`${baseUrl}/guardian/home.html`, navOpts);
-    } catch {
-      // non-fatal — maybe already there
-    }
-
-    // Verify we're logged in by checking for common post-login elements
-    const isLoggedIn = await page.evaluate(() => {
-      // If the login form is still visible, we're NOT logged in
-      if (document.querySelector('#fieldAccount, #fieldPassword')) return false;
-      return !!(
-        document.querySelector('#quickLookup') ||
-        document.querySelector('.studentName') ||
-        document.querySelector('#content-main') ||
-        document.querySelector('.box-round') ||
-        document.querySelector('[class*="student"]') ||
-        document.querySelector('a[href*="scores.html"]') ||
-        (document.body?.innerHTML ?? '').includes('Quick Lookup') ||
-        (document.body?.innerHTML ?? '').includes('Grades and Attendance')
-      );
-    });
-
-    if (!isLoggedIn) {
-      throw new Error('Login may have failed — could not verify logged-in state. Check your username and password.');
-    }
-
-    log.push('Logged in successfully');
+    const page = await loginToPowerSchool(browser, creds, baseUrl, log);
 
     // ===================== SCRAPE CLASSES =====================
     log.push('Scraping class schedule...');

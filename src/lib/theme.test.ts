@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ACCENT_PRESETS, DEFAULT_ACCENT, resolveAccentPreset, resolvePresetColors, getTheme, contrastTextFor, contrastRatio } from '@/lib/theme';
+import { ACCENT_PRESETS, DEFAULT_ACCENT, resolveAccentPreset, resolvePresetColors, getTheme, contrastTextFor, contrastRatio, accessibleForeground } from '@/lib/theme';
 
 const AA_NORMAL_TEXT = 4.5;
 
@@ -63,6 +63,37 @@ describe('ACCENT_PRESETS', () => {
       for (const [label, hex] of [['primaryDark', preset.primaryDark], ['accentDark', preset.accentDark]] as const) {
         expect(contrastRatio(hex, DARK_CANVAS), `${preset.name} ${label} (${hex}) vs dark canvas`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
       }
+    }
+  });
+});
+
+describe('accessibleForeground', () => {
+  const LIGHT_CANVAS = '#f3f3f1';
+
+  it('leaves a color unchanged when it already clears the ratio', () => {
+    expect(accessibleForeground('#000000', LIGHT_CANVAS)).toBe('#000000');
+  });
+
+  it('darkens a color that fails AA as bare text on a light background', () => {
+    // Alaska's accent — a pale Tropical Green — is deliberately calibrated
+    // as a *background* swatch (dark text sits on top of it fine), but is
+    // well under 4.5:1 used directly as text/border on the light canvas.
+    const fixed = accessibleForeground('#B3D57D', LIGHT_CANVAS);
+    expect(fixed).not.toBe('#B3D57D');
+    expect(contrastRatio(fixed, LIGHT_CANVAS)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("every preset's light-mode accent, run through accessibleForeground, clears AA as text on the light canvas", () => {
+    for (const preset of ACCENT_PRESETS) {
+      const fg = accessibleForeground(preset.accent, LIGHT_CANVAS);
+      expect(contrastRatio(fg, LIGHT_CANVAS), `${preset.name} accent (${preset.accent}) -> ${fg}`).toBeGreaterThanOrEqual(4.49);
+    }
+  });
+
+  it("every preset's dark-mode accent already clears AA on the dark canvas, so accessibleForeground is a no-op", () => {
+    const DARK_CANVAS = '#161616';
+    for (const preset of ACCENT_PRESETS) {
+      expect(accessibleForeground(preset.accentDark, DARK_CANVAS)).toBe(preset.accentDark);
     }
   });
 });

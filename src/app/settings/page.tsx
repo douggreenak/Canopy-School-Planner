@@ -1119,6 +1119,11 @@ function SettingsInner() {
                   </Accordion>
                 </Grid>
               )}
+              <Grid size={12}>
+                <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
+                  Canopy is an independent, unofficial tool and isn&apos;t affiliated with or endorsed by PowerSchool. You connect your account at your own risk — use of your credentials here is your own responsibility.
+                </Typography>
+              </Grid>
             </Grid>
           </AccordionDetails>
         </Accordion>

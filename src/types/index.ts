@@ -146,11 +146,15 @@ export interface ScheduleDisruption {
   // single-day disruption. When set, the disruption applies to every day
   // in [date, endDate].
   endDate?: string;
-  type: 'early_out' | 'late_start' | 'no_school' | 'assembly' | '1_6' | 'custom';
+  type: 'early_out' | 'late_start' | 'no_school' | 'assembly' | '1_6' | 'day_swap' | 'custom';
   // May be '' — an unnamed disruption falls back to displaying its type's
   // label everywhere it's shown (see DISRUPTION_TYPES).
   label: string;
   periodOverrides: PeriodOverride[];
+  // Only meaningful when type === 'day_swap' — the weekday (0=Sun..6=Sat)
+  // whose normal class list/times should run on this date instead of the
+  // date's own weekday. E.g. running a Thursday (4) schedule on a Monday.
+  sourceDayOfWeek?: number;
 }
 
 export interface PeriodOverride {
