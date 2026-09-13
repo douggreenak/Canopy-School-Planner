@@ -5,20 +5,21 @@
 
 import type { Homework } from '@/types';
 
-/** Standard unweighted 4.0-scale grade points for a percent grade (0-100). */
+/**
+ * Whole-letter-grade 4.0-scale GPA points for a percent grade (0-100) — A is
+ * 4, B is 3, C is 2, D is 1, F is 0. A +/- modifier changes the displayed
+ * letter (see letterFromPercent in grades.ts) but NOT the GPA points: an A-
+ * still earns the full 4.0, exactly like a plain A, not a fractional 3.7.
+ * This is a deliberate choice, not an oversight — a prior version used the
+ * more granular scale some schools do (A=4.0, A-=3.7, B+=3.3, …), which is
+ * why an A- used to visibly pull a GPA below 4.0.
+ */
 export function unweightedGpaPoints(percent: number): number {
-  if (percent >= 93) return 4.0;
-  if (percent >= 90) return 3.7;
-  if (percent >= 87) return 3.3;
-  if (percent >= 83) return 3.0;
-  if (percent >= 80) return 2.7;
-  if (percent >= 77) return 2.3;
-  if (percent >= 73) return 2.0;
-  if (percent >= 70) return 1.7;
-  if (percent >= 67) return 1.3;
-  if (percent >= 63) return 1.0;
-  if (percent >= 60) return 0.7;
-  return 0.0;
+  if (percent >= 90) return 4.0; // A, A-
+  if (percent >= 80) return 3.0; // B+, B, B-
+  if (percent >= 70) return 2.0; // C+, C, C-
+  if (percent >= 60) return 1.0; // D+, D, D-
+  return 0.0; // F
 }
 
 /**
