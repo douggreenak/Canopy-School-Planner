@@ -1,7 +1,13 @@
 import { NextRequest } from 'next/server';
-import { after } from 'next/server';
 import { getUsersWithAutoSyncDueAt, getPowerSchoolCredentials } from '@/lib/db';
 import { runPowerSchoolSync, startPowerSchoolSync } from '@/lib/powerschoolSync';
+
+// Leaves a margin under vercel.json's maxDuration:280 for this route so the
+// invocation always has time to finish writing the current user's status row
+// (and send its own HTTP response) before Vercel force-kills it — a hard kill
+// mid-scrape would leave that user's sync_status stuck at 'running' until the
+// stale-lock cleanup in tryAcquireSyncLock reclaims it on some later attempt.
+const SAFETY_DEADLINE_MS = 250_000;
 
 // Scheduled PowerSchool sync — fired by Vercel Cron (see vercel.json's
 // `crons` array: one entry per fixed UTC hour bucket, ?hour=N identifies
@@ -13,7 +19,20 @@ import { runPowerSchoolSync, startPowerSchoolSync } from '@/lib/powerschoolSync'
 // Vercel's cron delivery is best-effort (can skip or occasionally double-
 // fire a tick) and this handler may match several users at once, so it's
 // written to be idempotent (status-row lock) rather than assuming
-// exactly-once delivery, and thin (identify + fire, not a queue).
+// exactly-once delivery.
+//
+// Every matched user is synced ONE AT A TIME, awaited in a plain sequential
+// loop — deliberately NOT fired off via after() per user (the previous
+// approach). Each sync launches a real headless Chromium via Puppeteer
+// (~1024MB function memory cap per vercel.json), and after() has no
+// concurrency limit of its own: if a burst of users happened to share the
+// same hour bucket, every one of their Chromium instances would launch at
+// once inside this ONE invocation and could easily OOM-crash it — taking
+// every other user sharing that bucket down with it, not just the extras.
+// Processing sequentially keeps peak memory to what a single scrape needs
+// no matter how many users land in this bucket; a hard per-invocation time
+// budget (SAFETY_DEADLINE_MS) means a large batch degrades to "the rest wait
+// for tomorrow's tick" instead of a timeout mid-scrape.
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization') ?? '';
   if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -26,11 +45,22 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: 'Missing or invalid ?hour=' }, { status: 400 });
   }
 
+  const startedAt = Date.now();
   const userIds = await getUsersWithAutoSyncDueAt(hour);
   const fired: string[] = [];
   const skipped: string[] = [];
+  const deferred: string[] = [];
 
-  for (const userId of userIds) {
+  for (let i = 0; i < userIds.length; i++) {
+    if (Date.now() - startedAt > SAFETY_DEADLINE_MS) {
+      // Out of time budget for this invocation — leave whoever's left for
+      // the next scheduled tick rather than risk starting a scrape that
+      // gets cut off mid-flight.
+      deferred.push(...userIds.slice(i));
+      break;
+    }
+
+    const userId = userIds[i];
     const creds = await getPowerSchoolCredentials(userId);
     if (!creds.url || !creds.username || !creds.password) { skipped.push(userId); continue; }
 
@@ -39,13 +69,15 @@ export async function GET(request: NextRequest) {
     const syncId = await startPowerSchoolSync(userId);
     if (!syncId) { skipped.push(userId); continue; }
 
-    // Each matched user's scrape runs in this same invocation's background
-    // window (after() extends the invocation, not a separate function) —
-    // fine for a handful of users sharing an hour bucket; see vercel.json's
-    // maxDuration for this route and the scaling note in project docs.
-    after(() => runPowerSchoolSync(userId, creds, syncId));
+    await runPowerSchoolSync(userId, creds, syncId);
     fired.push(userId);
   }
 
-  return Response.json({ hour, matched: userIds.length, fired: fired.length, skipped: skipped.length });
+  return Response.json({
+    hour,
+    matched: userIds.length,
+    fired: fired.length,
+    skipped: skipped.length,
+    deferred: deferred.length,
+  });
 }
