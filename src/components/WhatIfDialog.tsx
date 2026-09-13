@@ -148,12 +148,15 @@ export default function WhatIfDialog({ open, onClose, cls, homework }: Props) {
 
         <Divider sx={{ mb: 2 }} />
 
-        <Box sx={{ display: 'flex', gap: 3, alignItems: 'center', justifyContent: 'center' }}>
+        {/* flexWrap + a smaller xs font size so the two h4 percentages (each
+            an unbreakable token like "87.3%") plus the arrow don't overflow
+            a maxWidth="xs" dialog's content width on a ~360px phone. */}
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: { xs: 1.5, sm: 3 }, alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ textAlign: 'center' }}>
             <Typography variant="caption" color="text.secondary">Current</Typography>
             {currentGrade !== undefined ? (
               <>
-                <Typography variant="h4" sx={{ color: currentColor, fontWeight: 500 }}>
+                <Typography variant="h4" sx={{ color: currentColor, fontWeight: 500, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
                   {currentGrade.toFixed(1)}%
                 </Typography>
                 <Typography variant="body2" sx={{ color: currentColor }}>
@@ -171,7 +174,7 @@ export default function WhatIfDialog({ open, onClose, cls, homework }: Props) {
             <Typography variant="caption" color="text.secondary">Projected</Typography>
             {projectedGrade !== undefined ? (
               <>
-                <Typography variant="h4" sx={{ color: projColor, fontWeight: 500 }}>
+                <Typography variant="h4" sx={{ color: projColor, fontWeight: 500, fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
                   {projectedGrade.toFixed(1)}%
                 </Typography>
                 <Typography variant="body2" sx={{ color: projColor }}>

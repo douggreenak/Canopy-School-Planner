@@ -1,94 +1,77 @@
 'use client';
 // ============================================================
-// Canopy — Material UI Theme  (light + dark, 2-color accent themes)
+// Canopy — Material UI Theme  (light + dark, single-color themes)
 // ============================================================
 import { createTheme, alpha, type Theme } from '@mui/material/styles';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
-// Each theme is exactly two brand colors — `primary` (buttons, selected nav,
-// links, the dominant brand color) and `accent` (MUI's `secondary` palette
-// slot — used wherever a second, distinguishing brand color is useful: the
-// AP-class chip, FAB "add" buttons, velocity/highlight callouts, etc).
-// Modeled on an Alaska Airlines–style blue/green pairing rather than the
-// old single-hue system.
+// Each theme is exactly ONE brand color, used everywhere — buttons, selected
+// nav, links, icons, the AP-class chip, FAB "add" buttons, highlight
+// callouts. A prior version paired it with a second "accent" color (MUI's
+// `secondary` palette slot) for a two-tone look, but applied broadly across
+// the whole app that read as mismatched rather than intentional — this is a
+// deliberate return to one dominant color per preset, still user-selectable
+// from the same named preset list.
 //
-// Every preset carries TWO calibrations per color — `primary`/`accent` for
-// light mode, `primaryDark`/`accentDark` for dark mode — not just one pair
-// reused everywhere. A color picked so *white text on it* clears WCAG AA
-// (right for a light-mode filled button) is a fundamentally different
-// requirement from *it as text/an icon directly on the near-black dark-mode
-// canvas* — reusing the light-mode value there (the app's original design)
-// measured well under 4.5:1 for nearly every preset, which is exactly why
-// dark mode read as muddy ("dark green on dark green") while light mode
-// looked fine. The …Dark variants are each individually verified (see
+// Every preset carries TWO calibrations — `primary` for light mode,
+// `primaryDark` for dark mode — not one color reused everywhere. A color
+// picked so *white text on it* clears WCAG AA (right for a light-mode filled
+// button) is a fundamentally different requirement from *it as text/an icon
+// directly on the near-black dark-mode canvas* — reusing the light-mode
+// value there measured well under 4.5:1 for nearly every preset, which is
+// exactly why dark mode read as muddy ("dark green on dark green") while
+// light mode looked fine. `primaryDark` is individually verified (see
 // theme.test.ts) to clear 4.5:1 against the actual dark background, so the
 // exact same component code (an icon or a nav label colored `primary.main`)
 // is legible in both modes without special-casing every call site.
 export interface AccentPreset {
   name: string;
   primary: string;
-  accent: string;
   primaryDark: string;
-  accentDark: string;
 }
 
 export const ACCENT_PRESETS: AccentPreset[] = [
-  // green + blue — the app's namesake default
-  { name: 'Canopy',  primary: '#2E7D32', accent: '#1565C0', primaryDark: '#6FAE72', accentDark: '#5B9BDB' },
-  // blue + green — Alaska Airlines' own brand colors: Midnight Blue
-  // (primary palette) + Tropical Green (secondary palette), straight from
-  // their brand guidelines rather than an approximation.
-  //
-  // primaryDark/accentDark are deliberately NOT just "the light hex, pushed
-  // just light enough to clear 4.5:1" — that's what the previous values
-  // (#7BA3C2, #C3DE96) were, and desaturating a brand color that far to hit
-  // a contrast target reads as generic grey/pastel rather than "Alaska" at
-  // all once it's actually on screen, even though it technically passed.
-  // These instead keep real saturation (a true sky blue, a true grass
-  // green) and only lighten as far as contrast actually requires — both
-  // still individually verified at 4.5:1+ against the dark canvas in
-  // theme.test.ts, just without giving up the color's identity to get there.
-  { name: 'Alaska',  primary: '#01426A', accent: '#B3D57D', primaryDark: '#3AA3E0', accentDark: '#8DC63F' },
-  // teal + sky blue
-  { name: 'Glacier', primary: '#00695C', accent: '#0277BD', primaryDark: '#5CA79C', accentDark: '#4DA3D9' },
-  // indigo + teal
-  { name: 'Aurora',  primary: '#3949AB', accent: '#00796B', primaryDark: '#8C97D4', accentDark: '#4DA89D' },
-  // deep orange + purple
-  { name: 'Sunset',  primary: '#BF360C', accent: '#6A1B9A', primaryDark: '#E08064', accentDark: '#B583D1' },
-  // navy + amber
-  { name: 'Harbor',  primary: '#26418F', accent: '#C77800', primaryDark: '#8C9AC9', accentDark: '#E0983D' },
-  // plum + teal
-  { name: 'Berry',   primary: '#8E1550', accent: '#00838F', primaryDark: '#CC88AC', accentDark: '#42A8B3' },
-  // graphite + amber
-  { name: 'Slate',   primary: '#37474F', accent: '#B36A00', primaryDark: '#93A0A6', accentDark: '#D4922E' },
+  { name: 'Canopy',  primary: '#2E7D32', primaryDark: '#6FAE72' },
+  // Alaska Airlines' own Midnight Blue. primaryDark is deliberately NOT just
+  // "the light hex, pushed just light enough to clear 4.5:1" (that measured
+  // as generic grey once actually on screen despite passing contrast) — it
+  // keeps real saturation (a true sky blue) and only lightens as far as
+  // contrast actually requires.
+  { name: 'Alaska',  primary: '#01426A', primaryDark: '#3AA3E0' },
+  { name: 'Glacier', primary: '#00695C', primaryDark: '#5CA79C' },
+  { name: 'Aurora',  primary: '#3949AB', primaryDark: '#8C97D4' },
+  { name: 'Sunset',  primary: '#BF360C', primaryDark: '#E08064' },
+  { name: 'Harbor',  primary: '#26418F', primaryDark: '#8C9AC9' },
+  { name: 'Berry',   primary: '#8E1550', primaryDark: '#CC88AC' },
+  { name: 'Slate',   primary: '#37474F', primaryDark: '#93A0A6' },
 ];
 
 export const DEFAULT_ACCENT = 'Canopy';
 
 /**
- * The actual primary/accent hex a preset renders as in a given resolved
- * mode — light modes get the light calibration, dark gets the dark one.
- * `getTheme` and any UI previewing a preset (the Settings swatch picker)
- * both go through this, so a swatch can never show a different color than
- * what the app actually paints once that mode is active — the previous bug
- * ("colors look right in the swatch but different once applied") was
- * exactly this: the swatch always showed the light-mode hex even while
- * dark mode (rendering primaryDark/accentDark) was active.
+ * The actual primary hex a preset renders as in a given resolved mode —
+ * light mode gets the light calibration, dark gets the dark one. `getTheme`
+ * and any UI previewing a preset (the Settings swatch picker) both go
+ * through this, so a swatch can never show a different color than what the
+ * app actually paints once that mode is active — the previous bug ("colors
+ * look right in the swatch but different once applied") was exactly this:
+ * the swatch always showed the light-mode hex even while dark mode
+ * (rendering primaryDark) was active.
  */
-export function resolvePresetColors(preset: AccentPreset, resolvedMode: 'light' | 'dark'): { primary: string; accent: string } {
+export function resolvePresetColors(preset: AccentPreset, resolvedMode: 'light' | 'dark'): { primary: string } {
   return resolvedMode === 'light'
-    ? { primary: preset.primary, accent: preset.accent }
-    : { primary: preset.primaryDark, accent: preset.accentDark };
+    ? { primary: preset.primary }
+    : { primary: preset.primaryDark };
 }
 
 export function resolveAccentPreset(nameOrLegacyValue: string | undefined): AccentPreset {
   const found = ACCENT_PRESETS.find((p) => p.name.toLowerCase() === (nameOrLegacyValue ?? '').toLowerCase());
-  // Falls back to the default for both an unset value and a pre-restructure
-  // install's saved raw hex (that old single-color scheme has no 1:1
-  // mapping onto a primary+accent pair) — a fresh pick from the Settings
-  // page is one click away, and this is a low-user personal app under
-  // active development, so a full hue-matching migration isn't worth it.
+  // Falls back to the default for both an unset value and a legacy install's
+  // saved raw hex (from before named presets existed at all — that has no
+  // 1:1 mapping onto one of these) — a fresh pick from the Settings page is
+  // one click away, and this is a low-user personal app under active
+  // development, so a full hue-matching migration isn't worth it.
   return found ?? ACCENT_PRESETS[0];
 }
 
@@ -113,9 +96,8 @@ function mix(base: string, tint: string, amount: number): string {
 // ---- WCAG contrast helpers ----
 // MUI's own getContrastText only enforces a 3:1 ratio; this app targets AA's
 // 4.5:1 for normal text, so every place that needs a readable color on top
-// of an arbitrary/user-chosen background (theme primary/accent swatches,
-// disruption-type chips, etc.) should go through this instead of trusting
-// MUI's default pick.
+// of an arbitrary/user-chosen background (theme swatches, disruption-type
+// chips, etc.) should go through this instead of trusting MUI's default pick.
 function relativeLuminance(hex: string): number {
   const { r, g, b } = hexToRgb(hex);
   const lin = (c: number) => {
@@ -139,42 +121,16 @@ export function contrastTextFor(bgHex: string): string {
   return contrastRatio(bgHex, '#ffffff') >= 4.5 ? '#ffffff' : 'rgba(0, 0, 0, 0.87)';
 }
 
-/**
- * A same-hue variant of `fg` guaranteed to clear `minRatio` (default AA's
- * 4.5:1) directly against `bg` — for using a brand color as literal
- * foreground (text/icon/border), NOT as a filled background (that's what
- * `contrastTextFor` is for). Several accent presets (e.g. Alaska's pale
- * Tropical Green `#B3D57D`) were picked to read well as a *background* with
- * dark text on top, but measure well under 4.5:1 as bare text on the light
- * canvas — exactly the "dark green on dark green" class of bug this file
- * already fixed once for dark mode, just for the opposite (light-canvas)
- * case. Walks the color toward black/white (whichever the background calls
- * for) only as far as needed, so a preset that already clears the bar
- * (Canopy, Aurora, Sunset accents) comes back completely unchanged.
- */
-export function accessibleForeground(fg: string, bg: string, minRatio = 4.5): string {
-  if (contrastRatio(fg, bg) >= minRatio) return fg;
-  const towardBlack = relativeLuminance(bg) > 0.5;
-  const toward = towardBlack ? '#000000' : '#ffffff';
-  let amount = 0;
-  let candidate = fg;
-  while (contrastRatio(candidate, bg) < minRatio && amount < 0.96) {
-    amount += 0.02;
-    candidate = mix(fg, toward, amount);
-  }
-  return candidate;
-}
-
 export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_ACCENT): Theme {
   const isLight = mode === 'light';
   const preset = resolveAccentPreset(accentColor);
-  // The dark-mode-calibrated variants (see the ACCENT_PRESETS comment above)
-  // become `primary.main`/`secondary.main` themselves in dark mode — not
-  // just a color used in one or two special spots — so every existing
-  // `primary.main`/`color="primary"` usage across the app (icons, nav
-  // labels, buttons) is automatically legible in dark mode too, with zero
-  // per-component special-casing.
-  const { primary, accent } = resolvePresetColors(preset, mode);
+  // The dark-mode-calibrated variant (see the ACCENT_PRESETS comment above)
+  // becomes `primary.main` itself in dark mode — not just a color used in
+  // one or two special spots — so every existing `primary.main`/
+  // `color="primary"` usage across the app (icons, nav labels, buttons) is
+  // automatically legible in dark mode too, with zero per-component
+  // special-casing.
+  const { primary } = resolvePresetColors(preset, mode);
 
   // Neutral bases with NO baked-in hue — the theme's primary color supplies
   // the tint below, so every preset (not just Canopy green) reads as
@@ -188,13 +144,6 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
   const drawerBase  = isLight ? '#f6f6f4' : '#141414';
   const dividerBase = isLight ? '#d8d8d5' : null; // dark divider stays a flat white-alpha, mixing looks muddy there
 
-  // The accent color as used directly ON the canvas (an outlined/text
-  // button's label/border) rather than as a filled background behind
-  // contrastTextFor'd text — see accessibleForeground's doc comment. Computed
-  // against canvasBase (not the primary-tinted background.default) since the
-  // tint is faint enough (7-9%) not to move the result across the 4.5:1 line.
-  const accentOnCanvas = accessibleForeground(accent, canvasBase);
-
   return createTheme({
     palette: {
       mode,
@@ -202,9 +151,17 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
         main: primary,
         contrastText: contrastTextFor(primary),
       },
+      // Single-color theme — `secondary` deliberately mirrors `primary`
+      // rather than getting its own hue. A few components still pass
+      // `color="secondary"` explicitly (the page FABs, the AP chip, the
+      // calendar-subscribe button) as a leftover from the two-tone design;
+      // rather than hunting down and editing every one of those call sites,
+      // this makes `secondary` a no-op alias of `primary` so they render
+      // identically to everything else instead of standing out as a
+      // mismatched leftover accent color.
       secondary: {
-        main: accent,
-        contrastText: contrastTextFor(accent),
+        main: primary,
+        contrastText: contrastTextFor(primary),
       },
       error:   { main: isLight ? '#d93025' : '#f28b82' },
       warning: { main: isLight ? '#f9ab00' : '#fdd663' },
@@ -244,44 +201,13 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
     },
     components: {
       MuiButton: {
-        // Makes `secondary` (the accent color) every Button's default —
-        // MUI's own built-in default is 'primary', and since virtually no
-        // call site in the app ever passed a `color` prop explicitly, that
-        // meant EVERY button rendered primary regardless of variant, and the
-        // accent color the user picks in Settings only ever showed up on the
-        // couple of components that explicitly opted into
-        // `color="secondary"` (the two page FABs, the AP chip). A call site
-        // that genuinely wants the old primary-CTA look can still pass
-        // `color="primary"` explicitly; `color="error"`/`"inherit"` etc. are
-        // untouched either way.
-        defaultProps: {
-          color: 'secondary',
-        },
         styleOverrides: {
-          // A function (not a static object) so it can key off ownerState.
-          // `accentOnCanvas` (not the raw accent) is used for outlined/text
-          // specifically because that's the bare-text/border case
-          // `accessibleForeground` exists for — see its doc comment; a
-          // `contained` secondary button already gets a correct, guaranteed-
-          // readable fill+text pair straight from the theme's own
-          // `secondary.main`/`secondary.contrastText`, no override needed.
-          root: ({ ownerState }) => {
-            const isAccentStyled = ownerState.color === 'secondary' && ownerState.variant !== 'contained';
-            return {
-              borderRadius: 20,
-              padding: '8px 24px',
-              fontSize: '0.875rem',
-              transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-              '&:active': { transform: 'scale(0.96)' },
-              ...(isAccentStyled && {
-                color: accentOnCanvas,
-                ...(ownerState.variant === 'outlined' && { borderColor: alpha(accentOnCanvas, isLight ? 0.5 : 0.6) }),
-                '&:hover': {
-                  backgroundColor: alpha(accentOnCanvas, isLight ? 0.08 : 0.14),
-                  ...(ownerState.variant === 'outlined' && { borderColor: accentOnCanvas }),
-                },
-              }),
-            };
+          root: {
+            borderRadius: 20,
+            padding: '8px 24px',
+            fontSize: '0.875rem',
+            transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+            '&:active': { transform: 'scale(0.96)' },
           },
           contained: {
             boxShadow: 'none',

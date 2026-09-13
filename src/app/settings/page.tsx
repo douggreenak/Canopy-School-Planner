@@ -733,65 +733,35 @@ function SettingsInner() {
               </ToggleButton>
             </ToggleButtonGroup>
 
-            {/* Theme (primary + accent color pair) */}
+            {/* Theme (single accent color) */}
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              Theme — each swatch is a primary + accent color pair used for buttons, icons, and highlights throughout the app.
+              Theme — pick the accent color used for buttons, icons, and highlights throughout the app.
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2.5, rowGap: 1.5 }}>
               {ACCENT_PRESETS.map((preset) => {
                 const selected = accentColor === preset.name;
                 // Swatch must track the *currently applied* mode's calibration —
                 // showing the light-mode hex while dark mode is active (and the
-                // app is actually rendering primaryDark/accentDark everywhere)
-                // made the swatch a poor preview of what you'd actually get.
-                const { primary: swatchPrimary, accent: swatchAccent } = resolvePresetColors(preset, resolvedThemeMode);
+                // app is actually rendering primaryDark everywhere) made the
+                // swatch a poor preview of what you'd actually get.
+                const { primary: swatchColor } = resolvePresetColors(preset, resolvedThemeMode);
                 return (
                   <Tooltip key={preset.name} title={preset.name} arrow>
                     <Box
                       onClick={() => setAccentColor(preset.name)}
                       sx={{
-                        position: 'relative',
                         width: 38,
                         height: 38,
+                        borderRadius: '50%',
+                        bgcolor: swatchColor,
+                        boxSizing: 'border-box',
+                        border: '3px solid',
+                        borderColor: selected ? 'text.primary' : 'transparent',
                         cursor: 'pointer',
                         transition: 'transform 0.15s',
                         '&:hover': { transform: 'scale(1.12)' },
                       }}
-                    >
-                      {/* Primary — the larger, dominant circle. A diagonal
-                          split (the previous design) blends the two colors
-                          into a muddy seam at this size and gives no visual
-                          cue for which half is "primary" — a big circle +
-                          a small distinct accent badge reads unambiguously
-                          as "this theme's two colors" instead. */}
-                      <Box
-                        sx={{
-                          width: '100%',
-                          height: '100%',
-                          borderRadius: '50%',
-                          bgcolor: swatchPrimary,
-                          boxSizing: 'border-box',
-                          border: '3px solid',
-                          borderColor: selected ? 'text.primary' : 'transparent',
-                        }}
-                      />
-                      {/* Accent — ringed in the page background so it reads
-                          as a separate chip, not a blended gradient. */}
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          bottom: -3,
-                          right: -3,
-                          width: 18,
-                          height: 18,
-                          borderRadius: '50%',
-                          bgcolor: swatchAccent,
-                          boxSizing: 'border-box',
-                          border: '2px solid',
-                          borderColor: 'background.paper',
-                        }}
-                      />
-                    </Box>
+                    />
                   </Tooltip>
                 );
               })}

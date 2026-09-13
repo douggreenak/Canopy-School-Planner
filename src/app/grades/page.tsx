@@ -24,6 +24,7 @@ import Grid from '@mui/material/Grid';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Alert from '@mui/material/Alert';
@@ -553,6 +554,11 @@ export default function GradesPage() {
             Missing Work — Grade Impact
           </Typography>
           <Card variant="outlined" sx={{ mt: 1 }}>
+            {/* TableContainer + overflowX so 4 columns of real content (a
+                title, a class name, a category, a percentage) scroll
+                horizontally on a narrow phone instead of squeezing every
+                cell down to illegible widths. */}
+            <TableContainer sx={{ overflowX: 'auto' }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -567,21 +573,21 @@ export default function GradesPage() {
                   <TableRow key={hw.id} hover sx={{ cursor: 'pointer' }} onClick={() => router.push(`/grades/${cls.id}`)}>
                     <TableCell>
                       <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                        <ErrorOutlineIcon sx={{ fontSize: 14, color: 'error.main' }} />
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{hw.title}</Typography>
+                        <ErrorOutlineIcon sx={{ fontSize: 14, color: 'error.main', flexShrink: 0 }} />
+                        <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>{hw.title}</Typography>
                       </Stack>
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: cls.color, flexShrink: 0 }} />
-                        <Typography variant="body2" color="text.secondary">{cls.name}</Typography>
+                        <Typography variant="body2" color="text.secondary" noWrap>{cls.name}</Typography>
                       </Box>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="caption" color="text.secondary">{hw.category ?? '—'}</Typography>
+                      <Typography variant="caption" color="text.secondary" noWrap>{hw.category ?? '—'}</Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'error.main' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'error.main' }} noWrap>
                         −{gradeImpactPercent.toFixed(1)}%
                       </Typography>
                     </TableCell>
@@ -589,6 +595,7 @@ export default function GradesPage() {
                 ))}
               </TableBody>
             </Table>
+            </TableContainer>
           </Card>
         </Box>
       )}
@@ -681,7 +688,12 @@ export default function GradesPage() {
                       </Typography>
                       <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                         {cls.teacher && cls.teacher !== 'TBD' && (
-                          <Typography variant="body2" color="text.secondary">{cls.teacher.replace(/^Email\s+/i, '')}</Typography>
+                          // A raw scraped teacher value can be a full email
+                          // address — `flexWrap` on the Stack only moves
+                          // whole items to their own line, it doesn't break
+                          // an unbroken string that's itself wider than the
+                          // row, so this needs its own break point.
+                          <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{cls.teacher.replace(/^Email\s+/i, '')}</Typography>
                         )}
                         {cls.room && (
                           <Chip label={`Rm ${cls.room}`} size="small" variant="outlined" />

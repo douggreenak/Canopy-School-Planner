@@ -380,7 +380,11 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
               </Typography>
               <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                 {cls.teacher && cls.teacher !== 'TBD' && (
-                  <Chip icon={<EmailIcon />} label={cls.teacher.replace(/^Email\s+/i, '')} size="small" variant="outlined" />
+                  // Chip labels never wrap — a raw scraped value that's
+                  // actually a full email address needs its own max width so
+                  // MUI's built-in label ellipsis can kick in, instead of
+                  // rendering as one long non-breaking pill.
+                  <Chip icon={<EmailIcon />} label={cls.teacher.replace(/^Email\s+/i, '')} size="small" variant="outlined" sx={{ maxWidth: 220 }} />
                 )}
                 {cls.room && (
                   <Chip icon={<RoomIcon />} label={`Rm ${cls.room}`} size="small" variant="outlined" />

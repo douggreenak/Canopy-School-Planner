@@ -232,16 +232,20 @@ export default function ItemDetailDialog({ open, item, kind, linkedClass, onClos
           {/* Linked class (only when the item has a classId AND we resolved it
               to an actual class — orphaned classIds just don't show). */}
           {linkedClass && (
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-              <SchoolIcon sx={{ color: 'text.secondary', fontSize: 20 }} />
+            // flexWrap + overflowWrap on the teacher text — unlike the
+            // description/title elsewhere in this dialog, this row had
+            // neither: a long teacher/email value had no break point and no
+            // room to wrap onto its own line.
+            <Stack direction="row" spacing={1.5} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              <SchoolIcon sx={{ color: 'text.secondary', fontSize: 20, flexShrink: 0 }} />
               <Chip
                 label={linkedClass.name}
                 size="small"
                 variant="outlined"
-                sx={{ borderLeft: `3px solid ${linkedClass.color}`, pl: 0.25 }}
+                sx={{ borderLeft: `3px solid ${linkedClass.color}`, pl: 0.25, maxWidth: '100%' }}
               />
               {linkedClass.teacher && linkedClass.teacher !== 'TBD' && (
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                   {linkedClass.teacher}
                   {linkedClass.room ? ` · Rm ${linkedClass.room}` : ''}
                 </Typography>

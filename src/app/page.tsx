@@ -17,7 +17,6 @@ import Stack from '@mui/material/Stack';
 import Paper from '@mui/material/Paper';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
-import Button from '@mui/material/Button';
 import Skeleton from '@mui/material/Skeleton';
 import Tooltip from '@mui/material/Tooltip';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -184,22 +183,6 @@ export default function Dashboard() {
 
   return (
     <Box>
-      {/* Onboarding — shown only when no classes are set up */}
-      {(!classes || classes.length === 0) && (
-        <Alert
-          severity="info"
-          sx={{ mb: 3, borderRadius: 2 }}
-          action={
-            <Button color="inherit" size="small" href="/settings">
-              Go to Settings
-            </Button>
-          }
-        >
-          <AlertTitle sx={{ fontWeight: 600 }}>Welcome to Canopy!</AlertTitle>
-          Get started by adding your classes in Settings, then connect PowerSchool to automatically import your grades and assignments.
-        </Alert>
-      )}
-
       {/* Ask banner */}
       {askTasks.length > 0 && (
         <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>

@@ -142,8 +142,12 @@ export default function ClassesPage() {
                   </IconButton>
                 </Box>
                 <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <PersonIcon fontSize="small" /> {cls.teacher.replace(/^Email\s+/i, '')}
+                  {/* overflowWrap — a raw scraped teacher value can be a
+                      full email address with no natural break point, which
+                      would otherwise push this Card wider than its Grid
+                      column on a narrow phone. */}
+                  <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, overflowWrap: 'anywhere' }}>
+                    <PersonIcon fontSize="small" sx={{ flexShrink: 0 }} /> {cls.teacher.replace(/^Email\s+/i, '')}
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <RoomIcon fontSize="small" /> Room {cls.room}

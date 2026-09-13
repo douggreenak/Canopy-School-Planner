@@ -72,7 +72,11 @@ export default function FinalGradeDialog({ open, onClose, currentGrade, classNam
             </Alert>
           )}
 
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
+          {/* direction stacks to column below sm, and the field's fixed 170px
+              width becomes 100% there too — at 360px, "flex:1" for the grade
+              box was left with only ~60px next to a fixed 170px field, too
+              narrow for its own "87.3%" text. */}
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'flex-start' } }}>
             <Box sx={{ flex: 1 }}>
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Current Grade
@@ -88,7 +92,7 @@ export default function FinalGradeDialog({ open, onClose, currentGrade, classNam
               size="small"
               type="number"
               slotProps={{ htmlInput: { min: 1, max: 100, step: 1 } }}
-              sx={{ width: 170 }}
+              sx={{ width: { xs: '100%', sm: 170 } }}
               helperText="Percent of total grade"
             />
           </Stack>

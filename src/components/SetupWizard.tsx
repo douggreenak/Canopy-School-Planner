@@ -413,7 +413,12 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                         <Typography variant="body2">Login log ({psLog.length} entries)</Typography>
                       </AccordionSummary>
                       <AccordionDetails>
-                        <Box sx={{ fontSize: '0.72rem', maxHeight: 160, overflowY: 'auto', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
+                        {/* overflow (both axes, not just Y) + wordBreak — a
+                            raw scraper log line can contain a long unbroken
+                            URL with no wrap point, which on a fullScreen
+                            mobile dialog would otherwise push this wider
+                            than the viewport instead of just scrolling. */}
+                        <Box sx={{ fontSize: '0.72rem', maxHeight: 160, overflow: 'auto', wordBreak: 'break-all', bgcolor: 'action.hover', p: 1, borderRadius: 1 }}>
                           {psLog.map((line, i) => <div key={i}>{line}</div>)}
                         </Box>
                       </AccordionDetails>
