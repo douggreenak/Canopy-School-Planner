@@ -57,6 +57,7 @@ const ClassDetailDialog = dynamic(() => import('@/components/ClassDetailDialog')
 import DisruptionCalendar, { DISRUPTION_TYPES } from '@/components/DisruptionCalendar';
 import { WEEKDAY_NAMES } from '@/lib/disruptionTypes';
 import { buildDaySchedule, disruptionCoversDate } from '@/lib/calendar';
+import { computeDayBounds } from '@/lib/calendarMetrics';
 import type { ScheduleDisruption, PeriodOverride, ScheduleEntry } from '@/types';
 import { v4 as uuid } from 'uuid';
 
@@ -178,6 +179,12 @@ function SchedulePageInner() {
     if (!classesForSchedule || !disruptions) return null;
     return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesForSchedule, disruptions, semesterStart, semesterEnd);
   }, [classesForSchedule, disruptions, selectedDate, semesterStart, semesterEnd]);
+
+  // Grid range for Day/Week views — derived from the user's actual class
+  // times so a very early or late class is never clipped by a fixed 7 AM–7
+  // PM window. Computed from the full class list (not just the selected
+  // day) so the grid's scale doesn't jump around while navigating.
+  const calendarBounds = useMemo(() => computeDayBounds(classesForSchedule), [classesForSchedule]);
 
   const detailDisruption = useMemo(() => {
     if (!detailDate || !disruptions) return undefined;
@@ -366,6 +373,7 @@ function SchedulePageInner() {
                 onClassClick={handleDayClick}
                 hasClasses={!!classes && classes.length > 0}
                 dueCounts={dueCounts}
+                bounds={calendarBounds}
               />
             )}
             {view === 'week' && weekSchedule && (
@@ -374,6 +382,7 @@ function SchedulePageInner() {
                 weekStart={weekViewStart(selectedDate).format('YYYY-MM-DD')}
                 onClassClick={handleWeekClick}
                 dueCounts={dueCounts}
+                bounds={calendarBounds}
               />
             )}
             {view === 'year' && disruptions && (

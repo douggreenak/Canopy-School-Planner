@@ -11,7 +11,7 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import { alpha, useTheme } from '@mui/material/styles';
-import { DAY_START_MIN, DAY_END_MIN, TOTAL_HEIGHT, PX_PER_HOUR, TIME_GUTTER, hourTop, halfHourTop, topForMinutes, heightForMinutes, parseMinutes } from '@/lib/calendarMetrics';
+import { TIME_GUTTER, hourTop, halfHourTop, topForMinutes, heightForMinutes, parseMinutes, totalHeightFor, hoursInRange, DEFAULT_DAY_BOUNDS, type DayBounds } from '@/lib/calendarMetrics';
 import dayjs from 'dayjs';
 import type { DaySchedule, ScheduleEntry } from '@/types';
 import { disruptionTypeLabel } from '@/lib/disruptionTypes';
@@ -25,10 +25,13 @@ interface Props {
   onClassClick?: (entry: ScheduleEntry, date: string) => void;
   // classId::date -> count of homework/tasks due at that class instance.
   dueCounts?: Map<string, number>;
+  // Visible hour range for the grid, computed from the user's actual class
+  // times (see calendarMetrics.computeDayBounds) so early/late classes never
+  // fall outside it. Defaults to the standard 7 AM–7 PM window.
+  bounds?: DayBounds;
 }
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const HOURS = Array.from({ length: 13 }, (_, i) => i + 7); // 7 AM through 7 PM
 
 function formatHour(h: number): string {
   if (h === 0) return '12 AM';
@@ -47,7 +50,7 @@ function formatTime(t: string): string {
   return `${h12}:${String(m).padStart(2, '0')}`;
 }
 
-function NowIndicator() {
+function NowIndicator({ bounds }: { bounds: DayBounds }) {
   const [now, setNow] = useState(() => dayjs());
   useEffect(() => {
     const id = setInterval(() => setNow(dayjs()), 60_000);
@@ -55,13 +58,13 @@ function NowIndicator() {
   }, []);
 
   const nowMin = now.hour() * 60 + now.minute();
-  if (nowMin < DAY_START_MIN || nowMin > DAY_END_MIN) return null;
+  if (nowMin < bounds.startMin || nowMin > bounds.endMin) return null;
 
   return (
     <Box
       sx={{
         position: 'absolute',
-        top: topForMinutes(nowMin),
+        top: topForMinutes(nowMin, bounds),
         left: 0,
         right: 0,
         display: 'flex',
@@ -211,13 +214,16 @@ ClassBlock.displayName = 'ClassBlock';
 // 550 px ≈ 8.6 hours, covering a typical 7 AM–3:30 PM school day.
 const BODY_MAX_HEIGHT = 550;
 
-export default function WeekView({ schedule, weekStart, onClassClick, dueCounts }: Props) {
+export default function WeekView({ schedule, weekStart, onClassClick, dueCounts, bounds = DEFAULT_DAY_BOUNDS }: Props) {
   const theme = useTheme();
   const debug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debugSchedule') === '1';
   const start = dayjs(weekStart);
+  const hours = useMemo(() => hoursInRange(bounds), [bounds]);
+  const totalHeight = useMemo(() => totalHeightFor(bounds), [bounds]);
 
-  // Scroll the body back to 7 AM whenever the week changes (prevents the
-  // calendar from showing afternoon on navigation or scroll-restore events).
+  // Scroll the body back to the top of the grid whenever the week changes
+  // (prevents the calendar from showing afternoon on navigation or
+  // scroll-restore events).
   const scrollBodyRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (scrollBodyRef.current) {
@@ -233,12 +239,12 @@ export default function WeekView({ schedule, weekStart, onClassClick, dueCounts 
         const endMin = parseMinutes(entry.endTime);
         return {
           entry,
-          top: topForMinutes(startMin),
-          height: heightForMinutes(startMin, endMin),
+          top: topForMinutes(startMin, bounds),
+          height: heightForMinutes(startMin, endMin, bounds),
         };
       }),
     }));
-  }, [schedule]);
+  }, [schedule, bounds]);
 
   return (
     <Box sx={{ overflowX: 'auto' }}>
@@ -301,25 +307,25 @@ export default function WeekView({ schedule, weekStart, onClassClick, dueCounts 
               display: 'grid',
               gridTemplateColumns: `${TIME_GUTTER}px repeat(7, 1fr)`,
               position: 'relative',
-              height: TOTAL_HEIGHT,
+              height: totalHeight,
             }}
           >
             {/* Hour grid lines overlay — spans all day columns */}
             <Box sx={{ position: 'absolute', top: 0, left: TIME_GUTTER, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 0 }}>
-              {HOURS.map((hour) => (
+              {hours.map((hour) => (
                 <Box key={`gl-${hour}`} sx={{
                   position: 'absolute',
-                  top: hourTop(hour),
+                  top: hourTop(hour, bounds),
                   left: 0,
                   right: 0,
                   borderTop: '1px solid',
                   borderColor: 'divider',
                 }} />
               ))}
-              {HOURS.map((hour) => (
+              {hours.map((hour) => (
                 <Box key={`hl-${hour}`} sx={{
                   position: 'absolute',
-                  top: halfHourTop(hour),
+                  top: halfHourTop(hour, bounds),
                   left: 0,
                   right: 0,
                   borderTop: '1px dashed',
@@ -331,8 +337,8 @@ export default function WeekView({ schedule, weekStart, onClassClick, dueCounts 
 
             {/* Hour-label gutter */}
             <Box sx={{ position: 'relative' }}>
-              {HOURS.map((hour) => {
-                 const top = hourTop(hour);
+              {hours.map((hour) => {
+                 const top = hourTop(hour, bounds);
                 return (
                   <Typography
                     key={hour}
@@ -386,7 +392,7 @@ export default function WeekView({ schedule, weekStart, onClassClick, dueCounts 
                   ))}
 
                   {/* Now indicator — only on the today column */}
-                  {isToday && <NowIndicator />}
+                  {isToday && <NowIndicator bounds={bounds} />}
                 </Box>
               );
             })}

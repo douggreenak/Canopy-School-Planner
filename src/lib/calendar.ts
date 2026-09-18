@@ -262,6 +262,15 @@ export function generateCalendarFeed(
       }
 
       const event = cal.createEvent({
+        // A stable, content-derived UID — not ical-generator's default random
+        // one — so that regenerating the feed from scratch on every request
+        // (the whole point of it always reflecting the latest disruptions)
+        // is recognized by subscribing calendar apps as "this same event,
+        // possibly updated" rather than a brand new event each poll. Without
+        // this, a client's periodic refresh can leave stale copies behind
+        // instead of updating them, which is what "still shows the old
+        // schedule" looks like from the subscriber's side.
+        id: `class-${cls.id}-dow${dow}@canopy-school-planner`,
         start: localDT(firstDate, sMin),
         end: localDT(firstDate, eMin),
         timezone,
@@ -303,6 +312,12 @@ export function generateCalendarFeed(
       const eMin = parseMinutes(entry.endTime);
       const disruptionNote = day.disruption ? `\n${day.disruption.label || disruptionTypeLabel(day.disruption.type)}` : '';
       cal.createEvent({
+        // Distinct from the recurring series' UID (different suffix) since
+        // this is a one-off replacement occurrence, not part of that RRULE —
+        // but still stable across regenerations so editing/removing the
+        // disruption later updates or cancels this same event for
+        // subscribers instead of leaving a duplicate.
+        id: `class-${entry.classInfo.id}-override-${dateStr}@canopy-school-planner`,
         start: localDT(dayjs(dateStr), sMin),
         end: localDT(dayjs(dateStr), eMin),
         timezone,
@@ -327,6 +342,7 @@ export function generateCalendarFeed(
     const eMin = parseMinutes(endTime);
 
     cal.createEvent({
+      id: `exam-${exam.id}@canopy-school-planner`,
       start: localDT(examDate, sMin),
       end: localDT(examDate, eMin),
       timezone,
@@ -345,6 +361,7 @@ export function generateCalendarFeed(
     if (!hw.dueDate) continue;
     if (hw.source === 'powerschool') continue;
     cal.createEvent({
+      id: `homework-${hw.id}@canopy-school-planner`,
       start: `${hw.dueDate}T00:00:00`,
       end: `${hw.dueDate}T00:00:00`,
       summary: `DUE: ${hw.title}`,
@@ -363,6 +380,7 @@ export function generateCalendarFeed(
     // the last covered day — per iCalendar convention.
     const endExclusive = dayjs(d.endDate || d.date).add(1, 'day').format('YYYY-MM-DD');
     cal.createEvent({
+      id: `disruption-${d.id}@canopy-school-planner`,
       start: `${d.date}T00:00:00`,
       end: `${endExclusive}T00:00:00`,
       summary: d.label || disruptionTypeLabel(d.type),

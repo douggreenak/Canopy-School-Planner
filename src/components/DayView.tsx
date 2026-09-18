@@ -5,11 +5,9 @@ import { alpha, useTheme } from '@mui/material/styles';
 import dayjs from 'dayjs';
 import type { DaySchedule, ScheduleEntry } from '@/types';
 
-// 7 AM through 7 PM = 13 hour labels, 12 hour intervals.
 import { type Theme } from '@mui/material/styles';
-import { PX_PER_HOUR, DAY_START_MIN, DAY_END_MIN, TOTAL_HEIGHT, TIME_GUTTER, MIN_BLOCK_HEIGHT, hourTop, halfHourTop, minutesToPixels, heightForMinutes, topForMinutes, parseMinutes } from '@/lib/calendarMetrics';
+import { TIME_GUTTER, hourTop, halfHourTop, heightForMinutes, topForMinutes, parseMinutes, totalHeightFor, hoursInRange, DEFAULT_DAY_BOUNDS, type DayBounds } from '@/lib/calendarMetrics';
 import { dueCountFor } from '@/lib/dueCounts';
-const HOURS = Array.from({ length: 13 }, (_, i) => i + 7);
 
 function formatHour(h: number): string {
   if (h === 0) return '12 AM';
@@ -41,9 +39,13 @@ interface Props {
   // (see src/lib/dueCounts.ts). Optional — pages that don't have
   // homework/task data loaded yet just render with no badges.
   dueCounts?: Map<string, number>;
+  // Visible hour range for the grid, computed from the user's actual class
+  // times (see calendarMetrics.computeDayBounds) so early/late classes never
+  // fall outside it. Defaults to the standard 7 AM–7 PM window.
+  bounds?: DayBounds;
 }
 
-function NowIndicator() {
+function NowIndicator({ bounds }: { bounds: DayBounds }) {
   const [now, setNow] = useState(() => dayjs());
   useEffect(() => {
     const id = setInterval(() => setNow(dayjs()), 60_000);
@@ -51,13 +53,13 @@ function NowIndicator() {
   }, []);
 
   const nowMin = now.hour() * 60 + now.minute();
-  if (nowMin < DAY_START_MIN || nowMin > DAY_END_MIN) return null;
+  if (nowMin < bounds.startMin || nowMin > bounds.endMin) return null;
 
   return (
     <Box
       sx={{
         position: 'absolute',
-        top: topForMinutes(nowMin),
+        top: topForMinutes(nowMin, bounds),
         left: TIME_GUTTER - 4,
         right: 0,
         display: 'flex',
@@ -213,11 +215,13 @@ const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug, index
 
 ClassBlock.displayName = 'ClassBlock';
 
-export default function DayView({ schedule, date, onClassClick, hasClasses = false, dueCounts }: Props) {
+export default function DayView({ schedule, date, onClassClick, hasClasses = false, dueCounts, bounds = DEFAULT_DAY_BOUNDS }: Props) {
   const theme = useTheme();
   const debug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debugSchedule') === '1';
 
   const isToday = dayjs(date).isSame(dayjs(), 'day');
+  const hours = useMemo(() => hoursInRange(bounds), [bounds]);
+  const totalHeight = useMemo(() => totalHeightFor(bounds), [bounds]);
 
   const memoizedClasses = useMemo(() => {
     return schedule.classes.map((entry) => {
@@ -225,11 +229,11 @@ export default function DayView({ schedule, date, onClassClick, hasClasses = fal
       const endMin = parseMinutes(entry.endTime);
       return {
         entry,
-        top: topForMinutes(startMin),
-        height: heightForMinutes(startMin, endMin),
+        top: topForMinutes(startMin, bounds),
+        height: heightForMinutes(startMin, endMin, bounds),
       };
     });
-  }, [schedule.classes]);
+  }, [schedule.classes, bounds]);
 
   if (schedule.classes.length === 0) {
     const isWeekend = [0, 6].includes(dayjs(date).day());
@@ -250,9 +254,9 @@ export default function DayView({ schedule, date, onClassClick, hasClasses = fal
   }
 
   return (
-      <Box sx={{ position: 'relative', height: TOTAL_HEIGHT, mt: 1 }}>
-        {HOURS.map((hour) => {
-          const top = hourTop(hour);
+      <Box sx={{ position: 'relative', height: totalHeight, mt: 1 }}>
+        {hours.map((hour) => {
+          const top = hourTop(hour, bounds);
           return (
             <Box key={hour}>
               <Typography
@@ -286,7 +290,7 @@ export default function DayView({ schedule, date, onClassClick, hasClasses = fal
               {/* Half-hour line */}
               <Box sx={{
                 position: 'absolute',
-                top: halfHourTop(hour),
+                top: halfHourTop(hour, bounds),
                 left: TIME_GUTTER,
                 right: 0,
                 borderTop: '1px dashed',
@@ -314,7 +318,7 @@ export default function DayView({ schedule, date, onClassClick, hasClasses = fal
         />
       ))}
 
-      {isToday && <NowIndicator />}
+      {isToday && <NowIndicator bounds={bounds} />}
     </Box>
   );
 }

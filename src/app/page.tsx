@@ -30,6 +30,7 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { useClasses, useHomework, useExams, useTasks, useDisruptions, useSettings } from '@/lib/hooks';
 import { buildDaySchedule } from '@/lib/calendar';
 import { getWeekSchedule, weekViewStart } from '@/lib/schedule';
+import { computeDayBounds } from '@/lib/calendarMetrics';
 import { buildHeatmap } from '@/lib/heatmap';
 import { buildDueCountMap } from '@/lib/dueCounts';
 import dynamic from 'next/dynamic';
@@ -112,6 +113,12 @@ export default function Dashboard() {
     if (!classesWithLunch || !disruptions) return null;
     return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions, semesterStart, semesterEnd);
   }, [classesWithLunch, disruptions, selectedDate, semesterStart, semesterEnd]);
+
+  // Grid range for Day/Week views — derived from the user's actual class
+  // times so a very early or late class is never clipped by a fixed 7 AM–7
+  // PM window. Computed from the full class list (not just the selected
+  // day) so the grid's scale doesn't jump around while navigating.
+  const calendarBounds = useMemo(() => computeDayBounds(classesWithLunch ?? []), [classesWithLunch]);
 
   // The dashboard's "what's due" widgets show ALL homework regardless of
   // source (manual or PowerSchool-synced) — for most students nearly every
@@ -329,7 +336,7 @@ export default function Dashboard() {
             <Skeleton variant="rounded" height={240} />
           ) : (<>
           {tab === 0 && todaySchedule && (
-            <DayView schedule={todaySchedule} date={selectedDate.format('YYYY-MM-DD')} hasClasses={!!classes && classes.length > 0} dueCounts={dueCounts} />
+            <DayView schedule={todaySchedule} date={selectedDate.format('YYYY-MM-DD')} hasClasses={!!classes && classes.length > 0} dueCounts={dueCounts} bounds={calendarBounds} />
           )}
           {tab === 0 && !todaySchedule && (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
@@ -337,7 +344,7 @@ export default function Dashboard() {
             </Typography>
           )}
           {tab === 1 && weekSchedule && (
-            <WeekView schedule={weekSchedule} weekStart={weekViewStart(selectedDate).format('YYYY-MM-DD')} dueCounts={dueCounts} />
+            <WeekView schedule={weekSchedule} weekStart={weekViewStart(selectedDate).format('YYYY-MM-DD')} dueCounts={dueCounts} bounds={calendarBounds} />
           )}
           {tab === 1 && !weekSchedule && (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
