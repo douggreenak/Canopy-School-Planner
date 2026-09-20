@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, Suspense } from 'react';
-import dayjs from 'dayjs';
+import Link from 'next/link';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Card from '@mui/material/Card';
@@ -137,11 +137,6 @@ function SettingsInner() {
 
   // School info
   const [schoolName, setSchoolName] = useState('');
-  const [semesterStart, setSemesterStart] = useState('');
-  const [semesterEnd, setSemesterEnd] = useState('');
-  const [newSemesterOpen, setNewSemesterOpen] = useState(false);
-  const [newSemStart, setNewSemStart] = useState('');
-  const [newSemEnd, setNewSemEnd] = useState('');
   const [userTimezone, setUserTimezone] = useState(() => {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'America/New_York'; }
   });
@@ -279,8 +274,6 @@ function SettingsInner() {
     apiGet<Partial<AppSettings>>('/api/settings')
       .then((s) => {
         if (s.schoolName) setSchoolName(s.schoolName);
-        if (s.semesterStart) setSemesterStart(s.semesterStart);
-        if (s.semesterEnd) setSemesterEnd(s.semesterEnd);
         if (s.timezone) setUserTimezone(s.timezone);
         if (s.calendarToken) setCalendarToken(s.calendarToken);
         if (s.powerschoolUrl) setPsUrl(s.powerschoolUrl);
@@ -378,55 +371,16 @@ function SettingsInner() {
   // keystroke. Toggles/selects save on the leading edge of the next change
   // instead (no debounce needed — there's no "typing" to wait out).
   const schoolSaveStatus = useAutosaveStatus();
-  const debouncedSaveSchool = useDebouncedCallback((next: { schoolName: string; semesterStart: string; semesterEnd: string; timezone: string }) => {
-    if (next.semesterStart && next.semesterEnd && next.semesterEnd < next.semesterStart) return; // don't autosave an invalid range
+  const debouncedSaveSchool = useDebouncedCallback((next: { schoolName: string; timezone: string }) => {
     schoolSaveStatus.markSaving();
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ batch: { schoolName: next.schoolName, semesterStart: next.semesterStart, semesterEnd: next.semesterEnd, timezone: next.timezone } }),
+      body: JSON.stringify({ batch: { schoolName: next.schoolName, timezone: next.timezone } }),
     })
       .then(() => schoolSaveStatus.markSaved())
       .catch(() => schoolSaveStatus.markError());
   }, 600);
-
-  // "Start New Semester" — the app already keeps every past semester's
-  // classes, grade history, and sync log untouched (PowerSchool sync scopes
-  // its deletes to only the semester(s) present in each incoming batch —
-  // see syncClassesFromSource in db.ts), so this only ever needs to move the
-  // semesterStart/semesterEnd boundary that gates what shows on the
-  // Dashboard/Schedule. A fresh PowerSchool sync afterward naturally brings
-  // in the new term's classes without disturbing old ones.
-  const openNewSemesterDialog = () => {
-    const suggestedStart = semesterEnd ? dayjs(semesterEnd).add(1, 'day') : dayjs();
-    setNewSemStart(suggestedStart.format('YYYY-MM-DD'));
-    setNewSemEnd(suggestedStart.add(4, 'month').format('YYYY-MM-DD'));
-    setNewSemesterOpen(true);
-  };
-
-  const startNewSemester = async () => {
-    setSyncing('new-semester');
-    try {
-      await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch: { semesterStart: newSemStart, semesterEnd: newSemEnd } }),
-      });
-      setSemesterStart(newSemStart);
-      setSemesterEnd(newSemEnd);
-      setNewSemesterOpen(false);
-      setSnackbar({
-        open: true,
-        severity: 'success',
-        message: setupStatus?.hasPowerschool
-          ? 'New semester dates saved. Run Sync Now below to bring in your new classes.'
-          : 'New semester dates saved.',
-      });
-    } catch {
-      setSnackbar({ open: true, message: 'Failed to save new semester dates.', severity: 'error' });
-    }
-    setSyncing(null);
-  };
 
   const psSaveStatus = useAutosaveStatus();
   // Same three-fields-required guard the old explicit "Save Login" button
@@ -799,52 +753,30 @@ function SettingsInner() {
                   fullWidth
                   label="School Name"
                   value={schoolName}
-                  onChange={(e) => { setSchoolName(e.target.value); debouncedSaveSchool({ schoolName: e.target.value, semesterStart, semesterEnd, timezone: userTimezone }); }}
+                  onChange={(e) => { setSchoolName(e.target.value); debouncedSaveSchool({ schoolName: e.target.value, timezone: userTimezone }); }}
                   placeholder="e.g., Lincoln High School"
                 />
               </Grid>
               <Grid size={12}>
                 <Typography variant="caption" color="text.secondary">
-                  Your Dashboard and Schedule only show classes within these dates. Outside the semester (e.g. over summer) they will appear empty.
+                  Your Dashboard and Schedule treat school as in session every day, all year — no semester dates to keep updating. Add exceptions like summer or winter break below and they&apos;ll be skipped automatically.
                 </Typography>
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  fullWidth
-                  label="Semester Start"
-                  type="date"
-                  value={semesterStart}
-                  onChange={(e) => { setSemesterStart(e.target.value); debouncedSaveSchool({ schoolName, semesterStart: e.target.value, semesterEnd, timezone: userTimezone }); }}
-                  slotProps={{ inputLabel: { shrink: true } }}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  fullWidth
-                  label="Semester End"
-                  type="date"
-                  value={semesterEnd}
-                  onChange={(e) => { setSemesterEnd(e.target.value); debouncedSaveSchool({ schoolName, semesterStart, semesterEnd: e.target.value, timezone: userTimezone }); }}
-                  slotProps={{ inputLabel: { shrink: true } }}
-                  error={!!(semesterStart && semesterEnd && semesterEnd < semesterStart)}
-                  helperText={semesterStart && semesterEnd && semesterEnd < semesterStart ? 'End date must be after start date' : ''}
-                />
               </Grid>
               <Grid size={12}>
                 <TimezonePicker
                   value={userTimezone}
-                  onChange={(tz) => { setUserTimezone(tz); debouncedSaveSchool({ schoolName, semesterStart, semesterEnd, timezone: tz }); }}
+                  onChange={(tz) => { setUserTimezone(tz); debouncedSaveSchool({ schoolName, timezone: tz }); }}
                   label="Timezone"
                   helperText="Used for calendar feed events — auto-detected from your browser"
                 />
               </Grid>
               <Grid size={12}>
                 <Divider sx={{ mb: 2 }} />
-                <Button variant="outlined" size="small" startIcon={<CalendarMonthIcon />} onClick={openNewSemesterDialog}>
-                  Start New Semester
+                <Button variant="outlined" size="small" startIcon={<CalendarMonthIcon />} component={Link} href="/schedule#settings-disruptions">
+                  Manage School Breaks
                 </Button>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                  Updates the dates above for a new term. Nothing is deleted — past grades and sync history stay on the Transcript and Sync Log pages.
+                  Add summer break, winter break, holidays, and other days off from the Disruptions calendar on the Schedule page — set an end date to cover a whole range at once.
                 </Typography>
               </Grid>
             </Grid>
@@ -1526,59 +1458,6 @@ function SettingsInner() {
         </Accordion>
 
       </Stack>
-
-      {/* Start New Semester dialog */}
-      <Dialog
-        open={newSemesterOpen}
-        onClose={() => setNewSemesterOpen(false)}
-        onKeyDown={useEnterConfirm(newSemesterOpen && !!newSemStart && !!newSemEnd && newSemEnd >= newSemStart && syncing !== 'new-semester', startNewSemester)}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>Start a new semester</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ mb: 2 }}>
-            This updates your semester date range — classes outside it stop appearing on the Dashboard and Schedule automatically.
-            Nothing is deleted: past grades, sync history, and transcript rows for the old semester are kept exactly as they are.
-          </DialogContentText>
-          <Stack spacing={2}>
-            <TextField
-              fullWidth
-              label="New Semester Start"
-              type="date"
-              value={newSemStart}
-              onChange={(e) => setNewSemStart(e.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }}
-            />
-            <TextField
-              fullWidth
-              label="New Semester End"
-              type="date"
-              value={newSemEnd}
-              onChange={(e) => setNewSemEnd(e.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }}
-              error={!!(newSemStart && newSemEnd && newSemEnd < newSemStart)}
-              helperText={newSemStart && newSemEnd && newSemEnd < newSemStart ? 'End date must be after start date' : ''}
-            />
-            {setupStatus?.hasPowerschool && (
-              <Alert severity="info" sx={{ fontSize: '0.82rem' }}>
-                After saving, run <strong>Sync Now</strong> in PowerSchool Import below to bring in the new semester&apos;s classes.
-              </Alert>
-            )}
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setNewSemesterOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={startNewSemester}
-            disabled={!newSemStart || !newSemEnd || newSemEnd < newSemStart || syncing === 'new-semester'}
-            startIcon={syncing === 'new-semester' ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
-          >
-            Start New Semester
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Delete account confirmation dialog */}
       <Dialog

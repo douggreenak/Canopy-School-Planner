@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import dayjs from 'dayjs';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import Box from '@mui/material/Box';
@@ -31,22 +32,24 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import CloseIcon from '@mui/icons-material/Close';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
+import { v4 as uuid } from 'uuid';
 import TimezonePicker from '@/components/TimezonePicker';
 import { useEnterConfirm } from '@/lib/hooks';
 import { usePowerSchoolSyncStatus, pokePowerSchoolStatus } from '@/lib/powerschoolStatusStore';
 import VerifiedIcon from '@mui/icons-material/Verified';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EventBusyIcon from '@mui/icons-material/EventBusy';
 
 // PowerSchool moved ahead of School Info — connecting it is the single
 // highest-leverage step (it pre-fills classes/schedule automatically), so
 // it's asked first rather than after a form with no payoff yet.
 const STEPS = ['Welcome', 'PowerSchool', 'School Info', 'Done'];
 
-function defaultSemesterDates() {
-  const start = new Date();
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + 4);
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  return { start: iso(start), end: iso(end) };
+interface SchoolBreak {
+  id: string;
+  label: string;
+  start: string;
+  end: string;
 }
 
 interface Props {
@@ -62,17 +65,29 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // Step 2 — school info. Semester dates default to "today through 4 months
-  // out" rather than starting blank — a new user isn't blocked staring at
-  // empty date pickers, and can always fine-tune (or leave as-is) later in
-  // Settings.
+  // Step 2 — school info. School is treated as in session every day by
+  // default (no semester dates to fill in) — the only thing worth capturing
+  // here is the reverse: known breaks (summer, winter, etc.) the user can
+  // optionally add now, each saved as a "No School" disruption. More can
+  // always be added later from the Schedule page.
   const [schoolName, setSchoolName] = useState('');
-  const [{ start: defaultSemStart, end: defaultSemEnd }] = useState(defaultSemesterDates);
-  const [semesterStart, setSemesterStart] = useState(defaultSemStart);
-  const [semesterEnd, setSemesterEnd] = useState(defaultSemEnd);
   const [timezone, setTimezone] = useState(() => {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'America/New_York'; }
   });
+  const [breaks, setBreaks] = useState<SchoolBreak[]>([]);
+  const [breakLabel, setBreakLabel] = useState('');
+  const [breakStart, setBreakStart] = useState('');
+  const [breakEnd, setBreakEnd] = useState('');
+
+  const addBreak = () => {
+    if (!breakStart) return;
+    setBreaks((prev) => [...prev, { id: uuid(), label: breakLabel.trim(), start: breakStart, end: breakEnd || breakStart }]);
+    setBreakLabel('');
+    setBreakStart('');
+    setBreakEnd('');
+  };
+
+  const removeBreak = (id: string) => setBreaks((prev) => prev.filter((b) => b.id !== id));
 
   // Step 1 — PowerSchool
   const [psUrl, setPsUrl] = useState('');
@@ -114,7 +129,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
     setError('');
     setBusy(true);
     try {
-      const settings: Record<string, string> = { schoolName, semesterStart, semesterEnd, timezone };
+      const settings: Record<string, string> = { schoolName, timezone };
       for (const [key, value] of Object.entries(settings)) {
         if (!value) continue;
         await fetch('/api/settings', {
@@ -122,6 +137,23 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key, value }),
         });
+      }
+      // Each break the user added becomes a "No School" disruption spanning
+      // its date range — the mechanism that marks school as NOT in session,
+      // since there's no semester boundary to set instead.
+      for (const b of breaks) {
+        await fetch('/api/disruptions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: b.id,
+            date: b.start,
+            endDate: b.end !== b.start ? b.end : undefined,
+            type: 'no_school',
+            label: b.label,
+            periodOverrides: [],
+          }),
+        }).catch(() => {});
       }
       setStep(3);
     } catch {
@@ -537,31 +569,6 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 helperText="Shown as a label throughout the app — optional"
               />
 
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField
-                  fullWidth
-                  label="Semester Start Date"
-                  type="date"
-                  value={semesterStart}
-                  onChange={(e) => setSemesterStart(e.target.value)}
-                  helperText="First day of your current semester"
-                  slotProps={{ inputLabel: { shrink: true } }}
-                />
-                <TextField
-                  fullWidth
-                  label="Semester End Date"
-                  type="date"
-                  value={semesterEnd}
-                  onChange={(e) => setSemesterEnd(e.target.value)}
-                  helperText="Last day of finals / end of term"
-                  slotProps={{ inputLabel: { shrink: true } }}
-                />
-              </Stack>
-
-              <Alert severity="info" sx={{ py: 0.5 }}>
-                Your Dashboard and Schedule only show classes that fall within these dates — so outside the semester (e.g. over summer) they&apos;ll look empty. You can change these anytime in Settings.
-              </Alert>
-
               <TimezonePicker
                 value={timezone}
                 onChange={setTimezone}
@@ -569,6 +576,60 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 size="medium"
                 helperText="Used for calendar feed and schedule display"
               />
+
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                Canopy treats school as in session every day, all year — there&apos;s no semester range to set. Add any breaks below (optional) and they&apos;ll be skipped automatically; you can add more anytime from the Schedule page.
+              </Alert>
+
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>School Breaks (optional)</Typography>
+                {breaks.length > 0 && (
+                  <Stack spacing={1} sx={{ mb: 1.5 }}>
+                    {breaks.map((b) => (
+                      <Box key={b.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75, borderRadius: 1, bgcolor: 'action.hover' }}>
+                        <EventBusyIcon fontSize="small" color="disabled" />
+                        <Typography variant="body2" sx={{ flex: 1 }}>
+                          {b.label || 'No School'} — {dayjs(b.start).format('MMM D')}{b.end !== b.start ? ` – ${dayjs(b.end).format('MMM D')}` : ''}
+                        </Typography>
+                        <IconButton size="small" onClick={() => removeBreak(b.id)} aria-label={`Remove ${b.label || 'break'}`}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    ))}
+                  </Stack>
+                )}
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Label"
+                    value={breakLabel}
+                    onChange={(e) => setBreakLabel(e.target.value)}
+                    placeholder="e.g. Summer Break"
+                  />
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Start"
+                    type="date"
+                    value={breakStart}
+                    onChange={(e) => setBreakStart(e.target.value)}
+                    slotProps={{ inputLabel: { shrink: true } }}
+                  />
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="End"
+                    type="date"
+                    value={breakEnd}
+                    onChange={(e) => setBreakEnd(e.target.value)}
+                    slotProps={{ inputLabel: { shrink: true } }}
+                  />
+                  <Button variant="outlined" onClick={addBreak} disabled={!breakStart} sx={{ flexShrink: 0 }}>
+                    Add
+                  </Button>
+                </Stack>
+              </Box>
 
               {fullScreen ? (
                 <Stack spacing={1.5}>

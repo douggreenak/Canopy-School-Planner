@@ -33,7 +33,7 @@ interface Props {
   onClassClick?: (entry: ScheduleEntry) => void;
   // Whether the user has any classes configured at all. Lets the empty state
   // tell "you haven't added classes yet" apart from "no class meets today"
-  // (a weekend, a day off, or a date outside the semester).
+  // (a weekend or a day off).
   hasClasses?: boolean;
   // classId::date -> count of homework/tasks due at that class instance
   // (see src/lib/dueCounts.ts). Optional — pages that don't have
@@ -246,7 +246,7 @@ export default function DayView({ schedule, date, onClassClick, hasClasses = fal
           {hasClasses
             ? isWeekend
               ? 'Enjoy your weekend!'
-              : 'None of your classes meet on this day, or it falls outside your semester dates.'
+              : 'None of your classes meet on this day.'
             : 'Set up your classes via PowerSchool sync or the Classes page.'}
         </Typography>
       </Box>

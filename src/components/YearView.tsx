@@ -14,13 +14,11 @@ interface Props {
   classes: SchoolClass[];
   disruptions: ScheduleDisruption[];
   onDateClick: (date: string) => void;
-  semesterStart?: string;
-  semesterEnd?: string;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export default function YearView({ year, classes, disruptions, onDateClick, semesterStart, semesterEnd }: Props) {
+export default function YearView({ year, classes, disruptions, onDateClick }: Props) {
   const theme = useTheme();
 
   const disruptionDates = useMemo(() => {
@@ -67,10 +65,7 @@ export default function YearView({ year, classes, disruptions, onDateClick, seme
                 const disruption = disruptionDates.get(cell.date);
                 const isToday = cell.date === dayjs().format('YYYY-MM-DD');
                 const dayOfWeek = dayjs(cell.date).day();
-                const inSemester =
-                  (!semesterStart || !dayjs(cell.date).isBefore(dayjs(semesterStart), 'day')) &&
-                  (!semesterEnd || !dayjs(cell.date).isAfter(dayjs(semesterEnd), 'day'));
-                const hasClasses = inSemester && classes.some((c) => c.days.includes(dayOfWeek));
+                const hasClasses = classes.some((c) => c.days.includes(dayOfWeek));
 
                 // Disruption/"has classes" cues are conveyed by a colored tint
                 // plus a solid-color accent underline — never by tinting the

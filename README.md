@@ -32,7 +32,7 @@ Unified homework + task list with quick-add, overdue highlighting, and cross-cla
 ![Tasks](docs/screenshots/tasks.png)
 
 ### Schedule
-Day / Week / Year calendar with semester bounds, bell schedule support, and early-dismissal overrides.
+Day / Week / Year calendar that treats school as in session every day, with school breaks marked as exceptions, plus bell schedule support and early-dismissal overrides.
 
 ![Schedule](docs/screenshots/schedule.png)
 
@@ -42,7 +42,7 @@ Cumulative unweighted GPA across all synced semesters with per-class breakdown.
 ![Transcript](docs/screenshots/transcript.png)
 
 ### Settings
-Theme, accent color, school info, semester dates, and PowerSchool credentials — everything in one place.
+Theme, accent color, school info, school breaks, and PowerSchool credentials — everything in one place.
 
 ![Settings](docs/screenshots/settings.png)
 
@@ -53,7 +53,7 @@ Theme, accent color, school info, semester dates, and PowerSchool credentials �
 ### Core Planner
 - **Dashboard** — Day/Week/Year calendar views + Heatmap tab; stat chips for today's classes, homework, and exams
 - **Classes** — manage classes with colors, meeting days, period times, and teacher/room info
-- **Schedule** — full calendar with semester date cutoff, bell-schedule support, and early-dismissal overrides
+- **Schedule** — full calendar that treats school as in session every day, with breaks (summer, winter, etc.) marked as exceptions, plus bell-schedule support and early-dismissal overrides
 - **Exams** — upcoming exam list with countdown and grade-impact preview
 - **Tasks** — unified to-do combining PowerSchool homework + custom tasks; filterable, quick-add, bulk clear
 
@@ -133,7 +133,7 @@ Open [http://localhost:3000](http://localhost:3000). Create an account on first 
 ### 4. Configure your school
 
 In **Settings**:
-- Set school name and semester start/end dates (classes outside this range are hidden from the dashboard)
+- Set school name and timezone — school is treated as in session every day by default, so add breaks (summer, winter, etc.) as "No School" disruptions on the Schedule page to mark exceptions
 - Enter PowerSchool URL + credentials for sync
 - Enable **Lathrop Mode** to auto-apply the Lathrop HS bell schedule after each sync
 

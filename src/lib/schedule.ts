@@ -137,14 +137,12 @@ export function getWeekSchedule(
   weekStart: string,
   classes: SchoolClass[],
   disruptions: ScheduleDisruption[],
-  semesterStart?: string,
-  semesterEnd?: string,
 ): DaySchedule[] {
   const start = weekViewStart(dayjs(weekStart));
   const days: DaySchedule[] = [];
   for (let i = 0; i < 7; i++) {
     const date = start.add(i, 'day').format('YYYY-MM-DD');
-    days.push(buildDaySchedule(date, classes, disruptions, semesterStart, semesterEnd));
+    days.push(buildDaySchedule(date, classes, disruptions));
   }
   return days;
 }
@@ -157,15 +155,13 @@ export function getMonthSchedules(
   month: number,
   classes: SchoolClass[],
   disruptions: ScheduleDisruption[],
-  semesterStart?: string,
-  semesterEnd?: string,
 ): DaySchedule[] {
   const start = dayjs().year(year).month(month).startOf('month');
   const end = start.endOf('month');
   const days: DaySchedule[] = [];
   let current = start;
   while (current.isBefore(end) || current.isSame(end, 'day')) {
-    days.push(buildDaySchedule(current.format('YYYY-MM-DD'), classes, disruptions, semesterStart, semesterEnd));
+    days.push(buildDaySchedule(current.format('YYYY-MM-DD'), classes, disruptions));
     current = current.add(1, 'day');
   }
   return days;

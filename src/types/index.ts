@@ -167,8 +167,6 @@ export interface PeriodOverride {
 export interface AppSettings {
   schoolName: string;
   spreadsheetId: string;
-  semesterStart: string;
-  semesterEnd: string;
   defaultSchedule: 'A/B' | 'daily' | 'weekly';
   calendarToken: string;
   powerschoolUrl: string;

@@ -81,9 +81,6 @@ export default function Dashboard() {
       return DEFAULT_LUNCH_TIMES;
     }
   }, [settingsData]);
-  const semesterStart = settingsData?.semesterStart;
-  const semesterEnd = settingsData?.semesterEnd;
-
   const classesWithLunch = useMemo(() => {
     const base = classes || [];
     if (base.find((c) => c.id === '__lunch__')) return base;
@@ -106,13 +103,13 @@ export default function Dashboard() {
 
   const todaySchedule = useMemo(() => {
     if (!classesWithLunch || !disruptions) return null;
-    return buildDaySchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions, semesterStart, semesterEnd);
-  }, [classesWithLunch, disruptions, selectedDate, semesterStart, semesterEnd]);
+    return buildDaySchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions);
+  }, [classesWithLunch, disruptions, selectedDate]);
 
   const weekSchedule = useMemo(() => {
     if (!classesWithLunch || !disruptions) return null;
-    return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions, semesterStart, semesterEnd);
-  }, [classesWithLunch, disruptions, selectedDate, semesterStart, semesterEnd]);
+    return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesWithLunch, disruptions);
+  }, [classesWithLunch, disruptions, selectedDate]);
 
   // Grid range for Day/Week views — derived from the user's actual class
   // times so a very early or late class is never clipped by a fixed 7 AM–7
@@ -356,8 +353,6 @@ export default function Dashboard() {
               year={selectedDate.year()}
               classes={classesWithLunch}
               disruptions={disruptions}
-              semesterStart={semesterStart}
-              semesterEnd={semesterEnd}
               onDateClick={(d) => { setSelectedDate(dayjs(d)); setTab(0); }}
             />
           )}

@@ -21,27 +21,21 @@ export function disruptionCoversDate(disruption: ScheduleDisruption, date: strin
 
 /**
  * Build the full day schedule for a given date, accounting for disruptions.
- * If semesterStart/semesterEnd are provided, days outside that range return
- * an empty class list so the schedule doesn't run forever.
+ * School is treated as in session every day, every year — there's no
+ * semester boundary to fall outside of. The exception is a disruption
+ * covering this date (most commonly a multi-day `no_school` range like
+ * summer or winter break), which cancels every class that would otherwise
+ * meet, the same way a single-day closure does.
  */
 export function buildDaySchedule(
   date: string,
   classes: SchoolClass[],
   disruptions: ScheduleDisruption[],
-  semesterStart?: string,
-  semesterEnd?: string,
 ): DaySchedule {
   const d = dayjs(date);
   const dayOfWeek = d.day(); // 0=Sun
 
   const disruption = disruptions.find((dis) => disruptionCoversDate(dis, date));
-
-  if (semesterStart && d.isBefore(dayjs(semesterStart), 'day')) {
-    return { date, classes: [], disruption };
-  }
-  if (semesterEnd && d.isAfter(dayjs(semesterEnd), 'day')) {
-    return { date, classes: [], disruption };
-  }
 
   // A "1-6 Schedule" disruption overrides the normal A/B block pattern —
   // every period in its overrides meets that day even if the class doesn't
@@ -147,15 +141,22 @@ export function buildDaySchedule(
 }
 
 /**
- * Generate an iCal feed for the full semester schedule.
+ * Generate an iCal feed of the schedule across [feedStart, feedEnd].
+ *
+ * School itself has no start/end date — classes recur indefinitely, with
+ * `no_school` disruptions (e.g. summer/winter break) as the exceptions. A
+ * calendar feed still needs a finite window to turn that into concrete
+ * RRULEs/EXDATEs, so the caller passes one — typically a rolling window
+ * (e.g. "today" through a year out) recomputed on every request, not a
+ * fixed semester the user has to keep updating.
  */
 export function generateCalendarFeed(
   classes: SchoolClass[],
   exams: Exam[],
   homework: Homework[],
   disruptions: ScheduleDisruption[],
-  semesterStart: string,
-  semesterEnd: string,
+  feedStart: string,
+  feedEnd: string,
   schoolName: string,
   timezone = 'America/Anchorage',
 ): string {
@@ -191,8 +192,8 @@ export function generateCalendarFeed(
 
   // -- Recurring class events (RRULE-based) --
   const icalDays = [ICalWeekday.SU, ICalWeekday.MO, ICalWeekday.TU, ICalWeekday.WE, ICalWeekday.TH, ICalWeekday.FR, ICalWeekday.SA];
-  const semEnd = dayjs(semesterEnd);
-  const semStart = dayjs(semesterStart);
+  const windowEnd = dayjs(feedEnd);
+  const windowStart = dayjs(feedStart);
 
   // The synthetic "Lunch" block uses generic default times that won't line up
   // with every school's bell schedule. On any weekday where it would overlap a
@@ -208,7 +209,7 @@ export function generateCalendarFeed(
       return sMin < parseMinutes(ce) && parseMinutes(cs) < eMin;
     });
 
-  // Every date any disruption covers, clipped to the semester range. The
+  // Every date any disruption covers, clipped to the feed window. The
   // recurring weekly events below are suppressed on these dates and replaced
   // with one-off events computed from buildDaySchedule — the same function
   // the in-app Day/Week views use — so early-outs, late-starts, 1-6 days,
@@ -217,8 +218,8 @@ export function generateCalendarFeed(
   const disruptedDates = new Set<string>();
   for (const d of disruptions) {
     const end = d.endDate || d.date;
-    let cur = dayjs(d.date).isAfter(semStart) ? dayjs(d.date) : semStart;
-    const rangeEnd = dayjs(end).isBefore(semEnd) ? dayjs(end) : semEnd;
+    let cur = dayjs(d.date).isAfter(windowStart) ? dayjs(d.date) : windowStart;
+    const rangeEnd = dayjs(end).isBefore(windowEnd) ? dayjs(end) : windowEnd;
     while (cur.isBefore(rangeEnd) || cur.isSame(rangeEnd, 'day')) {
       disruptedDates.add(cur.format('YYYY-MM-DD'));
       cur = cur.add(1, 'day');
@@ -241,20 +242,20 @@ export function generateCalendarFeed(
       // Anchor DTSTART on the first NON-disrupted matching weekday — EXDATE
       // is meant to suppress later occurrences, and calendar clients vary in
       // whether they honor an EXDATE that coincides with DTSTART itself. If
-      // the semester (or class) starts on a disrupted day, this avoids
+      // the feed window (or class) starts on a disrupted day, this avoids
       // relying on that and just picks a clean anchor instead.
-      let firstDate = semStart;
+      let firstDate = windowStart;
       while (
         (firstDate.day() !== dow || disruptedDates.has(firstDate.format('YYYY-MM-DD'))) &&
-        firstDate.isBefore(semEnd)
+        firstDate.isBefore(windowEnd)
       ) {
         firstDate = firstDate.add(1, 'day');
       }
-      if (firstDate.isAfter(semEnd)) continue;
+      if (firstDate.isAfter(windowEnd)) continue;
 
       const exDates: string[] = [];
       let scan = firstDate;
-      while (scan.isBefore(semEnd) || scan.isSame(semEnd, 'day')) {
+      while (scan.isBefore(windowEnd) || scan.isSame(windowEnd, 'day')) {
         if (disruptedDates.has(scan.format('YYYY-MM-DD'))) {
           exDates.push(localDT(scan, sMin));
         }
@@ -288,7 +289,7 @@ export function generateCalendarFeed(
       // is spec-invalid; strict parsers can reject the whole RRULE. COUNT
       // has no timezone/UTC semantics at all, so it sidesteps the bug
       // entirely rather than depending on the library fixing it.
-      const occurrenceCount = Math.floor(semEnd.diff(firstDate, 'day') / 7) + 1;
+      const occurrenceCount = Math.floor(windowEnd.diff(firstDate, 'day') / 7) + 1;
 
       event.repeating({
         freq: ICalEventRepeatingFreq.WEEKLY,
@@ -305,7 +306,7 @@ export function generateCalendarFeed(
   // that weekday at all) and emit it as one-off events, replacing the
   // recurring occurrence suppressed above.
   for (const dateStr of disruptedDates) {
-    const day = buildDaySchedule(dateStr, classes, disruptions, semesterStart, semesterEnd);
+    const day = buildDaySchedule(dateStr, classes, disruptions);
     for (const entry of day.classes) {
       if (entry.cancelled) continue;
       const sMin = parseMinutes(entry.startTime);

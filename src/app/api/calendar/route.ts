@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { timingSafeEqual } from 'crypto';
+import dayjs from 'dayjs';
 import { getClasses, getExams, getHomework, getDisruptions, getSettings } from '@/lib/db';
 import { generateCalendarFeed } from '@/lib/calendar';
 
@@ -33,13 +34,13 @@ export async function GET(request: NextRequest) {
       getDisruptions(userId),
     ]);
 
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const defaultStart = month >= 7 ? `${year}-08-15` : `${year}-01-10`;
-    const defaultEnd = month >= 7 ? `${year + 1}-06-15` : `${year}-06-15`;
-    const semesterStart = freshSettings.semesterStart || defaultStart;
-    const semesterEnd = freshSettings.semesterEnd || defaultEnd;
+    // School has no configured start/end date — classes recur indefinitely,
+    // with `no_school` disruptions (e.g. breaks) as the exceptions. The feed
+    // regenerates from scratch on every request (see generateCalendarFeed's
+    // doc comment), so it only needs a rolling window here, not a fixed
+    // semester the user would otherwise have to keep updating.
+    const feedStart = dayjs().subtract(7, 'day').format('YYYY-MM-DD');
+    const feedEnd = dayjs().add(365, 'day').format('YYYY-MM-DD');
     const schoolName = freshSettings.schoolName || 'School';
 
     // Inject a synthetic Lunch class into the calendar feed using the user's
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest) {
     const userTimezone = (freshSettings as Record<string, unknown>).timezone as string || 'America/Anchorage';
     const ical = generateCalendarFeed(
       classesWithLunch, exams, homework, disruptions,
-      semesterStart, semesterEnd, schoolName, userTimezone
+      feedStart, feedEnd, schoolName, userTimezone
     );
 
     return new Response(ical, {

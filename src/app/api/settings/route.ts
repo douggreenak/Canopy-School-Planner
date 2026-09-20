@@ -3,7 +3,7 @@ import { getSettings, setSetting, setSettingsBatch, initializeDatabase } from '@
 import { getSessionUserId } from '@/lib/auth';
 
 const ALLOWED_KEYS = new Set([
-  'schoolName', 'semesterStart', 'semesterEnd', 'calendarToken',
+  'schoolName', 'calendarToken',
   'lunchTimes', 'lathropMode', 'early_out_schedule',
   'themeMode', 'accentColor', 'lastSyncAt', 'timezone',
   'powerschoolAutoSync',
@@ -24,8 +24,8 @@ function validateSetting(key: string, value: string): string | null {
 export async function GET(request: Request) {
   try {
     const userId = await getSessionUserId(request);
-    // Settings are non-sensitive per-user UI prefs (theme, accent, semester
-    // dates). ThemeRegistry reads them on the login screen before a session
+    // Settings are non-sensitive per-user UI prefs (theme, accent, timezone).
+    // ThemeRegistry reads them on the login screen before a session
     // exists, so respond with empty defaults rather than a 401 — this avoids a
     // spurious console error on every logged-out page load. Writes (POST/PUT)
     // still require an authenticated session.

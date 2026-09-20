@@ -108,8 +108,6 @@ function SchedulePageInner() {
       return DEFAULT_LUNCH_TIMES;
     }
   }, [settingsData]);
-  const semesterStart = settingsData?.semesterStart;
-  const semesterEnd = settingsData?.semesterEnd;
   const isLathrop = useMemo(() => {
     const v = (settingsData as unknown as { lathropMode?: unknown })?.lathropMode;
     return v === true || v === 'true';
@@ -172,13 +170,13 @@ function SchedulePageInner() {
 
   const daySchedule = useMemo(() => {
     if (!classesForSchedule || !disruptions) return null;
-    return buildDaySchedule(selectedDate.format('YYYY-MM-DD'), classesForSchedule, disruptions, semesterStart, semesterEnd);
-  }, [classesForSchedule, disruptions, selectedDate, semesterStart, semesterEnd]);
+    return buildDaySchedule(selectedDate.format('YYYY-MM-DD'), classesForSchedule, disruptions);
+  }, [classesForSchedule, disruptions, selectedDate]);
 
   const weekSchedule = useMemo(() => {
     if (!classesForSchedule || !disruptions) return null;
-    return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesForSchedule, disruptions, semesterStart, semesterEnd);
-  }, [classesForSchedule, disruptions, selectedDate, semesterStart, semesterEnd]);
+    return getWeekSchedule(selectedDate.format('YYYY-MM-DD'), classesForSchedule, disruptions);
+  }, [classesForSchedule, disruptions, selectedDate]);
 
   // Grid range for Day/Week views — derived from the user's actual class
   // times so a very early or late class is never clipped by a fixed 7 AM–7
@@ -391,8 +389,6 @@ function SchedulePageInner() {
                 classes={classesForSchedule}
                 disruptions={disruptions}
                 onDateClick={(d) => { setSelectedDate(dayjs(d)); setView('day'); }}
-                semesterStart={semesterStart}
-                semesterEnd={semesterEnd}
               />
             )}
           </>
@@ -401,7 +397,7 @@ function SchedulePageInner() {
       </Paper>
 
       {/* ===== Disruptions calendar ===== */}
-      <Paper sx={{ borderRadius: 2, mt: 4, p: 2.5 }}>
+      <Paper id="settings-disruptions" sx={{ borderRadius: 2, mt: 4, p: 2.5, scrollMarginTop: 16 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <WarningAmberIcon sx={{ color: 'warning.main' }} />
@@ -414,6 +410,9 @@ function SchedulePageInner() {
             Add
           </Button>
         </Box>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+          School is treated as in session every day by default — add a &quot;No School&quot; entry with an end date to mark a break (summer, winter, etc.) or any other day off.
+        </Typography>
         <DisruptionCalendar
           disruptions={disruptions ?? []}
           onAdd={openDialogForDate}

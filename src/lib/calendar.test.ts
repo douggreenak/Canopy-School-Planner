@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { generateCalendarFeed, buildDaySchedule } from '@/lib/calendar';
 import type { SchoolClass, ScheduleDisruption } from '@/types';
 
-// A single class meeting every Monday, for a semester that spans exactly
-// three Mondays: Jan 5, 12, 19 2026.
+// A single class meeting every Monday, generated for a feed window that
+// spans exactly three Mondays: Jan 5, 12, 19 2026.
 const monday: SchoolClass = {
   id: 'c1',
   name: 'Algebra II',
