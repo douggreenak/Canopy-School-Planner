@@ -176,6 +176,63 @@ export function useAutosaveStatus() {
   return { status, markSaving, markSaved, markError };
 }
 
+/**
+ * iOS Safari fix: opening the on-screen keyboard shrinks the VISUAL
+ * viewport but leaves the LAYOUT viewport (and the page's scroll position)
+ * alone, so a focused text field near the bottom of the screen ends up
+ * hidden behind the keyboard instead of the page auto-scrolling to keep it
+ * visible, the way it does on most other mobile browsers. The user has to
+ * scroll manually (or type blind) to see what they're typing.
+ *
+ * Tracks the currently-focused text input/textarea/contenteditable and
+ * re-scrolls it into view whenever the visual viewport's size settles after
+ * changing (the keyboard opening, closing, or being resized by e.g. a
+ * predictive-text bar) — a no-op everywhere the VisualViewport API isn't
+ * supported (desktop browsers, which have no on-screen keyboard to react to
+ * anyway). Call once, near the app's root.
+ */
+export function useIOSKeyboardScrollFix() {
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    const vv = window.visualViewport;
+
+    let focusedEl: HTMLElement | null = null;
+    const isTextInput = (el: EventTarget | null): el is HTMLElement =>
+      !!el && el instanceof HTMLElement &&
+      (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+
+    const onFocusIn = (e: FocusEvent) => {
+      if (isTextInput(e.target)) focusedEl = e.target;
+    };
+    const onFocusOut = () => { focusedEl = null; };
+
+    // Debounced: visualViewport fires several resize events while the
+    // keyboard's show/hide animation is still in progress — scrolling mid-
+    // animation gets fought by iOS and can leave the field exactly where it
+    // started. Waiting for the events to stop means scrolling only once the
+    // viewport has actually settled at its new height.
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    const onViewportChange = () => {
+      if (!focusedEl) return;
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        focusedEl?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }, 100);
+    };
+
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
+    vv.addEventListener('resize', onViewportChange);
+
+    return () => {
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('focusout', onFocusOut);
+      vv.removeEventListener('resize', onViewportChange);
+      if (settleTimer) clearTimeout(settleTimer);
+    };
+  }, []);
+}
+
 async function fetchWithDeduplication<T>(url: string, forceRefresh = false): Promise<T> {
   if (!forceRefresh) {
     const cached = globalCache.get(url);

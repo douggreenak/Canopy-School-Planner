@@ -61,7 +61,7 @@ const LoginScreen = dynamic(() => import('@/components/LoginScreen'), {
 import SaveStatusIndicator, { SaveStatusIcon } from '@/components/SaveStatusIndicator';
 import GlobalShortcuts from '@/components/GlobalShortcuts';
 import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal';
-import { clearClientCache, apiGet } from '@/lib/hooks';
+import { clearClientCache, apiGet, useIOSKeyboardScrollFix } from '@/lib/hooks';
 
 const DRAWER_WIDTH   = 256;
 const COLLAPSED_WIDTH = 64;
@@ -216,6 +216,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed]   = useState(false);
   const router  = useRouter();
+
+  // AppShell wraps every route, so this is the one place needed to keep a
+  // focused text field visible above the iOS keyboard app-wide.
+  useIOSKeyboardScrollFix();
 
   useEffect(() => {
     const stored = localStorage.getItem(COLLAPSE_KEY);
