@@ -6,6 +6,7 @@
 // write results into the same status row and behave identically.
 // ============================================================
 import { v4 as uuid } from 'uuid';
+import type { Browser } from 'puppeteer-core';
 import { scrapePowerSchool } from '@/lib/powerschool';
 import { computeLathropSchedule } from '@/lib/schedule';
 import {
@@ -34,9 +35,9 @@ export interface PowerSchoolCreds {
  * resolve to a status='error' row instead, since this always runs
  * detached from any HTTP response (inside after(), or from the cron loop).
  */
-export async function runPowerSchoolSync(userId: string, creds: PowerSchoolCreds, syncId: string): Promise<void> {
+export async function runPowerSchoolSync(userId: string, creds: PowerSchoolCreds, syncId: string, sharedBrowser?: Browser): Promise<void> {
   try {
-    await runPowerSchoolSyncInner(userId, creds, syncId);
+    await runPowerSchoolSyncInner(userId, creds, syncId, sharedBrowser);
   } finally {
     // Always release, however the sync ended, so the next sync (manual or
     // scheduled) isn't blocked by this one forever.
@@ -44,9 +45,9 @@ export async function runPowerSchoolSync(userId: string, creds: PowerSchoolCreds
   }
 }
 
-async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, syncId: string): Promise<void> {
+async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, syncId: string, sharedBrowser?: Browser): Promise<void> {
   try {
-    const result = await scrapePowerSchool(creds);
+    const result = await scrapePowerSchool(creds, sharedBrowser);
 
     if (result.classes.length === 0 && result.assignments.length === 0) {
       await setSyncStatus(userId, {

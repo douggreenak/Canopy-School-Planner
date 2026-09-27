@@ -57,7 +57,7 @@ function findLocalChrome(): string | null {
   return null;
 }
 
-async function launchBrowser() {
+export async function launchBrowser() {
   const localChrome = findLocalChrome();
   if (localChrome) {
     return puppeteer.launch({
@@ -309,6 +309,23 @@ async function loginToPowerSchool(browser: Browser, creds: PowerSchoolCredential
   );
   page.setDefaultTimeout(45000);
 
+  // Every navigation for the rest of this sync reuses this same page (schedule,
+  // then one goto per class's scores page) — scraping only ever reads text/DOM,
+  // so images/fonts/stylesheets/media are pure dead weight: PowerSchool's UI
+  // chrome, never the class/assignment data we scrape. Blocking them cuts real
+  // wall-clock time per navigation (and the Puppeteer memory footprint that
+  // comes with rendering them), which is what actually drives Vercel function
+  // duration cost for this cron job.
+  await page.setRequestInterception(true);
+  page.on('request', (req) => {
+    const type = req.resourceType();
+    if (type === 'image' || type === 'stylesheet' || type === 'font' || type === 'media') {
+      req.abort();
+    } else {
+      req.continue();
+    }
+  });
+
   // ===================== LOGIN =====================
   log.push('Navigating to PowerSchool login...');
 
@@ -453,17 +470,26 @@ export async function verifyPowerSchoolLogin(creds: PowerSchoolCredentials): Pro
 }
 
 export async function scrapePowerSchool(
-  creds: PowerSchoolCredentials
+  creds: PowerSchoolCredentials,
+  // Optional Chromium instance to scrape with instead of launching a fresh
+  // one — see runPowerSchoolBatch, which shares one browser across every
+  // user matched in a single cron tick. Launching @sparticuz/chromium is the
+  // slowest and most memory-hungry part of a sync, so reusing the same
+  // browser process (one page per user, closed between them to keep memory
+  // bounded) across a batch cuts that cost out of every sync but the first.
+  // Never closed here when shared — the caller that launched it owns closing.
+  sharedBrowser?: Browser
 ): Promise<ScrapedSchedule> {
   const log: string[] = [];
   // Extract just the origin (scheme + host) so any sub-URL works
   // e.g. "https://premier.k12northstar.org/guardian/home.html" → "https://premier.k12northstar.org"
   const baseUrl = new URL(creds.url).origin;
 
-  const browser = await launchBrowser();
+  const browser = sharedBrowser ?? await launchBrowser();
+  let page: Page | undefined;
 
   try {
-    const page = await loginToPowerSchool(browser, creds, baseUrl, log);
+    page = await loginToPowerSchool(browser, creds, baseUrl, log);
 
     // ===================== SCRAPE CLASSES =====================
     log.push('Scraping class schedule...');
@@ -1772,7 +1798,9 @@ export async function scrapePowerSchool(
       assignments: Array<{ title: string; dueDate: string; category: string; score: string; scorePercent: number | null; flags: string; note: string; }>;
       diagnostic: string;
     }> => {
-      return await page.evaluate(() => {
+      // Non-null: only ever called after loginToPowerSchool has assigned
+      // `page` above; TS can't see that through this closure.
+      return await page!.evaluate(() => {
         type RawAssignment = {
           title: string;
           dueDate: string;
@@ -2205,6 +2233,12 @@ export async function scrapePowerSchool(
     log.push(`ERROR: ${(err as Error).message}`);
     throw new Error(`PowerSchool scrape failed: ${(err as Error).message}\n\nLog:\n${log.join('\n')}`);
   } finally {
-    await browser.close();
+    if (sharedBrowser) {
+      // Shared across a batch — only this user's page is ours to clean up;
+      // the browser process outlives this call for the next user in line.
+      await page?.close().catch(() => {});
+    } else {
+      await browser.close();
+    }
   }
 }
