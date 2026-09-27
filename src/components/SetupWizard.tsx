@@ -42,8 +42,13 @@ import EventBusyIcon from '@mui/icons-material/EventBusy';
 
 // PowerSchool moved ahead of School Info — connecting it is the single
 // highest-leverage step (it pre-fills classes/schedule automatically), so
-// it's asked first rather than after a form with no payoff yet.
-const STEPS = ['Welcome', 'PowerSchool', 'School Info', 'Done'];
+// it's asked first rather than after a form with no payoff yet. Bell
+// Schedule (Lathrop Mode) comes before PowerSchool so the choice is made up
+// front regardless of whether the user goes on to connect PowerSchool or
+// skips it — previously this only ever surfaced as a toggle on the Done step,
+// and only for someone who'd declined PowerSchool, so most users never
+// actually made the choice at all (it silently defaulted to on).
+const STEPS = ['Welcome', 'Bell Schedule', 'PowerSchool', 'School Info', 'Done'];
 
 interface SchoolBreak {
   id: string;
@@ -111,10 +116,17 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
   // previous sync's leftover status after a user who declined PowerSchool.
   const [syncStarted, setSyncStarted] = useState(false);
   // Matches the server-side default set at registration (see /api/auth's
-  // 'register' action) — Lathrop Mode is already on by the time this wizard
-  // ever runs, so its toggle should read that way from the start rather than
-  // showing "Enable Lathrop Mode" as if it still needed a click.
+  // 'register' action) until the mandatory Bell Schedule step below saves
+  // the user's actual choice — this only backs the Done step's own
+  // "enable now" nudge for someone who declined PowerSchool.
   const [manualLathropEnabled, setManualLathropEnabled] = useState(true);
+  // The mandatory Bell Schedule step's answer — null until the user actually
+  // picks one, which is what makes Next stay disabled until they do. Unlike
+  // manualLathropEnabled above (which only ever surfaced for someone who
+  // declined PowerSchool), this step runs for every setup, regardless of
+  // whether PowerSchool gets connected.
+  const [lathropChoice, setLathropChoice] = useState<boolean | null>(null);
+  const [savingLathropChoice, setSavingLathropChoice] = useState(false);
 
   // Live status of the background sync kicked off below — the same
   // subscribable store the Settings/Grades pages and the sidebar's
@@ -155,7 +167,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
           }),
         }).catch(() => {});
       }
-      setStep(3);
+      setStep(4);
     } catch {
       setError('Failed to save school info.');
     }
@@ -227,7 +239,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled: true, utcHour: 12 } }),
       }).catch(() => {});
-      setStep(2);
+      setStep(3);
     } catch (e) {
       setError(`Connection error: ${(e as Error).message}`);
     }
@@ -250,6 +262,27 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
     if (classRemoved) parts.push(`${classRemoved} removed`);
     if (assignmentCount) parts.push(`${assignmentCount} assignments synced`);
     return parts.length > 0 ? parts.join(', ') : 'Sync complete — no changes.';
+  };
+
+  // Confirms the mandatory Bell Schedule step's choice and saves it — this is
+  // the one place that actually persists the user's real decision, rather
+  // than leaving the server-side registration default (on) in place unless
+  // they happen to visit Settings or decline PowerSchool later.
+  const confirmLathropChoice = async () => {
+    if (lathropChoice === null) return;
+    setSavingLathropChoice(true);
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'lathropMode', value: lathropChoice }),
+      });
+      setManualLathropEnabled(lathropChoice);
+      setStep(2);
+    } catch {
+      setError('Failed to save your Bell Schedule choice.');
+    }
+    setSavingLathropChoice(false);
   };
 
   const toggleManualLathrop = async (enabled: boolean) => {
@@ -275,19 +308,21 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
   // exactly, since a step change swaps out what "primary" even means.
   const primaryAction = () => {
     if (step === 0) { setStep(1); return; }
-    if (step === 1) {
-      if (confirmSkipPs) { setDeclinedPowerSchool(true); setConfirmSkipPs(false); setStep(2); }
+    if (step === 1) { confirmLathropChoice(); return; }
+    if (step === 2) {
+      if (confirmSkipPs) { setDeclinedPowerSchool(true); setConfirmSkipPs(false); setStep(3); }
       else verifyAndContinue();
       return;
     }
-    if (step === 2) { saveSchoolInfo(); return; }
-    handleClose(); // step === 3
+    if (step === 3) { saveSchoolInfo(); return; }
+    handleClose(); // step === 4
   };
   const primaryEnabled =
     step === 0 ? true :
-    step === 1 ? (confirmSkipPs ? true : (!!canSyncPS && !busy)) :
-    step === 2 ? !busy :
-    true; // step === 3
+    step === 1 ? (lathropChoice !== null && !savingLathropChoice) :
+    step === 2 ? (confirmSkipPs ? true : (!!canSyncPS && !busy)) :
+    step === 3 ? !busy :
+    true; // step === 4
 
   return (
     <Dialog
@@ -385,8 +420,55 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
             </Stack>
           )}
 
-          {/* ===== STEP 1: PowerSchool ===== */}
+          {/* ===== STEP 1: Bell Schedule (Lathrop Mode) ===== */}
           {step === 1 && (
+            <Stack spacing={2.5}>
+              <Box>
+                <Typography variant="h6" gutterBottom>Bell Schedule</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  If your school follows Lathrop High School&apos;s bell schedule, Canopy can fill in each class&apos;s period times automatically — after every PowerSchool sync, and with a one-click button when setting up classes manually. Otherwise, you&apos;ll set your own period times from the Classes/Settings pages.
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1.5}>
+                <Button
+                  fullWidth
+                  variant={lathropChoice === true ? 'contained' : 'outlined'}
+                  size="large"
+                  startIcon={lathropChoice === true ? <CheckCircleIcon /> : undefined}
+                  onClick={() => setLathropChoice(true)}
+                >
+                  Use Lathrop Mode
+                </Button>
+                <Button
+                  fullWidth
+                  variant={lathropChoice === false ? 'contained' : 'outlined'}
+                  size="large"
+                  startIcon={lathropChoice === false ? <CheckCircleIcon /> : undefined}
+                  onClick={() => setLathropChoice(false)}
+                >
+                  My school is different
+                </Button>
+              </Stack>
+              <Stack direction="row" spacing={1.5}>
+                <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={savingLathropChoice}>
+                  Back
+                </Button>
+                <Button
+                  variant="contained"
+                  size="large"
+                  sx={{ flex: 1 }}
+                  endIcon={savingLathropChoice ? <CircularProgress size={18} color="inherit" /> : <ArrowForwardIcon />}
+                  onClick={confirmLathropChoice}
+                  disabled={lathropChoice === null || savingLathropChoice}
+                >
+                  Continue
+                </Button>
+              </Stack>
+            </Stack>
+          )}
+
+          {/* ===== STEP 2: PowerSchool ===== */}
+          {step === 2 && (
             <Stack spacing={2.5}>
               {!confirmSkipPs ? (
                 <>
@@ -470,7 +552,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                         {verifying ? 'Verifying…' : busy ? 'Starting sync…' : 'Verify & Continue'}
                       </Button>
                       <Stack direction="row" spacing={1.5}>
-                        <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy} sx={{ flex: 1 }}>
+                        <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy} sx={{ flex: 1 }}>
                           Back
                         </Button>
                         <Button variant="outlined" onClick={() => setConfirmSkipPs(true)} disabled={busy} sx={{ flex: 1 }}>
@@ -480,7 +562,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                     </Stack>
                   ) : (
                     <Stack direction="row" spacing={1.5}>
-                      <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(0)} disabled={busy}>
+                      <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy}>
                         Back
                       </Button>
                       <Button
@@ -537,7 +619,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                       variant="contained"
                       color="error"
                       sx={{ flex: 1 }}
-                      onClick={() => { setDeclinedPowerSchool(true); setConfirmSkipPs(false); setStep(2); }}
+                      onClick={() => { setDeclinedPowerSchool(true); setConfirmSkipPs(false); setStep(3); }}
                     >
                       Continue without PowerSchool
                     </Button>
@@ -547,8 +629,8 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
             </Stack>
           )}
 
-          {/* ===== STEP 2: School Info ===== */}
-          {step === 2 && (
+          {/* ===== STEP 3: School Info ===== */}
+          {step === 3 && (
             <Stack spacing={2.5}>
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
@@ -644,11 +726,11 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                     Save &amp; Continue
                   </Button>
                   <Stack direction="row" spacing={1.5}>
-                    <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy} sx={{ flex: 1 }}>
+                    <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(2)} disabled={busy} sx={{ flex: 1 }}>
                       Back
                     </Button>
                     {!required && (
-                      <Button variant="outlined" onClick={() => setStep(3)} disabled={busy} sx={{ flex: 1 }}>
+                      <Button variant="outlined" onClick={() => setStep(4)} disabled={busy} sx={{ flex: 1 }}>
                         Skip
                       </Button>
                     )}
@@ -656,7 +738,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                 </Stack>
               ) : (
                 <Stack direction="row" spacing={1.5}>
-                  <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(1)} disabled={busy}>
+                  <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(2)} disabled={busy}>
                     Back
                   </Button>
                   <Button
@@ -670,7 +752,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                     Save &amp; Continue
                   </Button>
                   {!required && (
-                    <Button variant="outlined" onClick={() => setStep(3)} disabled={busy}>
+                    <Button variant="outlined" onClick={() => setStep(4)} disabled={busy}>
                       Skip
                     </Button>
                   )}
@@ -679,8 +761,8 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
             </Stack>
           )}
 
-          {/* ===== STEP 3: Done ===== */}
-          {step === 3 && (
+          {/* ===== STEP 4: Done ===== */}
+          {step === 4 && (
             <Stack spacing={2.5} sx={{ alignItems: 'center', textAlign: 'center', py: 2 }}>
               <CheckCircleIcon sx={{ fontSize: 64, color: 'success.main' }} />
               <Typography variant="h5" sx={{ fontWeight: 600 }}>You&apos;re all set!</Typography>
@@ -742,7 +824,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
               </Typography>
 
               <Stack direction="row" spacing={1.5} sx={{ width: '100%' }}>
-                <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(2)}>
+                <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => setStep(3)}>
                   Back
                 </Button>
                 <Button variant="contained" size="large" sx={{ flex: 1 }} endIcon={<ArrowForwardIcon />} onClick={handleClose}>
