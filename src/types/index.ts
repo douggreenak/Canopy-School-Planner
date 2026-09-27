@@ -75,6 +75,12 @@ export interface Homework {
   scorePercent?: number; // 0-100
   category?: string;  // assignment category, e.g. "Homework", "Test", "Quiz"
   flags?: string;     // PowerSchool flag column, e.g. "Late", "Missing", "Collected"
+  // A teacher's comment on this specific graded assignment. PowerSchool
+  // renders it as extra text trailing the score in the same cell (no
+  // separate column) — split out during scraping (see
+  // splitScoreAndNote/scrapeAssignmentsFromPage in powerschool.ts) so it can
+  // be shown as its own, visually distinct note instead of glued onto the score.
+  teacherNote?: string;
 }
 
 export interface Exam {

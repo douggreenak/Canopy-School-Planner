@@ -60,6 +60,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlined';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
 import EventIcon from '@mui/icons-material/Event';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutlined';
 import { useClasses, useHomework, useGradeHistory, useSyncLog } from '@/lib/hooks';
 import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
 import { fetchPowerSchoolStatusNow } from '@/lib/powerschoolStatusStore';
@@ -957,6 +958,22 @@ function BucketGroup({
                   />
                 )}
               </Stack>
+              {h.teacherNote && (
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, mt: 0.5 }}>
+                  <ChatBubbleOutlineIcon sx={{ fontSize: 13, color: 'info.main', mt: '2px', flexShrink: 0 }} />
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontStyle: 'italic',
+                      color: 'info.main',
+                      lineHeight: 1.35,
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {h.teacherNote}
+                  </Typography>
+                </Box>
+              )}
             </Box>
             <Box sx={{ flexShrink: 0, textAlign: 'right' }}>
               {h.score && (

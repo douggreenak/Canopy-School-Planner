@@ -25,6 +25,31 @@ const LOCAL_CHROME_PATHS: string[] = process.platform === 'darwin'
       '/snap/bin/chromium',
     ];
 
+// A PowerSchool score cell sometimes holds more than the score itself — a
+// teacher's comment on that assignment renders as extra text in the SAME
+// cell (no separate "Notes" column), right after the score value. Scraping
+// the cell's raw textContent (as scrapeAssignmentsFromPage's score loop
+// does) previously concatenated the two with no separation — the note just
+// showed up glued onto the end of the score in the Grades UI. This splits a
+// recognized leading score token (fraction, percent, letter grade, or bare
+// points) from any trailing free text, which becomes the assignment's
+// separate `teacherNote` field instead.
+//
+// Kept as a standalone, unit-testable function; scrapeAssignmentsFromPage
+// runs inside page.evaluate() (serialized into the browser, no closures over
+// outside code), so its copy of this logic must be re-inlined there — keep
+// the two in sync if this changes.
+const SCORE_TOKEN = /^(\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*%|[A-F][+-]?|\d+(?:\.\d+)?)/;
+
+export function splitScoreAndNote(raw: string): { score: string; note: string } {
+  const trimmed = (raw || '').trim();
+  const m = trimmed.match(SCORE_TOKEN);
+  if (!m) return { score: trimmed, note: '' };
+  const score = m[1];
+  const rest = trimmed.slice(m[0].length).replace(/^[\s,;:.\-–—()]+/, '').trim();
+  return { score, note: rest };
+}
+
 function findLocalChrome(): string | null {
   for (const p of LOCAL_CHROME_PATHS) {
     if (existsSync(p)) return p;
@@ -1744,7 +1769,7 @@ export async function scrapePowerSchool(
     // lets us tell the user WHY a page had zero results ("no table found",
     // "table found but no data rows", etc.) instead of just "0 assignments".
     const scrapeAssignmentsFromPage = async (): Promise<{
-      assignments: Array<{ title: string; dueDate: string; category: string; score: string; scorePercent: number | null; flags: string; }>;
+      assignments: Array<{ title: string; dueDate: string; category: string; score: string; scorePercent: number | null; flags: string; note: string; }>;
       diagnostic: string;
     }> => {
       return await page.evaluate(() => {
@@ -1760,6 +1785,12 @@ export async function scrapePowerSchool(
           // PowerSchool's flag column (Late / Missing / Collected / Incomplete).
           // Captured separately so the UI can show it as a distinct badge.
           flags: string;
+          // A teacher's comment on this assignment — PowerSchool renders it as
+          // extra text trailing the score inside the SAME cell, no separate
+          // column. Split off from the score below (see splitScoreAndNote's
+          // module-level twin — kept in sync manually since this closure runs
+          // in the browser and can't import it).
+          note: string;
         };
         const results: RawAssignment[] = [];
 
@@ -1902,12 +1933,23 @@ export async function scrapePowerSchool(
           // percent (e.g. "95") → letter grade (e.g. "A"). First non-empty
           // wins. Explicitly NEVER falls back to the flags column.
           let score = '';
+          let note = '';
           for (const key of ['score', 'percent', 'grade'] as const) {
             const i = idx[key];
             if (i < 0) continue;
             const t = (cells[i]?.textContent || '').replace(/\s+/g, ' ').trim();
             if (t && t !== '--') {
-              score = key === 'percent' && /^\d/.test(t) ? `${t}%` : t;
+              const raw = key === 'percent' && /^\d/.test(t) ? `${t}%` : t;
+              // A teacher's comment shows up as trailing text in this same
+              // cell, right after the score — split it out into `note`
+              // rather than let it stay glued onto the displayed score.
+              const scoreMatch = raw.match(/^(\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*%|[A-F][+-]?|\d+(?:\.\d+)?)/);
+              if (scoreMatch) {
+                score = scoreMatch[1];
+                note = raw.slice(scoreMatch[0].length).replace(/^[\s,;:.\-–—()]+/, '').trim();
+              } else {
+                score = raw;
+              }
               break;
             }
           }
@@ -1972,7 +2014,7 @@ export async function scrapePowerSchool(
             }
           }
 
-          results.push({ title, dueDate, category, score, scorePercent, flags });
+          results.push({ title, dueDate, category, score, scorePercent, flags, note });
         });
 
         const withPct = results.filter((r) => r.scorePercent !== null).length;
@@ -2005,7 +2047,7 @@ export async function scrapePowerSchool(
       // quarter pages, and we don't want "Essay 1" showing up twice if the
       // school exposes both frn tiers.
       const seen = new Set<string>();
-      const classAssignments: { title: string; dueDate: string; category: string; score: string; scorePercent: number | null; flags: string; }[] = [];
+      const classAssignments: { title: string; dueDate: string; category: string; score: string; scorePercent: number | null; flags: string; note: string; }[] = [];
 
       log.push(`  - ${cls.name}: visiting ${toVisit.length} term page(s) — ${toVisit.map((t) => t.term || t.termType).join(', ')}`);
 
@@ -2149,6 +2191,7 @@ export async function scrapePowerSchool(
           scorePercent: a.scorePercent ?? undefined,
           category: a.category || undefined,
           flags: a.flags || undefined,
+          teacherNote: a.note || undefined,
         });
       }
     }

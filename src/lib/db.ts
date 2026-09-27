@@ -267,6 +267,11 @@ export async function initializeDatabase() {
   await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS due_timing TEXT`;
   await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_timing TEXT`;
 
+  // Migration: a teacher's comment on a specific graded assignment, split out
+  // of the score cell during PowerSchool scraping (see splitScoreAndNote in
+  // powerschool.ts) instead of staying glued onto the displayed score.
+  await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS teacher_note TEXT`;
+
   // Migration: AP class flag (weighted GPA calc — standard +1.0 AP bump)
   await sql`ALTER TABLE classes ADD COLUMN IF NOT EXISTS is_ap BOOLEAN NOT NULL DEFAULT FALSE`;
 
@@ -328,6 +333,7 @@ function dbToHomework(row: Record<string, unknown>): Homework {
     score: (row.score as string) || undefined,
     category: (row.category as string) || undefined,
     flags: (row.flags as string) || undefined,
+    teacherNote: (row.teacher_note as string) || undefined,
     scorePercent: (() => {
       const n = Number(row.score_percent);
       return row.score_percent != null && Number.isFinite(n) ? n : undefined;
@@ -621,13 +627,13 @@ export async function getHomework(userId: string): Promise<Homework[]> {
 export async function addHomework(h: Homework, userId: string): Promise<void> {
   const sql = getDb();
   await sql`
-    INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, stage_id, stages, due_timing, priority, source, source_id, score, category, flags, score_percent)
+    INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, stage_id, stages, due_timing, priority, source, source_id, score, category, flags, teacher_note, score_percent)
     VALUES (
       ${h.id}, ${userId}, ${h.classId}, ${h.title}, ${h.description}, ${h.dueDate},
       ${h.completed}, ${h.stageId ?? null}, ${h.stages?.length ? JSON.stringify(h.stages) : null}::jsonb,
       ${h.dueTiming ?? null},
       ${h.priority}, ${h.source}, ${h.sourceId ?? null},
-      ${h.score ?? null}, ${h.category ?? null}, ${h.flags ?? null},
+      ${h.score ?? null}, ${h.category ?? null}, ${h.flags ?? null}, ${h.teacherNote ?? null},
       ${h.scorePercent ?? null}
     )
   `;
@@ -642,7 +648,7 @@ export async function updateHomework(h: Homework, userId: string): Promise<void>
       stages = ${h.stages?.length ? JSON.stringify(h.stages) : null}::jsonb, due_timing = ${h.dueTiming ?? null},
       priority = ${h.priority},
       source = ${h.source}, source_id = ${h.sourceId ?? null}, score = ${h.score ?? null},
-      category = ${h.category ?? null}, flags = ${h.flags ?? null},
+      category = ${h.category ?? null}, flags = ${h.flags ?? null}, teacher_note = ${h.teacherNote ?? null},
       score_percent = ${h.scorePercent ?? null}
     WHERE id = ${h.id} AND user_id = ${userId}
   `;
@@ -1383,11 +1389,11 @@ export async function syncHomeworkFromSource(
   for (const hw of incoming) {
     if (!hw.sourceId) {
       writeQueries.push(sql`
-        INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, score_percent)
+        INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, teacher_note, score_percent)
         VALUES (
           ${hw.id}, ${userId}, ${hw.classId}, ${hw.title}, ${hw.description}, ${hw.dueDate},
           ${hw.completed}, ${hw.priority}, ${source}, ${null},
-          ${hw.score ?? null}, ${hw.category ?? null}, ${hw.flags ?? null}, ${hw.scorePercent ?? null}
+          ${hw.score ?? null}, ${hw.category ?? null}, ${hw.flags ?? null}, ${hw.teacherNote ?? null}, ${hw.scorePercent ?? null}
         )
       `);
       added++;
@@ -1436,18 +1442,19 @@ export async function syncHomeworkFromSource(
           completed = ${merged.completed}, priority = ${merged.priority},
           source = ${merged.source}, source_id = ${merged.sourceId ?? null},
           score = ${merged.score ?? null}, category = ${merged.category ?? null},
-          flags = ${merged.flags ?? null}, score_percent = ${merged.scorePercent ?? null}
+          flags = ${merged.flags ?? null}, teacher_note = ${merged.teacherNote ?? null},
+          score_percent = ${merged.scorePercent ?? null}
         WHERE id = ${merged.id} AND user_id = ${userId}
       `);
       keptIds.add(prior.id);
       updated++;
     } else {
       writeQueries.push(sql`
-        INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, score_percent)
+        INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, teacher_note, score_percent)
         VALUES (
           ${hw.id}, ${userId}, ${hw.classId}, ${hw.title}, ${hw.description}, ${hw.dueDate},
           ${hw.completed}, ${hw.priority}, ${source}, ${hw.sourceId ?? null},
-          ${hw.score ?? null}, ${hw.category ?? null}, ${hw.flags ?? null}, ${hw.scorePercent ?? null}
+          ${hw.score ?? null}, ${hw.category ?? null}, ${hw.flags ?? null}, ${hw.teacherNote ?? null}, ${hw.scorePercent ?? null}
         )
       `);
       if (syncId) {
