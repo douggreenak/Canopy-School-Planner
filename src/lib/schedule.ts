@@ -6,6 +6,7 @@ import isoWeek from 'dayjs/plugin/isoWeek';
 import type { SchoolClass, ScheduleDisruption, DaySchedule } from '@/types';
 import { buildDaySchedule } from './calendar';
 import { parseMinutes } from './calendarMetrics';
+import { ASSEMBLY_PERIOD } from './disruptionTypes';
 
 dayjs.extend(isoWeek);
 
@@ -333,6 +334,99 @@ export function generateOneToSixOverrides(
       });
     }
   }
+
+  return overrides;
+}
+
+const ASSEMBLY_CLASS_MINUTES = 70;
+const ASSEMBLY_PASSING_MINUTES = 8;
+const ASSEMBLY_LUNCH_MINUTES = 32;
+const ASSEMBLY_BLOCK_MINUTES = 45;
+
+/**
+ * Generate "Assembly" day overrides: a compressed bell schedule for a single
+ * weekday that drops the Extension/Advisory block, runs every other period
+ * that normally meets this weekday back-to-back (70 min each, with an
+ * 8-minute passing period between), keeps Lunch in the same relative gap it
+ * normally falls in (the largest gap between two consecutive core periods —
+ * same heuristic as generateOneToSixOverrides), and appends a 45-minute
+ * Assembly block after the last period.
+ *
+ * There's no single real "assembly bell schedule" to reuse for every
+ * weekday — a school's actual published assembly-day times don't reduce to
+ * a formula. This is a general compression rule, not a guarantee of
+ * matching any specific school's real times; period times can still be
+ * hand-adjusted afterward in the Period Overrides list.
+ *
+ * Pass dayOfWeek (0=Sun…6=Sat) — the disruption's own date, not `today`.
+ */
+export function generateAssemblyOverrides(
+  classes: SchoolClass[],
+  dayOfWeek: number,
+): { period: number; startTime: string; endTime: string; cancelled: boolean }[] {
+  const byPeriod = new Map<number, SchoolClass>();
+  let hasLunch = false;
+  for (const c of classes) {
+    if (!c.days.includes(dayOfWeek)) continue;
+    if (c.id === '__lunch__') { hasLunch = true; continue; }
+    if (!byPeriod.has(c.period)) byPeriod.set(c.period, c);
+  }
+  const allPeriods = [...byPeriod.values()];
+  if (allPeriods.length === 0) return [];
+
+  const dayStart = (c: SchoolClass) => c.dayTimes?.[dayOfWeek]?.startTime || c.startTime;
+  const dayEnd = (c: SchoolClass) => c.dayTimes?.[dayOfWeek]?.endTime || c.endTime;
+
+  const extPeriods = allPeriods.filter((c) => isLathropExtensionClass(c.name));
+  const corePeriods = allPeriods
+    .filter((c) => !isLathropExtensionClass(c.name))
+    .sort((a, b) => timeToMinutes(dayStart(a)) - timeToMinutes(dayStart(b)));
+
+  if (corePeriods.length === 0) return [];
+
+  // Anchor the compressed day at the earliest normal start time — including
+  // the Extension block being dropped — so the time it frees up is absorbed
+  // by the first real period rather than left as a gap at the start of the day.
+  const anchorStart = Math.min(...allPeriods.map((c) => timeToMinutes(dayStart(c))));
+
+  // Find where Lunch naturally falls: the largest gap between two
+  // consecutive core periods in the NORMAL schedule.
+  let lunchAfterIdx = -1;
+  if (hasLunch && corePeriods.length >= 2) {
+    let gapSize = 0;
+    for (let i = 0; i < corePeriods.length - 1; i++) {
+      const gap = timeToMinutes(dayStart(corePeriods[i + 1])) - timeToMinutes(dayEnd(corePeriods[i]));
+      if (gap > gapSize) { gapSize = gap; lunchAfterIdx = i; }
+    }
+  }
+
+  const overrides: { period: number; startTime: string; endTime: string; cancelled: boolean }[] = [];
+  let cursor = anchorStart;
+  corePeriods.forEach((c, i) => {
+    const start = cursor;
+    const end = start + ASSEMBLY_CLASS_MINUTES;
+    overrides.push({ period: c.period, startTime: minutesToTime(start), endTime: minutesToTime(end), cancelled: false });
+    cursor = end + ASSEMBLY_PASSING_MINUTES;
+    if (i === lunchAfterIdx) {
+      const lunchStart = cursor;
+      const lunchEnd = lunchStart + ASSEMBLY_LUNCH_MINUTES;
+      overrides.push({ period: 0, startTime: minutesToTime(lunchStart), endTime: minutesToTime(lunchEnd), cancelled: false });
+      cursor = lunchEnd + ASSEMBLY_PASSING_MINUTES;
+    }
+  });
+
+  // The Extension/Advisory block doesn't run on an assembly day — cancelled
+  // explicitly so it doesn't show at its normal time (nothing else overrides it).
+  for (const ext of extPeriods) {
+    overrides.push({ period: ext.period, startTime: dayStart(ext), endTime: dayEnd(ext), cancelled: true });
+  }
+
+  overrides.push({
+    period: ASSEMBLY_PERIOD,
+    startTime: minutesToTime(cursor),
+    endTime: minutesToTime(cursor + ASSEMBLY_BLOCK_MINUTES),
+    cancelled: false,
+  });
 
   return overrides;
 }

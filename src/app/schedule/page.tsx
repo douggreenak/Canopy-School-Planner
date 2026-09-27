@@ -41,7 +41,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import { useClasses, useDisruptions, useSettings, useHomework, useTasks, apiPost, apiPut, apiDelete, useEnterConfirm } from '@/lib/hooks';
 import { buildDueCountMap } from '@/lib/dueCounts';
-import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, getWeekSchedule, buildLathropEarlyOutTemplate, weekViewStart } from '@/lib/schedule';
+import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, generateAssemblyOverrides, getWeekSchedule, buildLathropEarlyOutTemplate, weekViewStart } from '@/lib/schedule';
 import dynamic from 'next/dynamic';
 // Only one of Day/Week/Year is ever visible at once (tab-switched) — deferring
 // the other two to their own chunks means a visit that never touches the
@@ -55,7 +55,7 @@ const YearView = dynamic(() => import('@/components/YearView'));
 // the hydration-critical path — default ssr:true would still ship it on load.
 const ClassDetailDialog = dynamic(() => import('@/components/ClassDetailDialog'), { ssr: false });
 import DisruptionCalendar, { DISRUPTION_TYPES } from '@/components/DisruptionCalendar';
-import { WEEKDAY_NAMES } from '@/lib/disruptionTypes';
+import { WEEKDAY_NAMES, ASSEMBLY_PERIOD } from '@/lib/disruptionTypes';
 import { buildDaySchedule, disruptionCoversDate } from '@/lib/calendar';
 import { computeDayBounds } from '@/lib/calendarMetrics';
 import type { ScheduleDisruption, PeriodOverride, ScheduleEntry } from '@/types';
@@ -256,6 +256,10 @@ function SchedulePageInner() {
       // scheduled — use the full class list (not the day-filtered one), and
       // include the synthetic Lunch class so a Lunch override gets generated.
       overrides = generateOneToSixOverrides(classesForSchedule);
+    } else if (form.type === 'assembly') {
+      // Needs the full class list (not just dayClasses) so it can see the
+      // synthetic Lunch class and find the Extension/Advisory block to cancel.
+      overrides = dayOfWeek >= 0 ? generateAssemblyOverrides(classesForSchedule, dayOfWeek) : [];
     }
     setForm({ ...form, periodOverrides: overrides });
   };
@@ -504,15 +508,17 @@ function SchedulePageInner() {
               </Grid>
             )}
 
-            {(form.type === 'early_out' || form.type === 'late_start' || form.type === '1_6') && (
+            {(form.type === 'early_out' || form.type === 'late_start' || form.type === '1_6' || form.type === 'assembly') && (
               <Grid size={12}>
                 <Alert severity="info" sx={{ mb: 1 }}>
                   {form.type === '1_6'
                     ? 'Auto-generate a straight 1-6 schedule: every period meets once, in order, using each class’s standard period time — overriding the normal A/B block pattern for this day.'
+                    : form.type === 'assembly'
+                    ? 'Auto-generate a compressed schedule: the Extension/Advisory block is dropped, every other period that normally meets this day runs back-to-back, Lunch keeps its usual relative position, and a 45-minute Assembly block is added at the end. This is a general compression, not necessarily the school’s exact published assembly-day times — adjust below if needed.'
                     : `Auto-generate adjusted times: set the ${form.type === 'early_out' ? 'new end time' : 'new start time'} and periods will be proportionally adjusted.`}
                 </Alert>
                 <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                  {form.type !== '1_6' && (
+                  {(form.type === 'early_out' || form.type === 'late_start') && (
                     <TextField
                       label={form.type === 'early_out' ? 'Early End Time' : 'Late Start Time'}
                       type="time"
@@ -535,7 +541,7 @@ function SchedulePageInner() {
                 <Stack spacing={1}>
                   {form.periodOverrides.map((o, i) => (
                     <Box key={i} sx={{ display: 'flex', gap: 1, rowGap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <Chip label={o.period === 0 ? 'Lunch' : `P${o.period}`} size="small" />
+                      <Chip label={o.period === ASSEMBLY_PERIOD ? 'Assembly' : o.period === 0 ? 'Lunch' : `P${o.period}`} size="small" />
                       <TextField
                         size="small"
                         type="time"

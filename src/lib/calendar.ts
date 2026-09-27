@@ -5,7 +5,7 @@ import ical, { ICalCalendarMethod, ICalWeekday, ICalEventRepeatingFreq } from 'i
 import dayjs from 'dayjs';
 import type { SchoolClass, Exam, Homework, ScheduleDisruption, DaySchedule, ScheduleEntry } from '@/types';
 import { parseMinutes } from './calendarMetrics';
-import { disruptionTypeLabel } from './disruptionTypes';
+import { disruptionTypeLabel, ASSEMBLY_PERIOD } from './disruptionTypes';
 import { tzlib_get_ical_block } from 'timezones-ical-library';
 
 /**
@@ -89,6 +89,33 @@ export function buildDaySchedule(
       cancelled: false,
     };
   });
+
+  // An "assembly" disruption's Assembly block isn't tied to any of the
+  // student's real classes — synthesize it directly from the sentinel
+  // ASSEMBLY_PERIOD override (see generateAssemblyOverrides), the same way
+  // the always-present synthetic `__lunch__` class stands in for Lunch.
+  if (disruption?.type === 'assembly') {
+    const assemblyOverride = disruption.periodOverrides.find((o) => o.period === ASSEMBLY_PERIOD);
+    if (assemblyOverride && !assemblyOverride.cancelled) {
+      entries.push({
+        classInfo: {
+          id: '__assembly__',
+          name: disruption.label || 'Assembly',
+          teacher: '',
+          room: '',
+          color: '#7BAAF7',
+          period: ASSEMBLY_PERIOD,
+          startTime: assemblyOverride.startTime,
+          endTime: assemblyOverride.endTime,
+          days: [dayOfWeek],
+          semester: '',
+        },
+        startTime: assemblyOverride.startTime,
+        endTime: assemblyOverride.endTime,
+        cancelled: false,
+      });
+    }
+  }
 
   // Sort by numeric minutes to avoid locale/string pitfalls and ensure
   // per-day overrides (dayTimes) are respected when present.

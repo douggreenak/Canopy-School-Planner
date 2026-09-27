@@ -24,6 +24,15 @@ export const DISRUPTION_TYPES: DisruptionTypeInfo[] = [
 /** Full weekday names, indexed 0=Sunday..6=Saturday — matches JS's Date/dayjs `.day()`. */
 export const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+/**
+ * Reserved `PeriodOverride.period` value for a synthesized "Assembly" block
+ * on an `assembly` disruption — mirrors the `__lunch__` synthetic class's use
+ * of period 0. buildDaySchedule matches this sentinel to synthesize an
+ * Assembly entry directly (there's no real class behind it), the same way a
+ * period 0 override lines up with the always-present synthetic Lunch class.
+ */
+export const ASSEMBLY_PERIOD = -1;
+
 /** The display label for a disruption's type — used whenever a disruption's own `label` is blank. */
 export function disruptionTypeLabel(type: ScheduleDisruption['type']): string {
   return DISRUPTION_TYPES.find((t) => t.value === type)?.label ?? type;
