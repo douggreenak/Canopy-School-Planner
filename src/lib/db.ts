@@ -44,7 +44,7 @@ async function execute(sql: string, params: unknown[] = []): Promise<void> {
 }
 
 // Batched writes: run each query sequentially (mysql2 pools handle concurrency
-// efficiently; no Neon-style transaction batching API is needed here).
+// efficiently; no complex transaction batching API is needed here).
 async function runBatchedWrites(
   writes: Array<{ sql: string; params: unknown[] }>,
 ): Promise<void> {

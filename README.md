@@ -76,7 +76,7 @@ Theme, accent color, school info, school breaks, and PowerSchool credentials —
 - **Multi-user auth** — username/password accounts with server-side sessions
 - **Admin dashboard** — aggregate user/content stats with zero private data exposed
 - **Dark / light / system theme** — plus 15 accent color choices
-- **Vercel + Neon** — zero-ops deployment, scales to zero when idle
+- **Vercel + MySQL** — zero-ops deployment
 
 ---
 
@@ -87,7 +87,7 @@ Theme, accent color, school info, school breaks, and PowerSchool credentials —
 | Framework | Next.js 16 (App Router) |
 | UI | Material UI (MUI) v6 + Emotion |
 | Language | TypeScript / React 19 |
-| Database | Neon (serverless PostgreSQL) |
+| Database | MySQL |
 | Date handling | dayjs |
 | Scraping | Puppeteer Core + @sparticuz/chromium-min |
 | Deployment | Vercel |
@@ -109,8 +109,8 @@ npm install
 Create `.env.local`:
 
 ```env
-# Neon PostgreSQL
-DATABASE_URL=postgres://...
+# MySQL Database
+DATABASE_URL=mysql://...
 
 # Required on Vercel for headless Chromium
 CHROMIUM_EXECUTABLE_PATH=/path/to/chromium
@@ -170,10 +170,11 @@ To change the admin password, update the env var in Vercel and redeploy — the 
 
 ## Deployment
 
-1. Create a [Neon](https://neon.tech) project and copy the `DATABASE_URL`
+1. Create a MySQL database and copy the `DATABASE_URL` (e.g. `mysql://user:password@host:3306/db`)
 2. Import the repo into [Vercel](https://vercel.com)
 3. Add environment variables:
    - `DATABASE_URL`
    - `ADMIN_USERNAME` + `ADMIN_PASSWORD`
    - `CHROMIUM_EXECUTABLE_PATH` (if using Puppeteer on Vercel — see [@sparticuz/chromium](https://github.com/Sparticuz/chromium))
 4. Deploy
+

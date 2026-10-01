@@ -26,7 +26,7 @@ import SyncIcon from '@mui/icons-material/Sync';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import StorageIcon from '@mui/icons-material/Storage';
+
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import CloseIcon from '@mui/icons-material/Close';
@@ -397,11 +397,8 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
               <Box>
                 <Typography variant="h6" gutterBottom>Welcome to Canopy!</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  Your data is stored in a Neon PostgreSQL database — no spreadsheet setup needed. We&apos;ll start by connecting PowerSchool (it does most of the setup for you), then fill in a few school details.
+                  Your data is securely stored and synced across all your devices. We&apos;ll start by connecting PowerSchool (it does most of the setup for you), then fill in a few school details.
                 </Typography>
-                <Alert severity="success" icon={<StorageIcon />} sx={{ mt: 1.5 }}>
-                  Database connected and ready.
-                </Alert>
               </Box>
               <Button
                 variant="contained"
@@ -638,7 +635,7 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
                   <Typography variant="h6">School Information</Typography>
                 </Box>
                 <Typography variant="body2" color="text.secondary">
-                  These settings are saved to your database and sync across all devices automatically. Every field below already has a sensible default — change only what you need to.
+                  These settings sync across all your devices automatically. Every field below already has a sensible default — change only what you need to.
                 </Typography>
               </Box>
 
