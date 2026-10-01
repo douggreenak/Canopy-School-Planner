@@ -924,14 +924,28 @@ export async function getUsersWithAutoSyncDueAt(utcHour: number): Promise<string
     `SELECT user_id, value FROM settings WHERE \`key\` = 'powerschoolAutoSync'`,
   );
   const due: string[] = [];
+  const enabledByStoredHour: Record<string, number> = {};
+  let malformedRows = 0;
   for (const row of rows) {
     try {
-      const parsed = JSON.parse((row.value as string) || '{}') as { enabled?: boolean; utcHour?: number };
-      if (parsed.enabled && parsed.utcHour === utcHour) due.push(row.user_id as string);
+      const parsed = JSON.parse((row.value as string) || '{}') as { enabled?: unknown; utcHour?: unknown };
+      if (parsed.enabled) {
+        const hourKey = typeof parsed.utcHour === 'number' ? String(parsed.utcHour) : `non-number:${typeof parsed.utcHour}`;
+        enabledByStoredHour[hourKey] = (enabledByStoredHour[hourKey] ?? 0) + 1;
+        if (parsed.utcHour === utcHour) due.push(row.user_id as string);
+      }
     } catch {
       // malformed setting value — skip rather than fail the whole scan
+      malformedRows++;
     }
   }
+  console.info('[PowerSchool cron] auto-sync selection', {
+    requestedHour: utcHour,
+    settingsRows: rows.length,
+    enabledByStoredHour,
+    malformedRows,
+    matchedUsers: due.length,
+  });
   return due;
 }
 

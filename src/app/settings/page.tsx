@@ -449,13 +449,22 @@ function SettingsInner() {
   };
 
   const saveAutoSync = async (enabled: boolean, utcHour: number) => {
+    const previousEnabled = autoSyncEnabled;
+    const previousHour = autoSyncHour;
     setAutoSyncEnabled(enabled);
     setAutoSyncHour(utcHour);
-    await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled, utcHour } }),
-    }).catch(() => {});
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled, utcHour } }),
+      });
+      if (!response.ok) throw new Error('Could not save scheduled sync settings.');
+    } catch {
+      setAutoSyncEnabled(previousEnabled);
+      setAutoSyncHour(previousHour);
+      setSnackbar({ open: true, message: 'Could not save scheduled sync settings.', severity: 'error' });
+    }
   };
 
   const handleChangePassword = async () => {
