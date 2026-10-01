@@ -16,7 +16,7 @@
     "@mui/icons-material": "^9.0.0",
     "@mui/material": "^9.0.0",
     "@mui/material-nextjs": "^9.1.1",
-    "@neondatabase/serverless": "^1.1.0",
+    "mysql2": "^3.11.0",
     "@sparticuz/chromium-min": "^148.0.0",
     "@vercel/speed-insights": "^2.0.0",
     "date-fns": "^4.1.0",
@@ -37,7 +37,6 @@
     "@types/uuid": "^10.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
-    "pg-mem": "^3.0.14",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.7"

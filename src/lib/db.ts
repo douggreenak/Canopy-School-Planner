@@ -1,7 +1,7 @@
 // ============================================================
-// Neon (PostgreSQL) Database Layer
+// MySQL Database Layer (mysql2)
 // ============================================================
-import { neon, type NeonQueryPromise } from '@neondatabase/serverless';
+import mysql, { type Pool, type RowDataPacket, type ExecuteValues, type QueryValues } from 'mysql2/promise';
 import crypto from 'crypto';
 import type {
   SchoolClass,
@@ -18,280 +18,317 @@ import { v4 as uuid } from 'uuid';
 import { parseStages } from '@/lib/stages';
 import { detectApFromName, resolveIsApOnSync } from '@/lib/apDetection';
 
-// The Neon HTTP driver is stateless (each query is an independent fetch, no
-// socket to pool), so a single client can be reused across requests/invocations
-// instead of reconstructing it on every call.
-type Sql = ReturnType<typeof neon<false, false>>;
-let _sql: Sql | null = null;
-function getDb(): Sql {
-  if (!_sql) _sql = neon(process.env.DATABASE_URL!);
-  return _sql;
+// A single connection pool reused across requests/invocations.
+let _pool: Pool | null = null;
+function getDb(): Pool {
+  if (!_pool) {
+    _pool = mysql.createPool(process.env.DATABASE_URL!);
+  }
+  return _pool;
 }
 
-// Neon's HTTP driver issues one round trip per query. For write-heavy paths
-// (sync imports, bulk log/grade inserts) we collect the per-row query objects
-// and submit them as non-interactive transactions, collapsing N round trips
-// into ceil(N / chunkSize). Chunking keeps individual request payloads bounded.
-type WriteQuery = NeonQueryPromise<false, false>;
+// Convenience helper: run a query and return typed rows.
+async function query<T extends RowDataPacket>(
+  sql: string,
+  params: unknown[] = [],
+): Promise<T[]> {
+  const pool = getDb();
+  const [rows] = await pool.query<T[]>(sql, params as QueryValues[]);
+  return rows;
+}
+
+// Convenience helper: run a write (INSERT / UPDATE / DELETE).
+async function execute(sql: string, params: unknown[] = []): Promise<void> {
+  const pool = getDb();
+  await pool.execute(sql, params as ExecuteValues[]);
+}
+
+// Batched writes: run each query sequentially (mysql2 pools handle concurrency
+// efficiently; no Neon-style transaction batching API is needed here).
 async function runBatchedWrites(
-  sql: ReturnType<typeof getDb>,
-  queries: WriteQuery[],
-  chunkSize = 100,
+  writes: Array<{ sql: string; params: unknown[] }>,
 ): Promise<void> {
-  for (let i = 0; i < queries.length; i += chunkSize) {
-    const chunk = queries.slice(i, i + chunkSize);
-    if (chunk.length === 0) continue;
-    if (chunk.length === 1) await chunk[0];
-    else await sql.transaction(chunk);
+  for (const w of writes) {
+    await execute(w.sql, w.params);
+  }
+}
+
+// Build a MySQL IN-clause placeholder string and matching params array.
+// e.g. inClause(['a','b','c']) → { clause: 'IN (?,?,?)', params: ['a','b','c'] }
+function inClause(ids: string[]): { clause: string; params: string[] } {
+  return {
+    clause: `IN (${ids.map(() => '?').join(',')})`,
+    params: ids,
+  };
+}
+
+// Check if a column already exists in a table via INFORMATION_SCHEMA.
+async function columnExists(table: string, column: string): Promise<boolean> {
+  const db = process.env.DATABASE_URL
+    ? new URL(process.env.DATABASE_URL).pathname.replace(/^\//, '')
+    : '';
+  const rows = await query(
+    `SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column],
+  );
+  void db; // suppress unused-var lint — DATABASE() is used directly in SQL
+  return rows.length > 0;
+}
+
+// Conditionally add a column; MySQL < 8.0 lacks IF NOT EXISTS on ALTER TABLE.
+async function addColumnIfMissing(
+  table: string,
+  column: string,
+  definition: string,
+): Promise<void> {
+  if (!(await columnExists(table, column))) {
+    await execute(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
   }
 }
 
 // ---- Schema initialization ----
 
 export async function initializeDatabase() {
-  const sql = getDb();
-
   // Auth tables
-  await sql`
+  await execute(`
     CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL,
+      id VARCHAR(191) PRIMARY KEY,
+      username VARCHAR(191) UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      created_at DATETIME DEFAULT NOW()
     )
-  `;
-  await sql`
+  `);
+  await execute(`
     CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      expires_at TIMESTAMPTZ NOT NULL
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL,
+      expires_at DATETIME NOT NULL
     )
-  `;
+  `);
 
-  // Data tables — created with user_id from the start for new installs
-  await sql`
+  // Data tables
+  await execute(`
     CREATE TABLE IF NOT EXISTS classes (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL DEFAULT '',
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL DEFAULT '',
       name TEXT NOT NULL DEFAULT '',
       teacher TEXT NOT NULL DEFAULT '',
       room TEXT NOT NULL DEFAULT '',
-      color TEXT NOT NULL DEFAULT '',
+      color VARCHAR(50) NOT NULL DEFAULT '',
       period INTEGER NOT NULL DEFAULT 0,
-      start_time TEXT NOT NULL DEFAULT '',
-      end_time TEXT NOT NULL DEFAULT '',
-      days JSONB NOT NULL DEFAULT '[]',
-      day_times JSONB,
-      semester TEXT NOT NULL DEFAULT '',
-      source TEXT,
+      start_time VARCHAR(20) NOT NULL DEFAULT '',
+      end_time VARCHAR(20) NOT NULL DEFAULT '',
+      days JSON NOT NULL,
+      day_times JSON,
+      semester VARCHAR(50) NOT NULL DEFAULT '',
+      source VARCHAR(50),
       source_id TEXT,
-      grade TEXT,
-      grade_percent NUMERIC
+      grade VARCHAR(10),
+      grade_percent DECIMAL(10,4),
+      category_weights JSON,
+      weight_source VARCHAR(50),
+      is_ap TINYINT(1) NOT NULL DEFAULT 0
     )
-  `;
-  await sql`
+  `);
+  await execute(`
     CREATE TABLE IF NOT EXISTS homework (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL DEFAULT '',
-      class_id TEXT NOT NULL DEFAULT '',
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL DEFAULT '',
+      class_id VARCHAR(191) NOT NULL DEFAULT '',
       title TEXT NOT NULL DEFAULT '',
       description TEXT NOT NULL DEFAULT '',
-      due_date TEXT NOT NULL DEFAULT '',
-      completed BOOLEAN NOT NULL DEFAULT FALSE,
-      priority TEXT NOT NULL DEFAULT 'medium',
-      source TEXT NOT NULL DEFAULT 'manual',
+      due_date VARCHAR(20) NOT NULL DEFAULT '',
+      completed TINYINT(1) NOT NULL DEFAULT 0,
+      priority VARCHAR(20) NOT NULL DEFAULT 'medium',
+      source VARCHAR(50) NOT NULL DEFAULT 'manual',
       source_id TEXT,
       score TEXT,
       category TEXT,
       flags TEXT,
-      score_percent NUMERIC
+      score_percent DECIMAL(10,4),
+      stage_id VARCHAR(191),
+      stages JSON,
+      due_timing VARCHAR(50),
+      teacher_note TEXT
     )
-  `;
-  await sql`
+  `);
+  await execute(`
     CREATE TABLE IF NOT EXISTS exams (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL DEFAULT '',
-      class_id TEXT NOT NULL DEFAULT '',
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL DEFAULT '',
+      class_id VARCHAR(191) NOT NULL DEFAULT '',
       title TEXT NOT NULL DEFAULT '',
-      date TEXT NOT NULL DEFAULT '',
-      start_time TEXT NOT NULL DEFAULT '',
-      end_time TEXT NOT NULL DEFAULT '',
+      date VARCHAR(20) NOT NULL DEFAULT '',
+      start_time VARCHAR(20) NOT NULL DEFAULT '',
+      end_time VARCHAR(20) NOT NULL DEFAULT '',
       location TEXT NOT NULL DEFAULT '',
-      notes TEXT NOT NULL DEFAULT ''
+      notes TEXT NOT NULL DEFAULT '',
+      weight_percent DECIMAL(10,4)
     )
-  `;
-  await sql`
+  `);
+  await execute(`
     CREATE TABLE IF NOT EXISTS tasks (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL DEFAULT '',
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL DEFAULT '',
       title TEXT NOT NULL DEFAULT '',
       description TEXT NOT NULL DEFAULT '',
-      due_date TEXT NOT NULL DEFAULT '',
-      completed BOOLEAN NOT NULL DEFAULT FALSE,
-      priority TEXT NOT NULL DEFAULT 'medium',
-      category TEXT NOT NULL DEFAULT 'General',
-      class_id TEXT
+      due_date VARCHAR(20) NOT NULL DEFAULT '',
+      completed TINYINT(1) NOT NULL DEFAULT 0,
+      priority VARCHAR(20) NOT NULL DEFAULT 'medium',
+      category VARCHAR(100) NOT NULL DEFAULT 'General',
+      class_id VARCHAR(191),
+      stage_id VARCHAR(191),
+      stages JSON,
+      due_timing VARCHAR(50)
     )
-  `;
-  await sql`
+  `);
+  await execute(`
     CREATE TABLE IF NOT EXISTS disruptions (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL DEFAULT '',
-      date TEXT NOT NULL DEFAULT '',
-      end_date TEXT NOT NULL DEFAULT '',
-      type TEXT NOT NULL DEFAULT '',
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL DEFAULT '',
+      date VARCHAR(20) NOT NULL DEFAULT '',
+      end_date VARCHAR(20) NOT NULL DEFAULT '',
+      type VARCHAR(50) NOT NULL DEFAULT '',
       label TEXT NOT NULL DEFAULT '',
-      period_overrides JSONB NOT NULL DEFAULT '[]'
+      period_overrides JSON NOT NULL,
+      source_day_of_week INTEGER
     )
-  `;
+  `);
 
-  // Settings — composite PK (user_id, key) for new installs
-  await sql`
+  // Settings — composite PK (user_id, key)
+  await execute(`
     CREATE TABLE IF NOT EXISTS settings (
-      user_id TEXT NOT NULL DEFAULT '',
-      key TEXT NOT NULL,
+      user_id VARCHAR(191) NOT NULL DEFAULT '',
+      \`key\` VARCHAR(191) NOT NULL,
       value TEXT,
-      PRIMARY KEY (user_id, key)
+      PRIMARY KEY (user_id, \`key\`)
     )
-  `;
+  `);
 
-  // Migration: add user_id to existing tables that predate multi-user support
-  await sql`ALTER TABLE classes ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
-  await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
-  await sql`ALTER TABLE exams ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
-  await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
-  await sql`ALTER TABLE disruptions ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''`;
-  await sql`ALTER TABLE disruptions ADD COLUMN IF NOT EXISTS end_date TEXT NOT NULL DEFAULT ''`;
-  // 'day_swap' disruptions ("run Thursday's schedule on Monday") — NULL for
-  // every other type.
-  await sql`ALTER TABLE disruptions ADD COLUMN IF NOT EXISTS source_day_of_week INTEGER`;
+  // Migration: add columns to existing tables (safe no-ops if already present)
+  await addColumnIfMissing('classes', 'user_id', "VARCHAR(191) NOT NULL DEFAULT ''");
+  await addColumnIfMissing('homework', 'user_id', "VARCHAR(191) NOT NULL DEFAULT ''");
+  await addColumnIfMissing('exams', 'user_id', "VARCHAR(191) NOT NULL DEFAULT ''");
+  await addColumnIfMissing('tasks', 'user_id', "VARCHAR(191) NOT NULL DEFAULT ''");
+  await addColumnIfMissing('disruptions', 'user_id', "VARCHAR(191) NOT NULL DEFAULT ''");
+  await addColumnIfMissing('disruptions', 'end_date', "VARCHAR(20) NOT NULL DEFAULT ''");
+  await addColumnIfMissing('disruptions', 'source_day_of_week', 'INTEGER');
 
-  // Per-user lookup indexes. Every data query filters by user_id; without these
-  // Postgres seq-scans the whole table and filters in memory, which degrades as
-  // total rows across all users grow. Composite (user_id, source, class_id) on
-  // homework matches the sync delete/merge scan in syncHomeworkFromSource.
-  await sql`CREATE INDEX IF NOT EXISTS idx_classes_user ON classes (user_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_homework_user ON homework (user_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_homework_user_source_class ON homework (user_id, source, class_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_exams_user ON exams (user_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks (user_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_disruptions_user ON disruptions (user_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)`;
+  // Indexes
+  await execute(`CREATE INDEX IF NOT EXISTS idx_classes_user ON classes (user_id)`);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_homework_user ON homework (user_id)`);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_homework_user_source_class ON homework (user_id, source(20), class_id)`);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_exams_user ON exams (user_id)`);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks (user_id)`);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_disruptions_user ON disruptions (user_id)`);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)`);
 
-  // Migration: category weights (what-if calculator, exam stakes, missing-work triage)
-  await sql`ALTER TABLE classes ADD COLUMN IF NOT EXISTS category_weights JSONB`;
-  await sql`ALTER TABLE classes ADD COLUMN IF NOT EXISTS weight_source TEXT`;
-  await sql`ALTER TABLE exams ADD COLUMN IF NOT EXISTS weight_percent NUMERIC`;
+  // Migration: category weights
+  await addColumnIfMissing('classes', 'category_weights', 'JSON');
+  await addColumnIfMissing('classes', 'weight_source', 'VARCHAR(50)');
+  await addColumnIfMissing('exams', 'weight_percent', 'DECIMAL(10,4)');
 
-  // grade_history: one row per class per sync — powers velocity alerts + GPA projection
-  await sql`
+  // grade_history
+  await execute(`
     CREATE TABLE IF NOT EXISTS grade_history (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL DEFAULT '',
-      class_id TEXT NOT NULL DEFAULT '',
-      grade_percent NUMERIC,
-      letter TEXT,
-      semester TEXT NOT NULL DEFAULT '',
-      captured_at TIMESTAMPTZ DEFAULT NOW()
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL DEFAULT '',
+      class_id VARCHAR(191) NOT NULL DEFAULT '',
+      grade_percent DECIMAL(10,4),
+      letter VARCHAR(10),
+      semester VARCHAR(50) NOT NULL DEFAULT '',
+      captured_at DATETIME DEFAULT NOW()
     )
-  `;
-  await sql`CREATE INDEX IF NOT EXISTS idx_grade_history_class ON grade_history (user_id, class_id, captured_at DESC)`;
+  `);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_grade_history_class ON grade_history (user_id, class_id, captured_at)`);
 
-  // sync_log: diff trail written on every sync — powers the change-log feature
-  await sql`
+  // sync_log
+  await execute(`
     CREATE TABLE IF NOT EXISTS sync_log (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL DEFAULT '',
-      sync_id TEXT NOT NULL DEFAULT '',
-      occurred_at TIMESTAMPTZ DEFAULT NOW(),
-      entity_type TEXT NOT NULL DEFAULT '',
-      entity_id TEXT NOT NULL DEFAULT '',
-      class_id TEXT,
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL DEFAULT '',
+      sync_id VARCHAR(191) NOT NULL DEFAULT '',
+      occurred_at DATETIME DEFAULT NOW(),
+      entity_type VARCHAR(50) NOT NULL DEFAULT '',
+      entity_id VARCHAR(191) NOT NULL DEFAULT '',
+      class_id VARCHAR(191),
       label TEXT NOT NULL DEFAULT '',
-      change_type TEXT NOT NULL DEFAULT '',
+      change_type VARCHAR(50) NOT NULL DEFAULT '',
       detail TEXT NOT NULL DEFAULT ''
     )
-  `;
-  await sql`CREATE INDEX IF NOT EXISTS idx_sync_log_user_time ON sync_log (user_id, occurred_at DESC)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_sync_log_class ON sync_log (user_id, class_id, occurred_at DESC)`;
+  `);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_sync_log_user_time ON sync_log (user_id, occurred_at)`);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_sync_log_class ON sync_log (user_id, class_id, occurred_at)`);
 
-  // powerschool_sync_status: one row per user, tracking the most recent sync
-  // (manual or scheduled) so it can keep running server-side after `after()`
-  // takes over — the response is sent immediately, and the client polls this
-  // row instead of waiting on the original request. Also doubles as a simple
-  // lock (status='running') so a scheduled sync never overlaps a manual one.
-  await sql`
+  // powerschool_sync_status
+  await execute(`
     CREATE TABLE IF NOT EXISTS powerschool_sync_status (
-      user_id TEXT PRIMARY KEY,
-      sync_id TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'idle',
-      started_at TIMESTAMPTZ,
-      finished_at TIMESTAMPTZ,
-      log JSONB,
-      result JSONB,
+      user_id VARCHAR(191) PRIMARY KEY,
+      sync_id VARCHAR(191) NOT NULL DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'idle',
+      started_at DATETIME,
+      finished_at DATETIME,
+      log JSON,
+      result JSON,
       error TEXT
     )
-  `;
+  `);
 
-  // powerschool_sync_lock: a separate one-row-per-user mutex, deliberately
-  // NOT folded into powerschool_sync_status. Acquiring the lock is a plain
-  // INSERT that either succeeds or hits the PRIMARY KEY — a race-safe
-  // primitive on any real Postgres, unlike a conditional
-  // "ON CONFLICT ... WHERE" upsert (which requires correctly serializing
-  // concurrent writers). Released by DELETE when a sync finishes; a stale
-  // lock (function killed mid-scrape) self-heals after LOCK_STALE_MINUTES.
-  await sql`
+  // powerschool_sync_lock
+  await execute(`
     CREATE TABLE IF NOT EXISTS powerschool_sync_lock (
-      user_id TEXT PRIMARY KEY,
-      sync_id TEXT NOT NULL,
-      acquired_at TIMESTAMPTZ DEFAULT NOW()
+      user_id VARCHAR(191) PRIMARY KEY,
+      sync_id VARCHAR(191) NOT NULL,
+      acquired_at DATETIME DEFAULT NOW()
     )
-  `;
+  `);
 
-  // Admin support: role column on users, created_at on sessions
-  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`;
-  await sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`;
+  // Admin support
+  await addColumnIfMissing('users', 'role', "VARCHAR(20) NOT NULL DEFAULT 'user'");
+  await addColumnIfMissing('sessions', 'created_at', 'DATETIME DEFAULT NOW()');
 
-  // Migration: per-assignment completion pipeline. `stages` is that one
-  // item's own ordered stage list (e.g. Done -> Turned In) — this is NOT a
-  // site-wide setting; every task/homework row defines its own, and most
-  // rows just leave it NULL/empty for the classic single checkbox. `stage_id`
-  // is that item's current position in its own `stages`. `completed` remains
-  // the authoritative done/not-done flag either way.
-  await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS stage_id TEXT`;
-  await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS stages JSONB`;
-  await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stage_id TEXT`;
-  await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS stages JSONB`;
+  // Stage pipeline columns
+  await addColumnIfMissing('homework', 'stage_id', 'VARCHAR(191)');
+  await addColumnIfMissing('homework', 'stages', 'JSON');
+  await addColumnIfMissing('tasks', 'stage_id', 'VARCHAR(191)');
+  await addColumnIfMissing('tasks', 'stages', 'JSON');
 
-  // Migration: due-in-class vs. after-class/online (per task/homework item)
-  await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS due_timing TEXT`;
-  await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_timing TEXT`;
+  // Due timing
+  await addColumnIfMissing('homework', 'due_timing', 'VARCHAR(50)');
+  await addColumnIfMissing('tasks', 'due_timing', 'VARCHAR(50)');
 
-  // Migration: a teacher's comment on a specific graded assignment, split out
-  // of the score cell during PowerSchool scraping (see splitScoreAndNote in
-  // powerschool.ts) instead of staying glued onto the displayed score.
-  await sql`ALTER TABLE homework ADD COLUMN IF NOT EXISTS teacher_note TEXT`;
+  // Teacher note
+  await addColumnIfMissing('homework', 'teacher_note', 'TEXT');
 
-  // Migration: AP class flag (weighted GPA calc — standard +1.0 AP bump)
-  await sql`ALTER TABLE classes ADD COLUMN IF NOT EXISTS is_ap BOOLEAN NOT NULL DEFAULT FALSE`;
+  // AP flag
+  await addColumnIfMissing('classes', 'is_ap', 'TINYINT(1) NOT NULL DEFAULT 0');
 
-  // Migrate settings table PK from single-column (key) to composite (user_id, key)
-  await sql`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'settings' AND column_name = 'user_id'
-      ) THEN
-        ALTER TABLE settings ADD COLUMN user_id TEXT NOT NULL DEFAULT '';
-        ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_pkey;
-        ALTER TABLE settings ADD PRIMARY KEY (user_id, key);
-      END IF;
-    END $$
-  `;
+  // Settings table: migrate PK from single-column (key) to composite (user_id, key).
+  // In MySQL we check if the PK already covers both columns.
+  const pkRows = await query<RowDataPacket>(
+    `SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'settings'
+       AND CONSTRAINT_NAME = 'PRIMARY' AND COLUMN_NAME = 'user_id'`,
+  );
+  if (pkRows.length === 0) {
+    // Old schema: single-column PK on `key`. Add user_id and rebuild the PK.
+    await addColumnIfMissing('settings', 'user_id', "VARCHAR(191) NOT NULL DEFAULT ''");
+    await execute(`ALTER TABLE settings DROP PRIMARY KEY`);
+    await execute(`ALTER TABLE settings ADD PRIMARY KEY (user_id, \`key\`)`);
+  }
 }
 
 // ---- Row mappers ----
+
+function parseJson<T>(value: unknown): T | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'object') return value as T; // mysql2 auto-parses JSON columns
+  if (typeof value === 'string') {
+    try { return JSON.parse(value) as T; } catch { return undefined; }
+  }
+  return undefined;
+}
 
 function dbToClass(row: Record<string, unknown>): SchoolClass {
   return {
@@ -303,14 +340,14 @@ function dbToClass(row: Record<string, unknown>): SchoolClass {
     period: Number(row.period) || 0,
     startTime: (row.start_time as string) || '',
     endTime: (row.end_time as string) || '',
-    days: (row.days as number[]) || [],
-    dayTimes: (row.day_times as SchoolClass['dayTimes']) ?? undefined,
+    days: parseJson<number[]>(row.days) ?? [],
+    dayTimes: parseJson<SchoolClass['dayTimes']>(row.day_times) ?? undefined,
     semester: (row.semester as string) || '',
     source: (row.source as SchoolClass['source']) ?? undefined,
     sourceId: (row.source_id as string) || undefined,
     grade: (row.grade as string) || undefined,
     gradePercent: row.grade_percent != null ? Number(row.grade_percent) : undefined,
-    categoryWeights: (row.category_weights as Record<string, number>) ?? undefined,
+    categoryWeights: parseJson<Record<string, number>>(row.category_weights) ?? undefined,
     weightSource: (row.weight_source as SchoolClass['weightSource']) ?? undefined,
     isAp: Boolean(row.is_ap),
   };
@@ -324,7 +361,7 @@ function dbToHomework(row: Record<string, unknown>): Homework {
     description: (row.description as string) || '',
     dueDate: (row.due_date as string) || '',
     completed: Boolean(row.completed),
-    stages: (() => { const s = parseStages(row.stages); return s.length > 0 ? s : undefined; })(),
+    stages: (() => { const s = parseStages(parseJson(row.stages)); return s.length > 0 ? s : undefined; })(),
     stageId: (row.stage_id as string) || undefined,
     dueTiming: (row.due_timing as Homework['dueTiming']) || undefined,
     priority: (row.priority as Homework['priority']) || 'medium',
@@ -362,7 +399,9 @@ function dbToGradeHistory(row: Record<string, unknown>): GradeHistoryEntry {
     gradePercent: row.grade_percent != null ? Number(row.grade_percent) : undefined,
     letter: (row.letter as string) || undefined,
     semester: (row.semester as string) || '',
-    capturedAt: row.captured_at as string,
+    capturedAt: row.captured_at instanceof Date
+      ? (row.captured_at as Date).toISOString()
+      : row.captured_at as string,
   };
 }
 
@@ -370,7 +409,9 @@ function dbToSyncLogEntry(row: Record<string, unknown>): SyncLogEntry {
   return {
     id: row.id as string,
     syncId: row.sync_id as string,
-    occurredAt: row.occurred_at as string,
+    occurredAt: row.occurred_at instanceof Date
+      ? (row.occurred_at as Date).toISOString()
+      : row.occurred_at as string,
     entityType: row.entity_type as SyncLogEntry['entityType'],
     entityId: row.entity_id as string,
     classId: (row.class_id as string) || undefined,
@@ -387,7 +428,7 @@ function dbToTask(row: Record<string, unknown>): Task {
     description: (row.description as string) || '',
     dueDate: (row.due_date as string) || '',
     completed: Boolean(row.completed),
-    stages: (() => { const s = parseStages(row.stages); return s.length > 0 ? s : undefined; })(),
+    stages: (() => { const s = parseStages(parseJson(row.stages)); return s.length > 0 ? s : undefined; })(),
     stageId: (row.stage_id as string) || undefined,
     dueTiming: (row.due_timing as Task['dueTiming']) || undefined,
     priority: (row.priority as Task['priority']) || 'medium',
@@ -402,12 +443,10 @@ function dbToDisruption(row: Record<string, unknown>): ScheduleDisruption {
   return {
     id: row.id as string,
     date,
-    // Only surface endDate when it's an actual multi-day span — keeps
-    // single-day disruptions (endDate === date, or unset) clean.
     endDate: endDate && endDate !== date ? endDate : undefined,
     type: (row.type as ScheduleDisruption['type']),
     label: (row.label as string) || '',
-    periodOverrides: (row.period_overrides as PeriodOverride[]) || [],
+    periodOverrides: parseJson<PeriodOverride[]>(row.period_overrides) ?? [],
     sourceDayOfWeek: row.source_day_of_week === null || row.source_day_of_week === undefined
       ? undefined
       : Number(row.source_day_of_week),
@@ -424,51 +463,54 @@ export interface DbUser {
 }
 
 export async function createUser(id: string, username: string, passwordHash: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    INSERT INTO users (id, username, password_hash, role)
-    VALUES (${id}, ${username.toLowerCase()}, ${passwordHash}, 'user')
-  `;
+  await execute(
+    `INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, 'user')`,
+    [id, username.toLowerCase(), passwordHash],
+  );
 }
 
 /** Upsert the admin account. Takes a pre-hashed password to avoid circular imports with auth.ts. */
 export async function createOrUpdateAdminUser(username: string, passwordHash: string): Promise<void> {
-  const sql = getDb();
   const id = uuid();
-  await sql`
-    INSERT INTO users (id, username, password_hash, role)
-    VALUES (${id}, ${username.toLowerCase()}, ${passwordHash}, 'admin')
-    ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = 'admin'
-  `;
+  await execute(
+    `INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, 'admin')
+     ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = 'admin'`,
+    [id, username.toLowerCase(), passwordHash],
+  );
 }
 
 export async function getUserByUsername(username: string): Promise<DbUser | null> {
-  const sql = getDb();
-  const rows = await sql`SELECT id, username, password_hash, role FROM users WHERE username = ${username.toLowerCase()}`;
+  const rows = await query<RowDataPacket>(
+    `SELECT id, username, password_hash, role FROM users WHERE username = ?`,
+    [username.toLowerCase()],
+  );
   if (rows.length === 0) return null;
-  const row = rows[0] as Record<string, unknown>;
-  return { id: row.id as string, username: row.username as string, passwordHash: row.password_hash as string, role: (row.role as string) || 'user' };
+  const row = rows[0];
+  return { id: row.id, username: row.username, passwordHash: row.password_hash, role: row.role || 'user' };
 }
 
 export async function getUserByIdWithHash(id: string): Promise<DbUser | null> {
-  const sql = getDb();
-  const rows = await sql`SELECT id, username, password_hash, role FROM users WHERE id = ${id}`;
+  const rows = await query<RowDataPacket>(
+    `SELECT id, username, password_hash, role FROM users WHERE id = ?`,
+    [id],
+  );
   if (rows.length === 0) return null;
-  const row = rows[0] as Record<string, unknown>;
-  return { id: row.id as string, username: row.username as string, passwordHash: row.password_hash as string, role: (row.role as string) || 'user' };
+  const row = rows[0];
+  return { id: row.id, username: row.username, passwordHash: row.password_hash, role: row.role || 'user' };
 }
 
 export async function updateUserPassword(userId: string, newPasswordHash: string): Promise<void> {
-  const sql = getDb();
-  await sql`UPDATE users SET password_hash = ${newPasswordHash} WHERE id = ${userId}`;
+  await execute(`UPDATE users SET password_hash = ? WHERE id = ?`, [newPasswordHash, userId]);
 }
 
 export async function getUserById(id: string): Promise<{ id: string; username: string; role: string } | null> {
-  const sql = getDb();
-  const rows = await sql`SELECT id, username, role FROM users WHERE id = ${id}`;
+  const rows = await query<RowDataPacket>(
+    `SELECT id, username, role FROM users WHERE id = ?`,
+    [id],
+  );
   if (rows.length === 0) return null;
-  const row = rows[0] as Record<string, unknown>;
-  return { id: row.id as string, username: row.username as string, role: (row.role as string) || 'user' };
+  const row = rows[0];
+  return { id: row.id, username: row.username, role: row.role || 'user' };
 }
 
 export interface SystemStats {
@@ -484,18 +526,37 @@ export interface SystemStats {
 }
 
 export async function getSystemStats(): Promise<SystemStats> {
-  const sql = getDb();
+  const now = new Date();
+  const cutoff7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+  const cutoff30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+
   const [users, active7, active30, classes, hw, exams, tasks, regByMonth, userList] = await Promise.all([
-    sql`SELECT COUNT(*) AS count FROM users WHERE role != 'admin'`,
-    sql`SELECT COUNT(DISTINCT s.user_id) AS count FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.role != 'admin' AND s.created_at > NOW() - INTERVAL '7 days'`,
-    sql`SELECT COUNT(DISTINCT s.user_id) AS count FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.role != 'admin' AND s.created_at > NOW() - INTERVAL '30 days'`,
-    sql`SELECT COUNT(*) AS count FROM classes c JOIN users u ON u.id = c.user_id WHERE u.role != 'admin'`,
-    sql`SELECT COUNT(*) AS count FROM homework h JOIN users u ON u.id = h.user_id WHERE u.role != 'admin'`,
-    sql`SELECT COUNT(*) AS count FROM exams e JOIN users u ON u.id = e.user_id WHERE u.role != 'admin'`,
-    sql`SELECT COUNT(*) AS count FROM tasks t JOIN users u ON u.id = t.user_id WHERE u.role != 'admin'`,
-    sql`SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month, COUNT(*) AS count FROM users WHERE role != 'admin' GROUP BY month ORDER BY month DESC LIMIT 12`,
-    sql`SELECT u.username, u.created_at, MAX(s.created_at) AS last_active FROM users u LEFT JOIN sessions s ON s.user_id = u.id WHERE u.role != 'admin' GROUP BY u.username, u.created_at ORDER BY u.created_at DESC`,
+    query<RowDataPacket>(`SELECT COUNT(*) AS count FROM users WHERE role != 'admin'`),
+    query<RowDataPacket>(
+      `SELECT COUNT(DISTINCT s.user_id) AS count FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.role != 'admin' AND s.created_at > ?`,
+      [cutoff7],
+    ),
+    query<RowDataPacket>(
+      `SELECT COUNT(DISTINCT s.user_id) AS count FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.role != 'admin' AND s.created_at > ?`,
+      [cutoff30],
+    ),
+    query<RowDataPacket>(`SELECT COUNT(*) AS count FROM classes c JOIN users u ON u.id = c.user_id WHERE u.role != 'admin'`),
+    query<RowDataPacket>(`SELECT COUNT(*) AS count FROM homework h JOIN users u ON u.id = h.user_id WHERE u.role != 'admin'`),
+    query<RowDataPacket>(`SELECT COUNT(*) AS count FROM exams e JOIN users u ON u.id = e.user_id WHERE u.role != 'admin'`),
+    query<RowDataPacket>(`SELECT COUNT(*) AS count FROM tasks t JOIN users u ON u.id = t.user_id WHERE u.role != 'admin'`),
+    query<RowDataPacket>(
+      `SELECT DATE_FORMAT(created_at, '%Y-%m') AS month, COUNT(*) AS count
+       FROM users WHERE role != 'admin'
+       GROUP BY month ORDER BY month DESC LIMIT 12`,
+    ),
+    query<RowDataPacket>(
+      `SELECT u.username, u.created_at, MAX(s.created_at) AS last_active
+       FROM users u LEFT JOIN sessions s ON s.user_id = u.id
+       WHERE u.role != 'admin'
+       GROUP BY u.username, u.created_at ORDER BY u.created_at DESC`,
+    ),
   ]);
+
   return {
     totalUsers: Number(users[0].count),
     activeUsersLast7Days: Number(active7[0].count),
@@ -504,275 +565,308 @@ export async function getSystemStats(): Promise<SystemStats> {
     totalAssignments: Number(hw[0].count),
     totalExams: Number(exams[0].count),
     totalTasks: Number(tasks[0].count),
-    registrationsByMonth: (regByMonth as Record<string, unknown>[]).map((r) => ({ month: r.month as string, count: Number(r.count) })),
-    userList: (userList as Record<string, unknown>[]).map((r) => ({
+    registrationsByMonth: regByMonth.map((r) => ({ month: r.month as string, count: Number(r.count) })),
+    userList: userList.map((r) => ({
       username: r.username as string,
-      registeredAt: (r.created_at as Date).toISOString(),
-      lastActiveAt: r.last_active ? (r.last_active as Date).toISOString() : null,
+      registeredAt: r.created_at instanceof Date ? (r.created_at as Date).toISOString() : (r.created_at as string),
+      lastActiveAt: r.last_active
+        ? (r.last_active instanceof Date ? (r.last_active as Date).toISOString() : String(r.last_active))
+        : null,
     })),
   };
 }
 
 /** Permanently delete a user and every row they own across all tables. */
 export async function deleteUserAndAllData(userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`DELETE FROM settings    WHERE user_id = ${userId}`;
-  await sql`DELETE FROM disruptions WHERE user_id = ${userId}`;
-  await sql`DELETE FROM homework    WHERE user_id = ${userId}`;
-  await sql`DELETE FROM exams       WHERE user_id = ${userId}`;
-  await sql`DELETE FROM tasks       WHERE user_id = ${userId}`;
-  await sql`DELETE FROM classes     WHERE user_id = ${userId}`;
-  await sql`DELETE FROM sessions    WHERE user_id = ${userId}`;
-  await sql`DELETE FROM users       WHERE id      = ${userId}`;
+  await execute(`DELETE FROM settings    WHERE user_id = ?`, [userId]);
+  await execute(`DELETE FROM disruptions WHERE user_id = ?`, [userId]);
+  await execute(`DELETE FROM homework    WHERE user_id = ?`, [userId]);
+  await execute(`DELETE FROM exams       WHERE user_id = ?`, [userId]);
+  await execute(`DELETE FROM tasks       WHERE user_id = ?`, [userId]);
+  await execute(`DELETE FROM classes     WHERE user_id = ?`, [userId]);
+  await execute(`DELETE FROM sessions    WHERE user_id = ?`, [userId]);
+  await execute(`DELETE FROM users       WHERE id      = ?`, [userId]);
 }
 
 // ---- Sessions ----
 
 export async function createDbSession(id: string, userId: string, expiresAt: Date): Promise<void> {
-  const sql = getDb();
-  await sql`
-    INSERT INTO sessions (id, user_id, expires_at)
-    VALUES (${id}, ${userId}, ${expiresAt.toISOString()})
-  `;
+  await execute(
+    `INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)`,
+    [id, userId, expiresAt.toISOString().slice(0, 19).replace('T', ' ')],
+  );
 }
 
 export async function getDbSession(id: string): Promise<{ userId: string; expiresAt: Date } | null> {
-  const sql = getDb();
-  const rows = await sql`SELECT user_id, expires_at FROM sessions WHERE id = ${id}`;
+  const rows = await query<RowDataPacket>(
+    `SELECT user_id, expires_at FROM sessions WHERE id = ?`,
+    [id],
+  );
   if (rows.length === 0) return null;
-  const row = rows[0] as Record<string, unknown>;
+  const row = rows[0];
   return { userId: row.user_id as string, expiresAt: new Date(row.expires_at as string) };
 }
 
 export async function deleteDbSession(id: string): Promise<void> {
-  const sql = getDb();
-  await sql`DELETE FROM sessions WHERE id = ${id}`;
+  await execute(`DELETE FROM sessions WHERE id = ?`, [id]);
 }
 
 // ---- Classes ----
 
 export async function getClasses(userId: string): Promise<SchoolClass[]> {
-  const sql = getDb();
-  const rows = await sql`SELECT * FROM classes WHERE user_id = ${userId} ORDER BY period, name`;
+  const rows = await query<RowDataPacket>(
+    `SELECT * FROM classes WHERE user_id = ? ORDER BY period, name`,
+    [userId],
+  );
   return rows.map((r) => dbToClass(r as Record<string, unknown>));
 }
 
 export async function getClassById(id: string, userId: string): Promise<SchoolClass | null> {
-  const sql = getDb();
-  const rows = await sql`SELECT * FROM classes WHERE id = ${id} AND user_id = ${userId}`;
+  const rows = await query<RowDataPacket>(
+    `SELECT * FROM classes WHERE id = ? AND user_id = ?`,
+    [id, userId],
+  );
   return rows.length > 0 ? dbToClass(rows[0] as Record<string, unknown>) : null;
 }
 
 export async function addClass(c: SchoolClass, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
-    VALUES (
-      ${c.id}, ${userId}, ${c.name}, ${c.teacher}, ${c.room}, ${c.color}, ${c.period},
-      ${c.startTime}, ${c.endTime}, ${JSON.stringify(c.days)}::jsonb,
-      ${c.dayTimes ? JSON.stringify(c.dayTimes) : null}::jsonb,
-      ${c.semester}, ${c.source ?? null}, ${c.sourceId ?? null},
-      ${c.grade ?? null}, ${c.gradePercent ?? null},
-      ${c.categoryWeights ? JSON.stringify(c.categoryWeights) : null}::jsonb, ${c.weightSource ?? null},
-      ${c.isAp ?? detectApFromName(c.name)}
-    )
-  `;
+  await execute(
+    `INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      c.id, userId, c.name, c.teacher, c.room, c.color, c.period,
+      c.startTime, c.endTime, JSON.stringify(c.days),
+      c.dayTimes ? JSON.stringify(c.dayTimes) : null,
+      c.semester, c.source ?? null, c.sourceId ?? null,
+      c.grade ?? null, c.gradePercent ?? null,
+      c.categoryWeights ? JSON.stringify(c.categoryWeights) : null,
+      c.weightSource ?? null,
+      c.isAp ?? detectApFromName(c.name) ? 1 : 0,
+    ],
+  );
 }
 
 export async function updateClass(c: SchoolClass, userId: string): Promise<void> {
-  const sql = getDb();
   if (c.dayTimes === undefined) {
-    await sql`
-      UPDATE classes SET
-        name = ${c.name}, teacher = ${c.teacher}, room = ${c.room},
-        color = ${c.color}, period = ${c.period}, start_time = ${c.startTime},
-        end_time = ${c.endTime}, days = ${JSON.stringify(c.days)}::jsonb,
-        semester = ${c.semester}, source = ${c.source ?? null},
-        source_id = ${c.sourceId ?? null}, grade = ${c.grade ?? null},
-        grade_percent = ${c.gradePercent ?? null},
-        category_weights = ${c.categoryWeights ? JSON.stringify(c.categoryWeights) : null}::jsonb,
-        weight_source = ${c.weightSource ?? null}, is_ap = ${c.isAp ?? false}
-      WHERE id = ${c.id} AND user_id = ${userId}
-    `;
+    await execute(
+      `UPDATE classes SET
+         name = ?, teacher = ?, room = ?, color = ?, period = ?,
+         start_time = ?, end_time = ?, days = ?,
+         semester = ?, source = ?, source_id = ?, grade = ?,
+         grade_percent = ?, category_weights = ?, weight_source = ?, is_ap = ?
+       WHERE id = ? AND user_id = ?`,
+      [
+        c.name, c.teacher, c.room, c.color, c.period,
+        c.startTime, c.endTime, JSON.stringify(c.days),
+        c.semester, c.source ?? null, c.sourceId ?? null, c.grade ?? null,
+        c.gradePercent ?? null,
+        c.categoryWeights ? JSON.stringify(c.categoryWeights) : null,
+        c.weightSource ?? null, c.isAp ?? false ? 1 : 0,
+        c.id, userId,
+      ],
+    );
   } else {
-    await sql`
-      UPDATE classes SET
-        name = ${c.name}, teacher = ${c.teacher}, room = ${c.room},
-        color = ${c.color}, period = ${c.period}, start_time = ${c.startTime},
-        end_time = ${c.endTime}, days = ${JSON.stringify(c.days)}::jsonb,
-        day_times = ${c.dayTimes ? JSON.stringify(c.dayTimes) : null}::jsonb,
-        semester = ${c.semester}, source = ${c.source ?? null},
-        source_id = ${c.sourceId ?? null}, grade = ${c.grade ?? null},
-        grade_percent = ${c.gradePercent ?? null},
-        category_weights = ${c.categoryWeights ? JSON.stringify(c.categoryWeights) : null}::jsonb,
-        weight_source = ${c.weightSource ?? null}, is_ap = ${c.isAp ?? false}
-      WHERE id = ${c.id} AND user_id = ${userId}
-    `;
+    await execute(
+      `UPDATE classes SET
+         name = ?, teacher = ?, room = ?, color = ?, period = ?,
+         start_time = ?, end_time = ?, days = ?, day_times = ?,
+         semester = ?, source = ?, source_id = ?, grade = ?,
+         grade_percent = ?, category_weights = ?, weight_source = ?, is_ap = ?
+       WHERE id = ? AND user_id = ?`,
+      [
+        c.name, c.teacher, c.room, c.color, c.period,
+        c.startTime, c.endTime, JSON.stringify(c.days),
+        c.dayTimes ? JSON.stringify(c.dayTimes) : null,
+        c.semester, c.source ?? null, c.sourceId ?? null, c.grade ?? null,
+        c.gradePercent ?? null,
+        c.categoryWeights ? JSON.stringify(c.categoryWeights) : null,
+        c.weightSource ?? null, c.isAp ?? false ? 1 : 0,
+        c.id, userId,
+      ],
+    );
   }
 }
 
 export async function deleteClass(id: string, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`DELETE FROM classes WHERE id = ${id} AND user_id = ${userId}`;
+  await execute(`DELETE FROM classes WHERE id = ? AND user_id = ?`, [id, userId]);
 }
 
 // ---- Homework ----
 
 export async function getHomework(userId: string): Promise<Homework[]> {
-  const sql = getDb();
-  const rows = await sql`SELECT * FROM homework WHERE user_id = ${userId} ORDER BY due_date, title`;
+  const rows = await query<RowDataPacket>(
+    `SELECT * FROM homework WHERE user_id = ? ORDER BY due_date, title`,
+    [userId],
+  );
   return rows.map((r) => dbToHomework(r as Record<string, unknown>));
 }
 
 export async function addHomework(h: Homework, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, stage_id, stages, due_timing, priority, source, source_id, score, category, flags, teacher_note, score_percent)
-    VALUES (
-      ${h.id}, ${userId}, ${h.classId}, ${h.title}, ${h.description}, ${h.dueDate},
-      ${h.completed}, ${h.stageId ?? null}, ${h.stages?.length ? JSON.stringify(h.stages) : null}::jsonb,
-      ${h.dueTiming ?? null},
-      ${h.priority}, ${h.source}, ${h.sourceId ?? null},
-      ${h.score ?? null}, ${h.category ?? null}, ${h.flags ?? null}, ${h.teacherNote ?? null},
-      ${h.scorePercent ?? null}
-    )
-  `;
+  await execute(
+    `INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, stage_id, stages, due_timing, priority, source, source_id, score, category, flags, teacher_note, score_percent)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      h.id, userId, h.classId, h.title, h.description, h.dueDate,
+      h.completed ? 1 : 0, h.stageId ?? null,
+      h.stages?.length ? JSON.stringify(h.stages) : null,
+      h.dueTiming ?? null,
+      h.priority, h.source, h.sourceId ?? null,
+      h.score ?? null, h.category ?? null, h.flags ?? null,
+      h.teacherNote ?? null, h.scorePercent ?? null,
+    ],
+  );
 }
 
 export async function updateHomework(h: Homework, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    UPDATE homework SET
-      class_id = ${h.classId}, title = ${h.title}, description = ${h.description},
-      due_date = ${h.dueDate}, completed = ${h.completed}, stage_id = ${h.stageId ?? null},
-      stages = ${h.stages?.length ? JSON.stringify(h.stages) : null}::jsonb, due_timing = ${h.dueTiming ?? null},
-      priority = ${h.priority},
-      source = ${h.source}, source_id = ${h.sourceId ?? null}, score = ${h.score ?? null},
-      category = ${h.category ?? null}, flags = ${h.flags ?? null}, teacher_note = ${h.teacherNote ?? null},
-      score_percent = ${h.scorePercent ?? null}
-    WHERE id = ${h.id} AND user_id = ${userId}
-  `;
+  await execute(
+    `UPDATE homework SET
+       class_id = ?, title = ?, description = ?, due_date = ?,
+       completed = ?, stage_id = ?,
+       stages = ?, due_timing = ?, priority = ?,
+       source = ?, source_id = ?, score = ?,
+       category = ?, flags = ?, teacher_note = ?,
+       score_percent = ?
+     WHERE id = ? AND user_id = ?`,
+    [
+      h.classId, h.title, h.description, h.dueDate,
+      h.completed ? 1 : 0, h.stageId ?? null,
+      h.stages?.length ? JSON.stringify(h.stages) : null,
+      h.dueTiming ?? null, h.priority,
+      h.source, h.sourceId ?? null, h.score ?? null,
+      h.category ?? null, h.flags ?? null, h.teacherNote ?? null,
+      h.scorePercent ?? null,
+      h.id, userId,
+    ],
+  );
 }
 
 export async function deleteHomework(id: string, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`DELETE FROM homework WHERE id = ${id} AND user_id = ${userId}`;
+  await execute(`DELETE FROM homework WHERE id = ? AND user_id = ?`, [id, userId]);
 }
 
 export async function deleteHomeworkBatch(ids: string[], userId: string): Promise<number> {
   if (ids.length === 0) return 0;
-  const sql = getDb();
-  const result = await sql`DELETE FROM homework WHERE id = ANY(${ids}) AND user_id = ${userId}`;
-  return result.length ?? ids.length;
+  const { clause, params } = inClause(ids);
+  await execute(`DELETE FROM homework WHERE id ${clause} AND user_id = ?`, [...params, userId]);
+  return ids.length;
 }
 
 // ---- Exams ----
 
 export async function getExams(userId: string): Promise<Exam[]> {
-  const sql = getDb();
-  const rows = await sql`SELECT * FROM exams WHERE user_id = ${userId} ORDER BY date, start_time`;
+  const rows = await query<RowDataPacket>(
+    `SELECT * FROM exams WHERE user_id = ? ORDER BY date, start_time`,
+    [userId],
+  );
   return rows.map((r) => dbToExam(r as Record<string, unknown>));
 }
 
 export async function addExam(e: Exam, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    INSERT INTO exams (id, user_id, class_id, title, date, start_time, end_time, location, notes, weight_percent)
-    VALUES (${e.id}, ${userId}, ${e.classId}, ${e.title}, ${e.date}, ${e.startTime}, ${e.endTime}, ${e.location}, ${e.notes}, ${e.weightPercent ?? null})
-  `;
+  await execute(
+    `INSERT INTO exams (id, user_id, class_id, title, date, start_time, end_time, location, notes, weight_percent)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [e.id, userId, e.classId, e.title, e.date, e.startTime, e.endTime, e.location, e.notes, e.weightPercent ?? null],
+  );
 }
 
 export async function updateExam(e: Exam, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    UPDATE exams SET
-      class_id = ${e.classId}, title = ${e.title}, date = ${e.date},
-      start_time = ${e.startTime}, end_time = ${e.endTime},
-      location = ${e.location}, notes = ${e.notes}, weight_percent = ${e.weightPercent ?? null}
-    WHERE id = ${e.id} AND user_id = ${userId}
-  `;
+  await execute(
+    `UPDATE exams SET
+       class_id = ?, title = ?, date = ?,
+       start_time = ?, end_time = ?,
+       location = ?, notes = ?, weight_percent = ?
+     WHERE id = ? AND user_id = ?`,
+    [e.classId, e.title, e.date, e.startTime, e.endTime, e.location, e.notes, e.weightPercent ?? null, e.id, userId],
+  );
 }
 
 export async function deleteExam(id: string, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`DELETE FROM exams WHERE id = ${id} AND user_id = ${userId}`;
+  await execute(`DELETE FROM exams WHERE id = ? AND user_id = ?`, [id, userId]);
 }
 
 // ---- Tasks ----
 
 export async function getTasks(userId: string): Promise<Task[]> {
-  const sql = getDb();
-  const rows = await sql`SELECT * FROM tasks WHERE user_id = ${userId} ORDER BY due_date, title`;
+  const rows = await query<RowDataPacket>(
+    `SELECT * FROM tasks WHERE user_id = ? ORDER BY due_date, title`,
+    [userId],
+  );
   return rows.map((r) => dbToTask(r as Record<string, unknown>));
 }
 
 export async function addTask(t: Task, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    INSERT INTO tasks (id, user_id, title, description, due_date, completed, stage_id, stages, due_timing, priority, category, class_id)
-    VALUES (
-      ${t.id}, ${userId}, ${t.title}, ${t.description}, ${t.dueDate}, ${t.completed}, ${t.stageId ?? null},
-      ${t.stages?.length ? JSON.stringify(t.stages) : null}::jsonb, ${t.dueTiming ?? null}, ${t.priority}, ${t.category}, ${t.classId ?? null}
-    )
-  `;
+  await execute(
+    `INSERT INTO tasks (id, user_id, title, description, due_date, completed, stage_id, stages, due_timing, priority, category, class_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      t.id, userId, t.title, t.description, t.dueDate,
+      t.completed ? 1 : 0, t.stageId ?? null,
+      t.stages?.length ? JSON.stringify(t.stages) : null,
+      t.dueTiming ?? null, t.priority, t.category, t.classId ?? null,
+    ],
+  );
 }
 
 export async function updateTask(t: Task, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    UPDATE tasks SET
-      title = ${t.title}, description = ${t.description}, due_date = ${t.dueDate},
-      completed = ${t.completed}, stage_id = ${t.stageId ?? null},
-      stages = ${t.stages?.length ? JSON.stringify(t.stages) : null}::jsonb,
-      due_timing = ${t.dueTiming ?? null},
-      priority = ${t.priority}, category = ${t.category},
-      class_id = ${t.classId ?? null}
-    WHERE id = ${t.id} AND user_id = ${userId}
-  `;
+  await execute(
+    `UPDATE tasks SET
+       title = ?, description = ?, due_date = ?,
+       completed = ?, stage_id = ?,
+       stages = ?, due_timing = ?,
+       priority = ?, category = ?, class_id = ?
+     WHERE id = ? AND user_id = ?`,
+    [
+      t.title, t.description, t.dueDate,
+      t.completed ? 1 : 0, t.stageId ?? null,
+      t.stages?.length ? JSON.stringify(t.stages) : null,
+      t.dueTiming ?? null,
+      t.priority, t.category, t.classId ?? null,
+      t.id, userId,
+    ],
+  );
 }
 
 export async function deleteTask(id: string, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`DELETE FROM tasks WHERE id = ${id} AND user_id = ${userId}`;
+  await execute(`DELETE FROM tasks WHERE id = ? AND user_id = ?`, [id, userId]);
 }
 
 export async function deleteTasksBatch(ids: string[], userId: string): Promise<number> {
   if (ids.length === 0) return 0;
-  const sql = getDb();
-  await sql`DELETE FROM tasks WHERE id = ANY(${ids}) AND user_id = ${userId}`;
+  const { clause, params } = inClause(ids);
+  await execute(`DELETE FROM tasks WHERE id ${clause} AND user_id = ?`, [...params, userId]);
   return ids.length;
 }
 
 // ---- Disruptions ----
 
 export async function getDisruptions(userId: string): Promise<ScheduleDisruption[]> {
-  const sql = getDb();
-  const rows = await sql`SELECT * FROM disruptions WHERE user_id = ${userId} ORDER BY date`;
+  const rows = await query<RowDataPacket>(
+    `SELECT * FROM disruptions WHERE user_id = ? ORDER BY date`,
+    [userId],
+  );
   return rows.map((r) => dbToDisruption(r as Record<string, unknown>));
 }
 
 export async function addDisruption(d: ScheduleDisruption, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    INSERT INTO disruptions (id, user_id, date, end_date, type, label, period_overrides, source_day_of_week)
-    VALUES (${d.id}, ${userId}, ${d.date}, ${d.endDate || d.date}, ${d.type}, ${d.label}, ${JSON.stringify(d.periodOverrides)}::jsonb, ${d.sourceDayOfWeek ?? null})
-  `;
+  await execute(
+    `INSERT INTO disruptions (id, user_id, date, end_date, type, label, period_overrides, source_day_of_week)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [d.id, userId, d.date, d.endDate || d.date, d.type, d.label, JSON.stringify(d.periodOverrides), d.sourceDayOfWeek ?? null],
+  );
 }
 
 export async function updateDisruption(d: ScheduleDisruption, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    UPDATE disruptions SET
-      date = ${d.date}, end_date = ${d.endDate || d.date}, type = ${d.type}, label = ${d.label},
-      period_overrides = ${JSON.stringify(d.periodOverrides)}::jsonb,
-      source_day_of_week = ${d.sourceDayOfWeek ?? null}
-    WHERE id = ${d.id} AND user_id = ${userId}
-  `;
+  await execute(
+    `UPDATE disruptions SET
+       date = ?, end_date = ?, type = ?, label = ?,
+       period_overrides = ?, source_day_of_week = ?
+     WHERE id = ? AND user_id = ?`,
+    [d.date, d.endDate || d.date, d.type, d.label, JSON.stringify(d.periodOverrides), d.sourceDayOfWeek ?? null, d.id, userId],
+  );
 }
 
 export async function deleteDisruption(id: string, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`DELETE FROM disruptions WHERE id = ${id} AND user_id = ${userId}`;
+  await execute(`DELETE FROM disruptions WHERE id = ? AND user_id = ?`, [id, userId]);
 }
 
 // ---- Settings ----
@@ -783,8 +877,10 @@ export async function deleteDisruption(id: string, userId: string): Promise<void
 const CREDENTIAL_SETTING_KEYS = new Set(['powerschoolPassword']);
 
 export async function getSettings(userId: string): Promise<Partial<AppSettings>> {
-  const sql = getDb();
-  const rows = await sql`SELECT key, value FROM settings WHERE user_id = ${userId}`;
+  const rows = await query<RowDataPacket>(
+    `SELECT \`key\`, value FROM settings WHERE user_id = ?`,
+    [userId],
+  );
   const settings: Record<string, unknown> = {};
   for (const row of rows) {
     const key = row.key as string;
@@ -800,20 +896,22 @@ export async function getSettings(userId: string): Promise<Partial<AppSettings>>
 }
 
 export async function setSetting(key: string, value: string, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    INSERT INTO settings (user_id, key, value) VALUES (${userId}, ${key}, ${value})
-    ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value
-  `;
+  await execute(
+    `INSERT INTO settings (user_id, \`key\`, value) VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE value = VALUES(value)`,
+    [userId, key, value],
+  );
 }
 
 export async function setSettingsBatch(entries: [string, string][], userId: string): Promise<void> {
   if (entries.length === 0) return;
-  const sql = getDb();
-  await runBatchedWrites(sql, entries.map(([key, value]) => sql`
-    INSERT INTO settings (user_id, key, value) VALUES (${userId}, ${key}, ${value})
-    ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value
-  `));
+  await runBatchedWrites(
+    entries.map(([key, value]) => ({
+      sql: `INSERT INTO settings (user_id, \`key\`, value) VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE value = VALUES(value)`,
+      params: [userId, key, value],
+    })),
+  );
 }
 
 /**
@@ -822,10 +920,11 @@ export async function setSettingsBatch(entries: [string, string][], userId: stri
  * bucket. Mirrors the cross-user query style already used by getSystemStats.
  */
 export async function getUsersWithAutoSyncDueAt(utcHour: number): Promise<string[]> {
-  const sql = getDb();
-  const rows = await sql`SELECT user_id, value FROM settings WHERE key = 'powerschoolAutoSync'`;
+  const rows = await query<RowDataPacket>(
+    `SELECT user_id, value FROM settings WHERE \`key\` = 'powerschoolAutoSync'`,
+  );
   const due: string[] = [];
-  for (const row of rows as Record<string, unknown>[]) {
+  for (const row of rows) {
     try {
       const parsed = JSON.parse((row.value as string) || '{}') as { enabled?: boolean; utcHour?: number };
       if (parsed.enabled && parsed.utcHour === utcHour) due.push(row.user_id as string);
@@ -837,8 +936,7 @@ export async function getUsersWithAutoSyncDueAt(utcHour: number): Promise<string
 }
 
 export async function deleteSetting(key: string, userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`DELETE FROM settings WHERE user_id = ${userId} AND key = ${key}`;
+  await execute(`DELETE FROM settings WHERE user_id = ? AND \`key\` = ?`, [userId, key]);
 }
 
 // ---- Credential encryption (AES-256-GCM, fixed-key) ----
@@ -888,12 +986,11 @@ export interface PowerSchoolCredentials {
 }
 
 export async function getPowerSchoolCredentials(userId: string): Promise<PowerSchoolCredentials> {
-  const sql = getDb();
-  const rows = await sql`
-    SELECT key, value FROM settings
-    WHERE user_id = ${userId}
-      AND key IN ('powerschoolUrl', 'powerschoolUsername', 'powerschoolPassword')
-  `;
+  const rows = await query<RowDataPacket>(
+    `SELECT \`key\`, value FROM settings
+     WHERE user_id = ? AND \`key\` IN ('powerschoolUrl', 'powerschoolUsername', 'powerschoolPassword')`,
+    [userId],
+  );
   let url = '';
   let username = '';
   let password = '';
@@ -920,34 +1017,34 @@ export async function setPowerSchoolCredentials(
   username: string,
   password: string,
 ): Promise<void> {
-  const sql = getDb();
-  const upsert = (key: string, value: string) => sql`
-    INSERT INTO settings (user_id, key, value) VALUES (${userId}, ${key}, ${value})
-    ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value
-  `;
-  await sql.transaction([
-    upsert('powerschoolUrl', url),
-    upsert('powerschoolUsername', username),
-    upsert('powerschoolPassword', encryptCredential(password)),
+  const upsertSql = `INSERT INTO settings (user_id, \`key\`, value) VALUES (?, ?, ?)
+                     ON DUPLICATE KEY UPDATE value = VALUES(value)`;
+  await runBatchedWrites([
+    { sql: upsertSql, params: [userId, 'powerschoolUrl', url] },
+    { sql: upsertSql, params: [userId, 'powerschoolUsername', username] },
+    { sql: upsertSql, params: [userId, 'powerschoolPassword', encryptCredential(password)] },
   ]);
 }
 
 export async function clearPowerSchoolCredentials(userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`
-    DELETE FROM settings
-    WHERE user_id = ${userId}
-      AND key IN ('powerschoolUrl', 'powerschoolUsername', 'powerschoolPassword')
-  `;
+  await execute(
+    `DELETE FROM settings WHERE user_id = ? AND \`key\` IN ('powerschoolUrl', 'powerschoolUsername', 'powerschoolPassword')`,
+    [userId],
+  );
 }
 
 // ---- Grade history & sync log ----
 
 export async function getGradeHistory(userId: string, classId?: string): Promise<GradeHistoryEntry[]> {
-  const sql = getDb();
   const rows = classId
-    ? await sql`SELECT * FROM grade_history WHERE user_id = ${userId} AND class_id = ${classId} ORDER BY captured_at DESC`
-    : await sql`SELECT * FROM grade_history WHERE user_id = ${userId} ORDER BY captured_at DESC`;
+    ? await query<RowDataPacket>(
+        `SELECT * FROM grade_history WHERE user_id = ? AND class_id = ? ORDER BY captured_at DESC`,
+        [userId, classId],
+      )
+    : await query<RowDataPacket>(
+        `SELECT * FROM grade_history WHERE user_id = ? ORDER BY captured_at DESC`,
+        [userId],
+      );
   return rows.map((r) => dbToGradeHistory(r as Record<string, unknown>));
 }
 
@@ -958,11 +1055,11 @@ export async function addGradeHistoryEntry(
   letter: string | undefined,
   semester: string,
 ): Promise<void> {
-  const sql = getDb();
-  await sql`
-    INSERT INTO grade_history (id, user_id, class_id, grade_percent, letter, semester)
-    VALUES (${uuid()}, ${userId}, ${classId}, ${gradePercent ?? null}, ${letter ?? null}, ${semester})
-  `;
+  await execute(
+    `INSERT INTO grade_history (id, user_id, class_id, grade_percent, letter, semester)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [uuid(), userId, classId, gradePercent ?? null, letter ?? null, semester],
+  );
 }
 
 export async function addGradeHistoryEntries(
@@ -970,25 +1067,28 @@ export async function addGradeHistoryEntries(
   entries: { classId: string; gradePercent: number | undefined; letter: string | undefined; semester: string }[],
 ): Promise<void> {
   if (entries.length === 0) return;
-  const sql = getDb();
-  await runBatchedWrites(sql, entries.map((e) => sql`
-    INSERT INTO grade_history (id, user_id, class_id, grade_percent, letter, semester)
-    VALUES (${uuid()}, ${userId}, ${e.classId}, ${e.gradePercent ?? null}, ${e.letter ?? null}, ${e.semester})
-  `));
+  await runBatchedWrites(
+    entries.map((e) => ({
+      sql: `INSERT INTO grade_history (id, user_id, class_id, grade_percent, letter, semester) VALUES (?, ?, ?, ?, ?, ?)`,
+      params: [uuid(), userId, e.classId, e.gradePercent ?? null, e.letter ?? null, e.semester],
+    })),
+  );
 }
 
 export async function getSyncLog(
   userId: string,
   opts?: { classId?: string; limit?: number },
 ): Promise<SyncLogEntry[]> {
-  const sql = getDb();
   const limit = opts?.limit ?? 200;
   const rows = opts?.classId
-    ? await sql`
-        SELECT * FROM sync_log WHERE user_id = ${userId} AND class_id = ${opts.classId}
-        ORDER BY occurred_at DESC LIMIT ${limit}
-      `
-    : await sql`SELECT * FROM sync_log WHERE user_id = ${userId} ORDER BY occurred_at DESC LIMIT ${limit}`;
+    ? await query<RowDataPacket>(
+        `SELECT * FROM sync_log WHERE user_id = ? AND class_id = ? ORDER BY occurred_at DESC LIMIT ?`,
+        [userId, opts.classId, limit],
+      )
+    : await query<RowDataPacket>(
+        `SELECT * FROM sync_log WHERE user_id = ? ORDER BY occurred_at DESC LIMIT ?`,
+        [userId, limit],
+      );
   return rows.map((r) => dbToSyncLogEntry(r as Record<string, unknown>));
 }
 
@@ -997,11 +1097,13 @@ export async function addSyncLogEntries(
   entries: Omit<SyncLogEntry, 'id' | 'occurredAt'>[],
 ): Promise<void> {
   if (entries.length === 0) return;
-  const sql = getDb();
-  await runBatchedWrites(sql, entries.map((e) => sql`
-    INSERT INTO sync_log (id, user_id, sync_id, entity_type, entity_id, class_id, label, change_type, detail)
-    VALUES (${uuid()}, ${userId}, ${e.syncId}, ${e.entityType}, ${e.entityId}, ${e.classId ?? null}, ${e.label}, ${e.changeType}, ${e.detail})
-  `));
+  await runBatchedWrites(
+    entries.map((e) => ({
+      sql: `INSERT INTO sync_log (id, user_id, sync_id, entity_type, entity_id, class_id, label, change_type, detail)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [uuid(), userId, e.syncId, e.entityType, e.entityId, e.classId ?? null, e.label, e.changeType, e.detail],
+    })),
+  );
 }
 
 // ---- PowerSchool sync status (background/scheduled sync progress) ----
@@ -1017,17 +1119,19 @@ export interface SyncStatusRow {
 }
 
 export async function getSyncStatus(userId: string): Promise<SyncStatusRow | null> {
-  const sql = getDb();
-  const rows = await sql`SELECT * FROM powerschool_sync_status WHERE user_id = ${userId}`;
+  const rows = await query<RowDataPacket>(
+    `SELECT * FROM powerschool_sync_status WHERE user_id = ?`,
+    [userId],
+  );
   if (rows.length === 0) return null;
-  const row = rows[0] as Record<string, unknown>;
+  const row = rows[0];
   return {
     syncId: (row.sync_id as string) || '',
     status: (row.status as SyncStatusRow['status']) || 'idle',
     startedAt: row.started_at ? new Date(row.started_at as string).toISOString() : undefined,
     finishedAt: row.finished_at ? new Date(row.finished_at as string).toISOString() : undefined,
-    log: (row.log as string[]) || [],
-    result: (row.result as Record<string, unknown>) ?? null,
+    log: parseJson<string[]>(row.log) ?? [],
+    result: parseJson<Record<string, unknown>>(row.result) ?? null,
     error: (row.error as string) ?? null,
   };
 }
@@ -1036,25 +1140,29 @@ const LOCK_STALE_MINUTES = 10; // generous vs. vercel.json's 280s maxDuration �
 
 /**
  * Claims the per-user sync lock via a plain INSERT into a PK-uniqueness-
- * enforced table — race-safe on any real Postgres without depending on
+ * enforced table — race-safe on any real MySQL without depending on
  * conditional-upsert semantics. Returns true if the caller won the lock.
  */
 export async function tryAcquireSyncLock(userId: string, syncId: string): Promise<boolean> {
-  const sql = getDb();
   try {
-    await sql`INSERT INTO powerschool_sync_lock (user_id, sync_id) VALUES (${userId}, ${syncId})`;
+    await execute(
+      `INSERT INTO powerschool_sync_lock (user_id, sync_id) VALUES (?, ?)`,
+      [userId, syncId],
+    );
     return true;
   } catch {
-    // PK conflict — someone already holds the lock. Reclaim it if stale
-    // (e.g. a prior invocation was killed mid-scrape and never released),
-    // then retry once. Compare against a JS-computed cutoff timestamp
-    // (rather than an INTERVAL literal) so this stays a plain bindable
-    // parameter — safe and portable across the neon driver and this
-    // project's local pg-mem dev shim alike.
-    const staleCutoff = new Date(Date.now() - LOCK_STALE_MINUTES * 60_000).toISOString();
-    await sql`DELETE FROM powerschool_sync_lock WHERE user_id = ${userId} AND acquired_at < ${staleCutoff}`.catch(() => {});
+    // PK conflict — someone already holds the lock. Reclaim if stale.
+    const staleCutoff = new Date(Date.now() - LOCK_STALE_MINUTES * 60_000)
+      .toISOString().slice(0, 19).replace('T', ' ');
+    await execute(
+      `DELETE FROM powerschool_sync_lock WHERE user_id = ? AND acquired_at < ?`,
+      [userId, staleCutoff],
+    ).catch(() => {});
     try {
-      await sql`INSERT INTO powerschool_sync_lock (user_id, sync_id) VALUES (${userId}, ${syncId})`;
+      await execute(
+        `INSERT INTO powerschool_sync_lock (user_id, sync_id) VALUES (?, ?)`,
+        [userId, syncId],
+      );
       return true;
     } catch {
       return false;
@@ -1064,8 +1172,7 @@ export async function tryAcquireSyncLock(userId: string, syncId: string): Promis
 
 /** Releases the per-user sync lock — call when a sync reaches a terminal state (success or error). */
 export async function releaseSyncLock(userId: string): Promise<void> {
-  const sql = getDb();
-  await sql`DELETE FROM powerschool_sync_lock WHERE user_id = ${userId}`.catch(() => {});
+  await execute(`DELETE FROM powerschool_sync_lock WHERE user_id = ?`, [userId]).catch(() => {});
 }
 
 /** Upsert this user's sync status row. Also acts as a simple per-user lock — check `status !== 'running'` before starting a new sync. */
@@ -1073,21 +1180,21 @@ export async function setSyncStatus(
   userId: string,
   data: Partial<SyncStatusRow> & { syncId: string; status: SyncStatusRow['status'] },
 ): Promise<void> {
-  const sql = getDb();
-  await sql`
-    INSERT INTO powerschool_sync_status (user_id, sync_id, status, started_at, finished_at, log, result, error)
-    VALUES (
-      ${userId}, ${data.syncId}, ${data.status},
-      ${data.startedAt ?? null}, ${data.finishedAt ?? null},
-      ${data.log ? JSON.stringify(data.log) : null}::jsonb,
-      ${data.result ? JSON.stringify(data.result) : null}::jsonb,
-      ${data.error ?? null}
-    )
-    ON CONFLICT (user_id) DO UPDATE SET
-      sync_id = EXCLUDED.sync_id, status = EXCLUDED.status,
-      started_at = EXCLUDED.started_at, finished_at = EXCLUDED.finished_at,
-      log = EXCLUDED.log, result = EXCLUDED.result, error = EXCLUDED.error
-  `;
+  await execute(
+    `INSERT INTO powerschool_sync_status (user_id, sync_id, status, started_at, finished_at, log, result, error)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       sync_id = VALUES(sync_id), status = VALUES(status),
+       started_at = VALUES(started_at), finished_at = VALUES(finished_at),
+       log = VALUES(log), result = VALUES(result), error = VALUES(error)`,
+    [
+      userId, data.syncId, data.status,
+      data.startedAt ?? null, data.finishedAt ?? null,
+      data.log ? JSON.stringify(data.log) : null,
+      data.result ? JSON.stringify(data.result) : null,
+      data.error ?? null,
+    ],
+  );
 }
 
 // ---- Sync helpers (PowerSchool / Classroom imports) ----
@@ -1101,14 +1208,13 @@ export async function syncClassesFromSource(
   userId: string,
   syncId: string = '',
 ): Promise<{ added: number; updated: number; removed: number; idMap: Map<string, string>; logEntries: Omit<SyncLogEntry, 'id' | 'occurredAt'>[] }> {
-  const sql = getDb();
   const logEntries: Omit<SyncLogEntry, 'id' | 'occurredAt'>[] = [];
-  // Collect all row writes and flush them in batched transactions at the end.
-  // Nothing in the merge loop reads back its own writes (lookup maps are built
-  // up front from `all`), so deferring execution is behavior-preserving.
-  const writeQueries: WriteQuery[] = [];
+  const writeQueries: Array<{ sql: string; params: unknown[] }> = [];
 
-  const allRows = await sql`SELECT * FROM classes WHERE user_id = ${userId}`;
+  const allRows = await query<RowDataPacket>(
+    `SELECT * FROM classes WHERE user_id = ?`,
+    [userId],
+  );
   const all = allRows.map((r) => dbToClass(r as Record<string, unknown>));
 
   const fromSource = all.filter((c) => c.source === source);
@@ -1117,7 +1223,6 @@ export async function syncClassesFromSource(
     if (c.sourceId && !bySourceId.has(c.sourceId)) bySourceId.set(c.sourceId, c);
   }
 
-  // Scope deletes to only semesters present in the incoming batch — never delete prior-semester rows.
   const incomingSemesters = new Set(incoming.map((c) => c.semester).filter(Boolean));
 
   let added = 0;
@@ -1135,7 +1240,6 @@ export async function syncClassesFromSource(
 
     for (const cls of incoming) {
       let prior = cls.sourceId ? bySourceId.get(cls.sourceId) : undefined;
-      // Guard: same sourceId but different semester → treat as a new row, not an update
       if (prior && prior.semester && cls.semester && prior.semester !== cls.semester) prior = undefined;
       if (!prior) {
         const key = `${normalizeName(cls.name)}||${cls.period || ''}`;
@@ -1156,17 +1260,8 @@ export async function syncClassesFromSource(
         if (prior.endTime?.trim()) merged.endTime = prior.endTime;
         if (prior.dayTimes && Object.keys(prior.dayTimes).length > 0) merged.dayTimes = prior.dayTimes;
         if (prior.period && Number(prior.period) > 0) merged.period = prior.period;
-        // Re-run AP name detection on every sync, not just at initial insert.
-        // A class synced before is_ap existed (or before its name happened to
-        // read as AP) was stuck at false forever otherwise — the prior merge
-        // here just carried `prior.isAp` straight through unchanged, and
-        // nothing ever re-evaluated it. Only ever upgrades false -> true;
-        // never clears a flag the user (or a past detection) already set,
-        // so a deliberate manual "not AP" uncheck still can't be un-done by
-        // a later sync.
         merged.isAp = resolveIsApOnSync(prior.isAp, merged.name);
 
-        // Category-weight manual-sticks rule: once set manually, sync never overwrites.
         if (prior.weightSource === 'manual') {
           merged.categoryWeights = prior.categoryWeights;
           merged.weightSource = 'manual';
@@ -1178,60 +1273,56 @@ export async function syncClassesFromSource(
           merged.weightSource = prior.weightSource;
         }
 
-        // Log grade changes
         if (syncId && prior.gradePercent !== undefined && cls.gradePercent !== undefined &&
             Math.abs((prior.gradePercent ?? 0) - (cls.gradePercent ?? 0)) >= 0.01) {
           logEntries.push({
-            syncId,
-            entityType: 'class',
-            entityId: merged.id,
-            classId: merged.id,
-            label: merged.name,
-            changeType: 'grade_changed',
+            syncId, entityType: 'class', entityId: merged.id, classId: merged.id,
+            label: merged.name, changeType: 'grade_changed',
             detail: `${prior.gradePercent?.toFixed(1)}% → ${cls.gradePercent?.toFixed(1)}%`,
           });
         }
 
-        writeQueries.push(sql`
-          UPDATE classes SET
-            name = ${merged.name}, teacher = ${merged.teacher}, room = ${merged.room},
-            color = ${merged.color}, period = ${merged.period},
-            start_time = ${merged.startTime}, end_time = ${merged.endTime},
-            days = ${JSON.stringify(merged.days)}::jsonb,
-            day_times = ${merged.dayTimes ? JSON.stringify(merged.dayTimes) : null}::jsonb,
-            semester = ${merged.semester}, source = ${merged.source ?? null},
-            source_id = ${merged.sourceId ?? null}, grade = ${merged.grade ?? null},
-            grade_percent = ${merged.gradePercent ?? null},
-            category_weights = ${merged.categoryWeights ? JSON.stringify(merged.categoryWeights) : null}::jsonb,
-            weight_source = ${merged.weightSource ?? null}, is_ap = ${merged.isAp ?? false}
-          WHERE id = ${merged.id} AND user_id = ${userId}
-        `);
+        writeQueries.push({
+          sql: `UPDATE classes SET
+                  name = ?, teacher = ?, room = ?, color = ?, period = ?,
+                  start_time = ?, end_time = ?, days = ?, day_times = ?,
+                  semester = ?, source = ?, source_id = ?, grade = ?,
+                  grade_percent = ?, category_weights = ?, weight_source = ?, is_ap = ?
+                WHERE id = ? AND user_id = ?`,
+          params: [
+            merged.name, merged.teacher, merged.room, merged.color, merged.period,
+            merged.startTime, merged.endTime, JSON.stringify(merged.days),
+            merged.dayTimes ? JSON.stringify(merged.dayTimes) : null,
+            merged.semester, merged.source ?? null, merged.sourceId ?? null, merged.grade ?? null,
+            merged.gradePercent ?? null,
+            merged.categoryWeights ? JSON.stringify(merged.categoryWeights) : null,
+            merged.weightSource ?? null, merged.isAp ?? false ? 1 : 0,
+            merged.id, userId,
+          ],
+        });
         idMap.set(cls.id, prior.id);
         keptIds.add(prior.id);
         updated++;
       } else {
-        writeQueries.push(sql`
-          INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
-          VALUES (
-            ${cls.id}, ${userId}, ${cls.name}, ${cls.teacher}, ${cls.room}, ${cls.color}, ${cls.period},
-            ${cls.startTime}, ${cls.endTime}, ${JSON.stringify(cls.days)}::jsonb,
-            ${cls.dayTimes ? JSON.stringify(cls.dayTimes) : null}::jsonb,
-            ${cls.semester}, ${source}, ${cls.sourceId ?? null},
-            ${cls.grade ?? null}, ${cls.gradePercent ?? null},
-            ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
-            ${cls.weightSource ?? null}, ${cls.isAp ?? detectApFromName(cls.name)}
-          )
-        `);
+        writeQueries.push({
+          sql: `INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          params: [
+            cls.id, userId, cls.name, cls.teacher, cls.room, cls.color, cls.period,
+            cls.startTime, cls.endTime, JSON.stringify(cls.days),
+            cls.dayTimes ? JSON.stringify(cls.dayTimes) : null,
+            cls.semester, source, cls.sourceId ?? null,
+            cls.grade ?? null, cls.gradePercent ?? null,
+            cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null,
+            cls.weightSource ?? null, cls.isAp ?? detectApFromName(cls.name) ? 1 : 0,
+          ],
+        });
         idMap.set(cls.id, cls.id);
         keptIds.add(cls.id);
         if (syncId) {
           logEntries.push({
-            syncId,
-            entityType: 'class',
-            entityId: cls.id,
-            classId: cls.id,
-            label: cls.name,
-            changeType: 'added',
+            syncId, entityType: 'class', entityId: cls.id, classId: cls.id,
+            label: cls.name, changeType: 'added',
             detail: cls.grade ? `Grade: ${cls.grade}` : 'New class',
           });
         }
@@ -1239,7 +1330,6 @@ export async function syncClassesFromSource(
       }
     }
 
-    // Only delete from semesters that appeared in the incoming batch; prior-semester rows survive.
     const deleteCandidates = fromSource.filter((c) => {
       if (keptIds.has(c.id)) return false;
       if (incomingSemesters.size === 0) return true;
@@ -1249,38 +1339,35 @@ export async function syncClassesFromSource(
     if (syncId) {
       for (const c of deleteCandidates) {
         logEntries.push({
-          syncId,
-          entityType: 'class',
-          entityId: c.id,
-          classId: c.id,
-          label: c.name,
-          changeType: 'removed',
-          detail: 'No longer in PowerSchool',
+          syncId, entityType: 'class', entityId: c.id, classId: c.id,
+          label: c.name, changeType: 'removed', detail: 'No longer in PowerSchool',
         });
       }
     }
     if (toDeleteIds.length > 0) {
-      writeQueries.push(sql`DELETE FROM classes WHERE id = ANY(${toDeleteIds}) AND user_id = ${userId}`);
+      const { clause, params } = inClause(toDeleteIds);
+      writeQueries.push({ sql: `DELETE FROM classes WHERE id ${clause} AND user_id = ?`, params: [...params, userId] });
     }
-    await runBatchedWrites(sql, writeQueries);
+    await runBatchedWrites(writeQueries);
     return { added, updated, removed: toDeleteIds.length, idMap, logEntries };
   }
 
   // Classroom (and future sources)
   for (const cls of incoming) {
     if (!cls.sourceId) {
-      writeQueries.push(sql`
-        INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
-        VALUES (
-          ${cls.id}, ${userId}, ${cls.name}, ${cls.teacher}, ${cls.room}, ${cls.color}, ${cls.period},
-          ${cls.startTime}, ${cls.endTime}, ${JSON.stringify(cls.days)}::jsonb,
-          ${cls.dayTimes ? JSON.stringify(cls.dayTimes) : null}::jsonb,
-          ${cls.semester}, ${source}, ${null},
-          ${cls.grade ?? null}, ${cls.gradePercent ?? null},
-          ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
-          ${cls.weightSource ?? null}, ${cls.isAp ?? detectApFromName(cls.name)}
-        )
-      `);
+      writeQueries.push({
+        sql: `INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [
+          cls.id, userId, cls.name, cls.teacher, cls.room, cls.color, cls.period,
+          cls.startTime, cls.endTime, JSON.stringify(cls.days),
+          cls.dayTimes ? JSON.stringify(cls.dayTimes) : null,
+          cls.semester, source, null,
+          cls.grade ?? null, cls.gradePercent ?? null,
+          cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null,
+          cls.weightSource ?? null, cls.isAp ?? detectApFromName(cls.name) ? 1 : 0,
+        ],
+      });
       idMap.set(cls.id, cls.id);
       added++;
       continue;
@@ -1310,40 +1397,43 @@ export async function syncClassesFromSource(
       if (prior.endTime?.trim()) merged.endTime = prior.endTime;
       if (prior.dayTimes && Object.keys(prior.dayTimes).length > 0) merged.dayTimes = prior.dayTimes;
       if (prior.period && Number(prior.period) > 0) merged.period = prior.period;
-      // See the PowerSchool merge branch above for why this re-runs on every
-      // sync instead of just carrying `prior.isAp` through unchanged.
       merged.isAp = resolveIsApOnSync(prior.isAp, merged.name);
 
-      writeQueries.push(sql`
-        UPDATE classes SET
-          name = ${merged.name}, teacher = ${merged.teacher}, room = ${merged.room},
-          color = ${merged.color}, period = ${merged.period},
-          start_time = ${merged.startTime}, end_time = ${merged.endTime},
-          days = ${JSON.stringify(merged.days)}::jsonb,
-          day_times = ${merged.dayTimes ? JSON.stringify(merged.dayTimes) : null}::jsonb,
-          semester = ${merged.semester}, source = ${merged.source ?? null},
-          source_id = ${merged.sourceId ?? null}, grade = ${merged.grade ?? null},
-          grade_percent = ${merged.gradePercent ?? null},
-          category_weights = ${merged.categoryWeights ? JSON.stringify(merged.categoryWeights) : null}::jsonb,
-          weight_source = ${merged.weightSource ?? null}, is_ap = ${merged.isAp ?? false}
-        WHERE id = ${merged.id} AND user_id = ${userId}
-      `);
+      writeQueries.push({
+        sql: `UPDATE classes SET
+                name = ?, teacher = ?, room = ?, color = ?, period = ?,
+                start_time = ?, end_time = ?, days = ?, day_times = ?,
+                semester = ?, source = ?, source_id = ?, grade = ?,
+                grade_percent = ?, category_weights = ?, weight_source = ?, is_ap = ?
+              WHERE id = ? AND user_id = ?`,
+        params: [
+          merged.name, merged.teacher, merged.room, merged.color, merged.period,
+          merged.startTime, merged.endTime, JSON.stringify(merged.days),
+          merged.dayTimes ? JSON.stringify(merged.dayTimes) : null,
+          merged.semester, merged.source ?? null, merged.sourceId ?? null, merged.grade ?? null,
+          merged.gradePercent ?? null,
+          merged.categoryWeights ? JSON.stringify(merged.categoryWeights) : null,
+          merged.weightSource ?? null, merged.isAp ?? false ? 1 : 0,
+          merged.id, userId,
+        ],
+      });
       idMap.set(cls.id, prior.id);
       keptIds.add(prior.id);
       updated++;
     } else {
-      writeQueries.push(sql`
-        INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
-        VALUES (
-          ${cls.id}, ${userId}, ${cls.name}, ${cls.teacher}, ${cls.room}, ${cls.color}, ${cls.period},
-          ${cls.startTime}, ${cls.endTime}, ${JSON.stringify(cls.days)}::jsonb,
-          ${cls.dayTimes ? JSON.stringify(cls.dayTimes) : null}::jsonb,
-          ${cls.semester}, ${source}, ${cls.sourceId ?? null},
-          ${cls.grade ?? null}, ${cls.gradePercent ?? null},
-          ${cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null}::jsonb,
-          ${cls.weightSource ?? null}, ${cls.isAp ?? detectApFromName(cls.name)}
-        )
-      `);
+      writeQueries.push({
+        sql: `INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [
+          cls.id, userId, cls.name, cls.teacher, cls.room, cls.color, cls.period,
+          cls.startTime, cls.endTime, JSON.stringify(cls.days),
+          cls.dayTimes ? JSON.stringify(cls.dayTimes) : null,
+          cls.semester, source, cls.sourceId ?? null,
+          cls.grade ?? null, cls.gradePercent ?? null,
+          cls.categoryWeights ? JSON.stringify(cls.categoryWeights) : null,
+          cls.weightSource ?? null, cls.isAp ?? detectApFromName(cls.name) ? 1 : 0,
+        ],
+      });
       idMap.set(cls.id, cls.id);
       added++;
     }
@@ -1351,9 +1441,10 @@ export async function syncClassesFromSource(
 
   const toDelete = fromSource.filter((c) => !keptIds.has(c.id)).map((c) => c.id);
   if (toDelete.length > 0) {
-    writeQueries.push(sql`DELETE FROM classes WHERE id = ANY(${toDelete}) AND user_id = ${userId}`);
+    const { clause, params } = inClause(toDelete);
+    writeQueries.push({ sql: `DELETE FROM classes WHERE id ${clause} AND user_id = ?`, params: [...params, userId] });
   }
-  await runBatchedWrites(sql, writeQueries);
+  await runBatchedWrites(writeQueries);
   return { added, updated, removed: toDelete.length, idMap, logEntries };
 }
 
@@ -1363,18 +1454,23 @@ export async function syncHomeworkFromSource(
   userId: string,
   syncId: string = '',
 ): Promise<{ added: number; updated: number; removed: number; logEntries: Omit<SyncLogEntry, 'id' | 'occurredAt'>[] }> {
-  const sql = getDb();
   const logEntries: Omit<SyncLogEntry, 'id' | 'occurredAt'>[] = [];
-  // Defer row writes and flush as batched transactions (the merge loop never
-  // reads back its own writes), collapsing one HTTP round trip per assignment
-  // into ceil(N / chunkSize) — the dominant cost on large PowerSchool syncs.
-  const writeQueries: WriteQuery[] = [];
+  const writeQueries: Array<{ sql: string; params: unknown[] }> = [];
 
-  // Scope to only class IDs in the incoming batch — avoids deleting prior-semester homework.
   const incomingClassIds = [...new Set(incoming.map((h) => h.classId))];
-  const existingRows = incomingClassIds.length > 0
-    ? await sql`SELECT * FROM homework WHERE source = ${source} AND user_id = ${userId} AND class_id = ANY(${incomingClassIds})`
-    : await sql`SELECT * FROM homework WHERE source = ${source} AND user_id = ${userId}`;
+  let existingRows: RowDataPacket[];
+  if (incomingClassIds.length > 0) {
+    const { clause, params } = inClause(incomingClassIds);
+    existingRows = await query<RowDataPacket>(
+      `SELECT * FROM homework WHERE source = ? AND user_id = ? AND class_id ${clause}`,
+      [source, userId, ...params],
+    );
+  } else {
+    existingRows = await query<RowDataPacket>(
+      `SELECT * FROM homework WHERE source = ? AND user_id = ?`,
+      [source, userId],
+    );
+  }
   const existing = existingRows.map((r) => dbToHomework(r as Record<string, unknown>));
 
   const bySourceId = new Map<string, Homework>();
@@ -1388,83 +1484,74 @@ export async function syncHomeworkFromSource(
 
   for (const hw of incoming) {
     if (!hw.sourceId) {
-      writeQueries.push(sql`
-        INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, teacher_note, score_percent)
-        VALUES (
-          ${hw.id}, ${userId}, ${hw.classId}, ${hw.title}, ${hw.description}, ${hw.dueDate},
-          ${hw.completed}, ${hw.priority}, ${source}, ${null},
-          ${hw.score ?? null}, ${hw.category ?? null}, ${hw.flags ?? null}, ${hw.teacherNote ?? null}, ${hw.scorePercent ?? null}
-        )
-      `);
+      writeQueries.push({
+        sql: `INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, teacher_note, score_percent)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [
+          hw.id, userId, hw.classId, hw.title, hw.description, hw.dueDate,
+          hw.completed ? 1 : 0, hw.priority, source, null,
+          hw.score ?? null, hw.category ?? null, hw.flags ?? null,
+          hw.teacherNote ?? null, hw.scorePercent ?? null,
+        ],
+      });
       added++;
       continue;
     }
 
     const prior = bySourceId.get(hw.sourceId);
     if (prior) {
-      const merged: Homework = {
-        ...prior,
-        ...hw,
-        id: prior.id,
-        completed: prior.completed,
-        priority: prior.priority,
-        source,
-      };
+      const merged: Homework = { ...prior, ...hw, id: prior.id, completed: prior.completed, priority: prior.priority, source };
 
       if (syncId) {
         if ((prior.scorePercent ?? null) !== (hw.scorePercent ?? null)) {
           logEntries.push({
-            syncId,
-            entityType: 'homework',
-            entityId: merged.id,
-            classId: merged.classId,
-            label: merged.title,
-            changeType: 'score_changed',
+            syncId, entityType: 'homework', entityId: merged.id, classId: merged.classId,
+            label: merged.title, changeType: 'score_changed',
             detail: `${prior.scorePercent !== undefined ? prior.scorePercent + '%' : prior.score ?? '—'} → ${hw.scorePercent !== undefined ? hw.scorePercent + '%' : hw.score ?? '—'}`,
           });
         } else if ((prior.flags ?? '') !== (hw.flags ?? '')) {
           logEntries.push({
-            syncId,
-            entityType: 'homework',
-            entityId: merged.id,
-            classId: merged.classId,
-            label: merged.title,
-            changeType: 'flag_changed',
+            syncId, entityType: 'homework', entityId: merged.id, classId: merged.classId,
+            label: merged.title, changeType: 'flag_changed',
             detail: `${prior.flags || '(none)'} → ${hw.flags || '(none)'}`,
           });
         }
       }
 
-      writeQueries.push(sql`
-        UPDATE homework SET
-          class_id = ${merged.classId}, title = ${merged.title},
-          description = ${merged.description}, due_date = ${merged.dueDate},
-          completed = ${merged.completed}, priority = ${merged.priority},
-          source = ${merged.source}, source_id = ${merged.sourceId ?? null},
-          score = ${merged.score ?? null}, category = ${merged.category ?? null},
-          flags = ${merged.flags ?? null}, teacher_note = ${merged.teacherNote ?? null},
-          score_percent = ${merged.scorePercent ?? null}
-        WHERE id = ${merged.id} AND user_id = ${userId}
-      `);
+      writeQueries.push({
+        sql: `UPDATE homework SET
+                class_id = ?, title = ?, description = ?, due_date = ?,
+                completed = ?, priority = ?,
+                source = ?, source_id = ?,
+                score = ?, category = ?, flags = ?, teacher_note = ?,
+                score_percent = ?
+              WHERE id = ? AND user_id = ?`,
+        params: [
+          merged.classId, merged.title, merged.description, merged.dueDate,
+          merged.completed ? 1 : 0, merged.priority,
+          merged.source, merged.sourceId ?? null,
+          merged.score ?? null, merged.category ?? null, merged.flags ?? null,
+          merged.teacherNote ?? null, merged.scorePercent ?? null,
+          merged.id, userId,
+        ],
+      });
       keptIds.add(prior.id);
       updated++;
     } else {
-      writeQueries.push(sql`
-        INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, teacher_note, score_percent)
-        VALUES (
-          ${hw.id}, ${userId}, ${hw.classId}, ${hw.title}, ${hw.description}, ${hw.dueDate},
-          ${hw.completed}, ${hw.priority}, ${source}, ${hw.sourceId ?? null},
-          ${hw.score ?? null}, ${hw.category ?? null}, ${hw.flags ?? null}, ${hw.teacherNote ?? null}, ${hw.scorePercent ?? null}
-        )
-      `);
+      writeQueries.push({
+        sql: `INSERT INTO homework (id, user_id, class_id, title, description, due_date, completed, priority, source, source_id, score, category, flags, teacher_note, score_percent)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [
+          hw.id, userId, hw.classId, hw.title, hw.description, hw.dueDate,
+          hw.completed ? 1 : 0, hw.priority, source, hw.sourceId ?? null,
+          hw.score ?? null, hw.category ?? null, hw.flags ?? null,
+          hw.teacherNote ?? null, hw.scorePercent ?? null,
+        ],
+      });
       if (syncId) {
         logEntries.push({
-          syncId,
-          entityType: 'homework',
-          entityId: hw.id,
-          classId: hw.classId,
-          label: hw.title,
-          changeType: 'added',
+          syncId, entityType: 'homework', entityId: hw.id, classId: hw.classId,
+          label: hw.title, changeType: 'added',
           detail: hw.score ? `Score: ${hw.score}` : hw.dueDate,
         });
       }
@@ -1474,8 +1561,9 @@ export async function syncHomeworkFromSource(
 
   const toDelete = existing.filter((hw) => !keptIds.has(hw.id)).map((hw) => hw.id);
   if (toDelete.length > 0) {
-    writeQueries.push(sql`DELETE FROM homework WHERE id = ANY(${toDelete}) AND user_id = ${userId}`);
+    const { clause, params } = inClause(toDelete);
+    writeQueries.push({ sql: `DELETE FROM homework WHERE id ${clause} AND user_id = ?`, params: [...params, userId] });
   }
-  await runBatchedWrites(sql, writeQueries);
+  await runBatchedWrites(writeQueries);
   return { added, updated, removed: toDelete.length, logEntries };
 }

@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import mysql from 'mysql2/promise';
 import { getSessionUserId } from '@/lib/auth';
 
 type CacheEntry = { at: number; ok: boolean; error?: string };
@@ -19,15 +19,10 @@ export async function GET(request: Request) {
     }
   }
 
-  // Note: this deliberately does NOT short-circuit to `ok: false` when
-  // DATABASE_URL is unset — locally, `@neondatabase/serverless` is replaced
-  // by a dev-only shim (see the "LOCAL DEV/DEMO SHIM" comment at the top of
-  // that package) that ignores the connection string and always works
-  // against an in-memory Postgres, so a missing env var doesn't necessarily
-  // mean the database is actually unreachable. Let the query itself decide.
   try {
-    const sql = neon(process.env.DATABASE_URL ?? '');
-    await sql`SELECT 1`;
+    const pool = mysql.createPool(process.env.DATABASE_URL ?? '');
+    await pool.query('SELECT 1');
+    await pool.end();
     cache = { at: Date.now(), ok: true };
     return Response.json({ ok: true });
   } catch {

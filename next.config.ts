@@ -14,14 +14,14 @@ const securityHeaders = [
     { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
     {
       key: 'Content-Security-Policy',
-      value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.neon.tech https://va.vercel-scripts.com; frame-ancestors 'none';",
+      value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://va.vercel-scripts.com; frame-ancestors 'none';",
     },
   ] : []),
 ];
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ['puppeteer-core', '@sparticuz/chromium-min'],
+  serverExternalPackages: ['puppeteer-core', '@sparticuz/chromium-min', 'mysql2'],
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
