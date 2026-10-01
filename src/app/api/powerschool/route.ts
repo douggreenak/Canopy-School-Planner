@@ -11,16 +11,25 @@ import { runPowerSchoolSync, startPowerSchoolSync } from '@/lib/powerschoolSync'
 // request. See src/lib/powerschoolSync.ts for the shared runner (also used
 // by the scheduled-sync cron route) and its atomic per-user lock.
 export async function POST(request: NextRequest) {
+  let body;
+  try {
+    body = await request.json();
+    console.log("POST /api/powerschool payload:", body);
+  } catch (error) {
+    console.error("Validation error:", error);
+    return Response.json({ error: "Invalid payload", details: error }, { status: 400 });
+  }
+
   const userId = await getSessionUserId(request);
   if (!userId) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const body = await request.json().catch(() => ({}));
   const saved = await getPowerSchoolCredentials(userId);
-  const url = body.url || saved.url || '';
-  const username = body.username || saved.username || '';
-  const password = body.password || saved.password || '';
+  const url = body?.url || saved?.url || '';
+  const username = body?.username || saved?.username || '';
+  const password = body?.password || saved?.password || '';
 
   if (!url || !username || !password) {
+    console.error("Validation error: Missing PowerSchool credentials. Payload:", body);
     return Response.json({
       success: false,
       error: 'Missing PowerSchool credentials. Save them in Settings first.',
