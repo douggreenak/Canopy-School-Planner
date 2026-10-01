@@ -65,8 +65,11 @@ import FormControl from '@mui/material/FormControl';
 // per entry, with up to ~59min of slop) rather than an arbitrary time.
 const AUTO_SYNC_HOURS = [0, 3, 6, 9, 12, 15, 18, 21];
 function localHourLabel(utcHour: number): string {
-  const d = new Date(Date.UTC(2000, 0, 1, utcHour, 0, 0));
-  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const now = new Date();
+  const nextRun = new Date(now);
+  nextRun.setUTCHours(utcHour, 0, 0, 0);
+  if (nextRun <= now) nextRun.setUTCDate(nextRun.getUTCDate() + 1);
+  return nextRun.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 import { useThemeMode } from '@/components/ThemeRegistry';
 import { ACCENT_PRESETS, resolvePresetColors } from '@/lib/theme';
