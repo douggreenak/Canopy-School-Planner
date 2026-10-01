@@ -915,34 +915,26 @@ export async function setSettingsBatch(entries: [string, string][], userId: stri
 }
 
 /**
- * Cross-user scan for the scheduled-sync cron: every user whose stored
- * `powerschoolAutoSync` setting is enabled and matches the given UTC hour
- * bucket. Mirrors the cross-user query style already used by getSystemStats.
+ * Cross-user scan for the daily scheduled-sync cron: every user whose stored
+ * `powerschoolAutoSync` setting is enabled.
  */
-export async function getUsersWithAutoSyncDueAt(utcHour: number): Promise<string[]> {
+export async function getUsersWithAutoSyncEnabled(): Promise<string[]> {
   const rows = await query<RowDataPacket>(
     `SELECT user_id, value FROM settings WHERE \`key\` = 'powerschoolAutoSync'`,
   );
   const due: string[] = [];
-  const enabledByStoredHour: Record<string, number> = {};
   let malformedRows = 0;
   for (const row of rows) {
     try {
-      const parsed = JSON.parse((row.value as string) || '{}') as { enabled?: unknown; utcHour?: unknown };
-      if (parsed.enabled) {
-        const hourKey = typeof parsed.utcHour === 'number' ? String(parsed.utcHour) : `non-number:${typeof parsed.utcHour}`;
-        enabledByStoredHour[hourKey] = (enabledByStoredHour[hourKey] ?? 0) + 1;
-        if (parsed.utcHour === utcHour) due.push(row.user_id as string);
-      }
+      const parsed = JSON.parse((row.value as string) || '{}') as { enabled?: unknown };
+      if (parsed.enabled) due.push(row.user_id as string);
     } catch {
       // malformed setting value — skip rather than fail the whole scan
       malformedRows++;
     }
   }
   console.info('[PowerSchool cron] auto-sync selection', {
-    requestedHour: utcHour,
     settingsRows: rows.length,
-    enabledByStoredHour,
     malformedRows,
     matchedUsers: due.length,
   });

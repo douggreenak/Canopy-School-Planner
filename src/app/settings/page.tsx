@@ -55,22 +55,7 @@ import { buildLathropEarlyOutTemplate, computeLathropSchedule } from '@/lib/sche
 import { syncPowerSchoolAndWait, waitForPowerSchoolSync } from '@/lib/powerschoolClient';
 import { fetchPowerSchoolStatusNow } from '@/lib/powerschoolStatusStore';
 import ScheduleIcon from '@mui/icons-material/Schedule';
-import MenuItem from '@mui/material/MenuItem';
-import Select from '@mui/material/Select';
-import InputLabel from '@mui/material/InputLabel';
-import FormControl from '@mui/material/FormControl';
 
-// Vercel Cron trigger hours (UTC) — must match vercel.json's `crons` array
-// exactly. Kept as a small fixed set (Hobby-plan cron can only fire once/day
-// per entry, with up to ~59min of slop) rather than an arbitrary time.
-const AUTO_SYNC_HOURS = [0, 3, 6, 9, 12, 15, 18, 21];
-function localHourLabel(utcHour: number): string {
-  const now = new Date();
-  const nextRun = new Date(now);
-  nextRun.setUTCHours(utcHour, 0, 0, 0);
-  if (nextRun <= now) nextRun.setUTCDate(nextRun.getUTCDate() + 1);
-  return nextRun.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
 import { useThemeMode } from '@/components/ThemeRegistry';
 import { ACCENT_PRESETS, resolvePresetColors } from '@/lib/theme';
 import TimezonePicker from '@/components/TimezonePicker';
@@ -197,7 +182,6 @@ function SettingsInner() {
   // settings fetch below resolves either way.
   const [lathropMode, setLathropMode] = useState(true);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
-  const [autoSyncHour, setAutoSyncHour] = useState(12);
 
   // Change password
   const [currentPassword, setCurrentPassword] = useState('');
@@ -291,7 +275,6 @@ function SettingsInner() {
           try {
             const parsed = typeof s.powerschoolAutoSync === 'string' ? JSON.parse(s.powerschoolAutoSync) : s.powerschoolAutoSync;
             setAutoSyncEnabled(!!parsed.enabled);
-            if (typeof parsed.utcHour === 'number') setAutoSyncHour(parsed.utcHour);
           } catch {
             // ignore malformed stored value — keep defaults
           }
@@ -451,21 +434,18 @@ function SettingsInner() {
     }
   };
 
-  const saveAutoSync = async (enabled: boolean, utcHour: number) => {
+  const saveAutoSync = async (enabled: boolean) => {
     const previousEnabled = autoSyncEnabled;
-    const previousHour = autoSyncHour;
     setAutoSyncEnabled(enabled);
-    setAutoSyncHour(utcHour);
     try {
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled, utcHour } }),
+        body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled } }),
       });
       if (!response.ok) throw new Error('Could not save scheduled sync settings.');
     } catch {
       setAutoSyncEnabled(previousEnabled);
-      setAutoSyncHour(previousHour);
       setSnackbar({ open: true, message: 'Could not save scheduled sync settings.', severity: 'error' });
     }
   };
@@ -959,7 +939,7 @@ function SettingsInner() {
                   control={
                     <Switch
                       checked={autoSyncEnabled}
-                      onChange={(e) => saveAutoSync(e.target.checked, autoSyncHour)}
+                      onChange={(e) => saveAutoSync(e.target.checked)}
                       size="small"
                       disabled={!setupStatus?.hasPowerschool}
                     />
@@ -970,27 +950,13 @@ function SettingsInner() {
                         <ScheduleIcon sx={{ fontSize: 16 }} /> Scheduled Sync
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        Automatically sync PowerSchool once a day, even if you don&apos;t open the app.
+                        Automatically sync PowerSchool once a day around 4 AM Alaska time. The UTC schedule shifts by an hour during standard time.
                         {!setupStatus?.hasPowerschool && ' Save a PowerSchool login above first.'}
                       </Typography>
                     </Box>
                   }
                   sx={{ mb: autoSyncEnabled ? 1 : 1.5, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { mt: 0.25 } }}
                 />
-                {autoSyncEnabled && (
-                  <FormControl size="small" sx={{ mb: 1.5, minWidth: 220 }}>
-                    <InputLabel>Runs around</InputLabel>
-                    <Select
-                      value={autoSyncHour}
-                      label="Runs around"
-                      onChange={(e) => saveAutoSync(true, Number(e.target.value))}
-                    >
-                      {AUTO_SYNC_HOURS.map((h) => (
-                        <MenuItem key={h} value={h}>~{localHourLabel(h)} your time</MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                )}
               </Grid>
               <Grid size={12}>
                 <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>

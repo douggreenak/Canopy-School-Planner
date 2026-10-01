@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getUsersWithAutoSyncDueAt, getPowerSchoolCredentials } from '@/lib/db';
+import { getUsersWithAutoSyncEnabled, getPowerSchoolCredentials } from '@/lib/db';
 import { runPowerSchoolSync, startPowerSchoolSync } from '@/lib/powerschoolSync';
 import { launchBrowser } from '@/lib/powerschool';
 
@@ -10,12 +10,9 @@ import { launchBrowser } from '@/lib/powerschool';
 // stale-lock cleanup in tryAcquireSyncLock reclaims it on some later attempt.
 const SAFETY_DEADLINE_MS = 250_000;
 
-// Scheduled PowerSchool sync — fired by Vercel Cron (see vercel.json's
-// `crons` array: one entry per fixed UTC hour bucket, ?hour=N identifies
-// which one). Hobby-plan cron can only run once/day per entry with up to
-// ~59min of slop, so "schedule sync at a time" is deliberately a small set
-// of coarse hour buckets rather than an arbitrary exact minute — see the
-// `powerschoolAutoSync` setting and Settings page UI.
+// Scheduled PowerSchool sync — one daily Vercel Cron invocation processes
+// every user who has auto-sync enabled. The fixed 12:00 UTC schedule is
+// around 4 AM in Alaska during daylight time and 3 AM during standard time.
 //
 // Vercel's cron delivery is best-effort (can skip or occasionally double-
 // fire a tick) and this handler may match several users at once, so it's
@@ -26,12 +23,12 @@ const SAFETY_DEADLINE_MS = 250_000;
 // loop — deliberately NOT fired off via after() per user (the previous
 // approach). Each sync launches a real headless Chromium via Puppeteer
 // (~1024MB function memory cap per vercel.json), and after() has no
-// concurrency limit of its own: if a burst of users happened to share the
-// same hour bucket, every one of their Chromium instances would launch at
+// concurrency limit of its own: if a burst of users happened to be enabled,
+// every one of their Chromium instances would launch at
 // once inside this ONE invocation and could easily OOM-crash it — taking
 // every other user sharing that bucket down with it, not just the extras.
 // Processing sequentially keeps peak memory to what a single scrape needs
-// no matter how many users land in this bucket; a hard per-invocation time
+// no matter how many users are enabled; a hard per-invocation time
 // budget (SAFETY_DEADLINE_MS) means a large batch degrades to "the rest wait
 // for tomorrow's tick" instead of a timeout mid-scrape.
 export async function GET(request: NextRequest) {
@@ -40,14 +37,8 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const hourParam = request.nextUrl.searchParams.get('hour');
-  const hour = hourParam ? parseInt(hourParam, 10) : NaN;
-  if (!Number.isFinite(hour) || hour < 0 || hour > 23) {
-    return Response.json({ error: 'Missing or invalid ?hour=' }, { status: 400 });
-  }
-
   const startedAt = Date.now();
-  const userIds = await getUsersWithAutoSyncDueAt(hour);
+  const userIds = await getUsersWithAutoSyncEnabled();
   const fired: string[] = [];
   const skipped: string[] = [];
   const deferred: string[] = [];
@@ -88,7 +79,6 @@ export async function GET(request: NextRequest) {
   }
 
   return Response.json({
-    hour,
     matched: userIds.length,
     fired: fired.length,
     skipped: skipped.length,

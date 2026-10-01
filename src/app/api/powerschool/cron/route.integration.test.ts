@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  getUsersWithAutoSyncDueAt: vi.fn(),
+  getUsersWithAutoSyncEnabled: vi.fn(),
   getPowerSchoolCredentials: vi.fn(),
   tryAcquireSyncLock: vi.fn(),
   releaseSyncLock: vi.fn(),
@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/db', () => ({
-  getUsersWithAutoSyncDueAt: mocks.getUsersWithAutoSyncDueAt,
+  getUsersWithAutoSyncEnabled: mocks.getUsersWithAutoSyncEnabled,
   getPowerSchoolCredentials: mocks.getPowerSchoolCredentials,
   tryAcquireSyncLock: mocks.tryAcquireSyncLock,
   releaseSyncLock: mocks.releaseSyncLock,
@@ -63,10 +63,10 @@ const DEMO_CLASS = {
   sourceId: 'demo-source-class',
 };
 
-function makeRequest(hour: number): Parameters<typeof GET>[0] {
+function makeRequest(): Parameters<typeof GET>[0] {
   return {
     headers: { get: () => null },
-    nextUrl: { searchParams: new URLSearchParams({ hour: String(hour) }) },
+    nextUrl: { searchParams: new URLSearchParams() },
   } as unknown as Parameters<typeof GET>[0];
 }
 
@@ -74,7 +74,7 @@ beforeEach(() => {
   vi.stubEnv('CRON_SECRET', '');
   vi.clearAllMocks();
   mocks.statuses.length = 0;
-  mocks.getUsersWithAutoSyncDueAt.mockImplementation(async (hour: number) => hour === 12 ? ['demo-user'] : []);
+  mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['demo-user']);
   mocks.getPowerSchoolCredentials.mockResolvedValue(DEMO_CREDS);
   mocks.tryAcquireSyncLock.mockResolvedValue(true);
   mocks.setSyncStatus.mockImplementation(async (userId: string, status: { status: string }) => {
@@ -108,13 +108,13 @@ afterEach(() => {
 });
 
 describe('scheduled PowerSchool sync with demo data', () => {
-  it('runs the matching hour bucket through scrape, sync status, and completion without a real DB or browser', async () => {
-    const response = await GET(makeRequest(12));
+  it('runs an enabled demo account through scrape, sync status, and completion without a real DB or browser', async () => {
+    const response = await GET(makeRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({ hour: 12, matched: 1, fired: 1, skipped: 0, deferred: 0 });
-    expect(mocks.getUsersWithAutoSyncDueAt).toHaveBeenCalledWith(12);
+    expect(body).toMatchObject({ matched: 1, fired: 1, skipped: 0, deferred: 0 });
+    expect(mocks.getUsersWithAutoSyncEnabled).toHaveBeenCalledOnce();
     expect(mocks.scrapePowerSchool).toHaveBeenCalledWith(DEMO_CREDS, expect.anything());
     expect(mocks.statuses.map(({ status }) => status)).toEqual(['running', 'success']);
     expect(mocks.statuses.every(({ userId }) => userId === 'demo-user')).toBe(true);
@@ -123,12 +123,13 @@ describe('scheduled PowerSchool sync with demo data', () => {
     expect(mocks.closeBrowser).toHaveBeenCalledOnce();
   });
 
-  it('does not launch a browser or sync when the scheduled hour has no due users', async () => {
-    const response = await GET(makeRequest(15));
+  it('does not launch a browser or sync when no users have auto-sync enabled', async () => {
+    mocks.getUsersWithAutoSyncEnabled.mockResolvedValue([]);
+    const response = await GET(makeRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({ hour: 15, matched: 0, fired: 0, skipped: 0, deferred: 0 });
+    expect(body).toMatchObject({ matched: 0, fired: 0, skipped: 0, deferred: 0 });
     expect(mocks.scrapePowerSchool).not.toHaveBeenCalled();
     expect(mocks.closeBrowser).not.toHaveBeenCalled();
   });

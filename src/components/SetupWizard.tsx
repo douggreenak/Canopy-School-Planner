@@ -232,12 +232,11 @@ export default function SetupWizard({ open, onClose, required = false }: Props) 
       // A successful connection is exactly the case where scheduled sync is
       // most worth defaulting to on — the user just proved their
       // credentials work, so keeping data fresh going forward shouldn't need
-      // a second trip to Settings. utcHour matches the same default the
-      // Settings page's own picker starts from; easy to change there.
+      // a second trip to Settings.
       await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled: true, utcHour: 12 } }),
+        body: JSON.stringify({ key: 'powerschoolAutoSync', value: { enabled: true } }),
       }).catch(() => {});
       setStep(3);
     } catch (e) {

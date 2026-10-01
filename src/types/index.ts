@@ -186,12 +186,8 @@ export interface AppSettings {
   accentColor?: string;
   timezone?: string;
   lastSyncAt?: string;
-  // Scheduled automatic PowerSchool sync. `utcHour` is one of a small fixed
-  // set of once-daily Vercel Cron trigger hours (0/3/6/9/12/15/18/21) — see
-  // vercel.json's `crons` array. Hobby-plan cron can only run once/day per
-  // entry with up to ~59min of slop, so this is deliberately a coarse hour
-  // bucket, not an arbitrary exact time.
-  powerschoolAutoSync?: { enabled: boolean; utcHour: number };
+  // Scheduled automatic PowerSchool sync.
+  powerschoolAutoSync?: { enabled: boolean };
 }
 
 export interface DaySchedule {

@@ -2,20 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Regression test for a real crash risk: this route used to fire every
 // matched user's sync via after() in a loop with no concurrency limit at
-// all, so a burst of users sharing the same hour bucket would launch that
+// all, so a burst of enabled users would launch that
 // many headless-Chromium scrapes at once inside ONE ~1024MB serverless
 // invocation — easily enough to OOM it (Vercel Hobby plan). It now runs them
 // one at a time in a plain sequential loop; this asserts that property
 // directly by tracking how many mocked syncs are in flight simultaneously.
 const mocks = vi.hoisted(() => ({
-  getUsersWithAutoSyncDueAt: vi.fn(),
+  getUsersWithAutoSyncEnabled: vi.fn(),
   getPowerSchoolCredentials: vi.fn(),
   startPowerSchoolSync: vi.fn(),
   runPowerSchoolSync: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
-  getUsersWithAutoSyncDueAt: mocks.getUsersWithAutoSyncDueAt,
+  getUsersWithAutoSyncEnabled: mocks.getUsersWithAutoSyncEnabled,
   getPowerSchoolCredentials: mocks.getPowerSchoolCredentials,
 }));
 vi.mock('@/lib/powerschoolSync', () => ({
@@ -25,10 +25,10 @@ vi.mock('@/lib/powerschoolSync', () => ({
 
 const { GET } = await import('./route');
 
-function makeRequest(hour: number): Parameters<typeof GET>[0] {
+function makeRequest(): Parameters<typeof GET>[0] {
   return {
     headers: { get: () => null },
-    nextUrl: { searchParams: new URLSearchParams({ hour: String(hour) }) },
+    nextUrl: { searchParams: new URLSearchParams() },
   } as unknown as Parameters<typeof GET>[0];
 }
 
@@ -41,8 +41,8 @@ beforeEach(() => {
 });
 
 describe('GET /api/powerschool/cron', () => {
-  it('never runs more than one scrape at a time, even when several users share the hour bucket', async () => {
-    mocks.getUsersWithAutoSyncDueAt.mockResolvedValue(['u1', 'u2', 'u3']);
+  it('never runs more than one scrape at a time, even when several users share the daily run', async () => {
+    mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1', 'u2', 'u3']);
 
     let inFlight = 0;
     let maxInFlight = 0;
@@ -53,7 +53,7 @@ describe('GET /api/powerschool/cron', () => {
       inFlight--;
     });
 
-    const res = await GET(makeRequest(12));
+    const res = await GET(makeRequest());
     const body = await res.json();
 
     expect(maxInFlight).toBe(1);
@@ -62,10 +62,10 @@ describe('GET /api/powerschool/cron', () => {
   });
 
   it('skips a matched user with no saved credentials without starting a sync', async () => {
-    mocks.getUsersWithAutoSyncDueAt.mockResolvedValue(['u1']);
+    mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1']);
     mocks.getPowerSchoolCredentials.mockResolvedValue({ url: '', username: '', password: '' });
 
-    const res = await GET(makeRequest(0));
+    const res = await GET(makeRequest());
     const body = await res.json();
 
     expect(mocks.startPowerSchoolSync).not.toHaveBeenCalled();
@@ -74,10 +74,10 @@ describe('GET /api/powerschool/cron', () => {
   });
 
   it('skips a user already mid-sync instead of racing it', async () => {
-    mocks.getUsersWithAutoSyncDueAt.mockResolvedValue(['u1']);
+    mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1']);
     mocks.startPowerSchoolSync.mockResolvedValue(null); // lock already held
 
-    const res = await GET(makeRequest(0));
+    const res = await GET(makeRequest());
     const body = await res.json();
 
     expect(mocks.runPowerSchoolSync).not.toHaveBeenCalled();
