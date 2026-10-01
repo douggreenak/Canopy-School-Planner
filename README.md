@@ -149,7 +149,15 @@ The **Sync Now** button (or the one in each class's detail page) launches a head
 
 Sync history is recorded in a change log — every score change and new assignment is timestamped and browsable from **Grades → Sync Log**.
 
-On Vercel, this runs as a serverless function with a 60-second timeout and 1 GB memory.
+### Scheduled Sync
+
+Scheduled Sync is controlled by the on/off switch in **Settings**. One Vercel Cron job, configured in `vercel.json`, runs daily at **12:00 UTC** and processes every account with scheduled sync enabled. Accounts do not choose separate run times; existing saved hour values are ignored. Syncs run one at a time to limit browser memory use.
+
+For the current Alaska-based deployment, 12:00 UTC is about **4:00 AM Alaska time during daylight time** and **3:00 AM during standard time**. On Vercel Hobby, delivery can occur at any point in the configured UTC hour, so the local run may be up to 59 minutes later.
+
+After deploying, the Production Cron Jobs page should show one `/api/powerschool/cron` job with schedule `0 12 * * *`. Invocation success alone does not guarantee a sync started; check the function log for the auto-sync selection counts and the app's Sync Log for the outcome.
+
+On Vercel, PowerSchool routes use a 1 GB memory limit and a 280-second maximum duration.
 
 ---
 
