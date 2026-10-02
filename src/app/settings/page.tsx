@@ -1032,9 +1032,18 @@ function SettingsInner() {
               >
                 Open Schedule Wizard
               </Button>
-              <Button variant="outlined" sx={{ ml: 2 }} onClick={() => applyLathropSchedule(importedClasses || [])} disabled={classesLoading || !!syncing}>
-                Apply Default Bell Schedule
-              </Button>
+              <Tooltip title={lathropMode ? '' : 'Turn on Lathrop Mode above to use the default bell schedule.'}>
+                <span>
+                  <Button
+                    variant="outlined"
+                    sx={{ ml: 2 }}
+                    onClick={() => applyLathropSchedule(importedClasses || [])}
+                    disabled={classesLoading || !!syncing || !lathropMode}
+                  >
+                    Apply Default Bell Schedule
+                  </Button>
+                </span>
+              </Tooltip>
               <Button variant="text" sx={{ ml: 2 }} onClick={() => refetchClassesList()} disabled={classesLoading}>
                 Refresh Classes
               </Button>

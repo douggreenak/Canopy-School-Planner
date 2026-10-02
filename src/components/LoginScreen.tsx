@@ -105,6 +105,7 @@ export default function LoginScreen({ onLogin }: Props) {
             fullWidth
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             disabled={busy}
+            helperText={mode === 'register' ? 'Choose one you’ll remember — there’s no "forgot password" reset, but you can change it anytime from Settings once you’re signed in.' : undefined}
             slotProps={{
               input: {
                 endAdornment: (
