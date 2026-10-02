@@ -326,6 +326,11 @@ export async function initializeDatabase() {
   // AP flag
   await addColumnIfMissing('classes', 'is_ap', 'TINYINT(1) NOT NULL DEFAULT 0');
 
+  // User-chosen display order on the Classes page (drag-to-reorder). NULL
+  // until the user actually drags something, so existing/synced classes
+  // keep sorting by period/name (see getClasses) with no migration needed.
+  await addColumnIfMissing('classes', 'sort_order', 'INT');
+
   // Settings table: migrate PK from single-column (key) to composite (user_id, key).
   // In MySQL we check if the PK already covers both columns.
   const pkRows = await query<RowDataPacket>(
@@ -372,6 +377,7 @@ function dbToClass(row: Record<string, unknown>): SchoolClass {
     categoryWeights: parseJson<Record<string, number>>(row.category_weights) ?? undefined,
     weightSource: (row.weight_source as SchoolClass['weightSource']) ?? undefined,
     isAp: Boolean(row.is_ap),
+    sortOrder: row.sort_order != null ? Number(row.sort_order) : undefined,
   };
 }
 
@@ -636,11 +642,25 @@ export async function deleteDbSession(id: string): Promise<void> {
 // ---- Classes ----
 
 export async function getClasses(userId: string): Promise<SchoolClass[]> {
+  // sort_order (if the user has dragged to reorder) wins; classes that
+  // have never been reordered (sort_order IS NULL) sort last by that
+  // first clause and fall back to the original period/name ordering.
   const rows = await query<RowDataPacket>(
-    `SELECT * FROM classes WHERE user_id = ? ORDER BY period, name`,
+    `SELECT * FROM classes WHERE user_id = ? ORDER BY (sort_order IS NULL), sort_order, period, name`,
     [userId],
   );
   return rows.map((r) => dbToClass(r as Record<string, unknown>));
+}
+
+/** Persists the user's drag-to-reorder result on the Classes page — orderedIds must be that user's full class list. */
+export async function setClassOrder(userId: string, orderedIds: string[]): Promise<void> {
+  if (orderedIds.length === 0) return;
+  await runBatchedWrites(
+    orderedIds.map((id, index) => ({
+      sql: `UPDATE classes SET sort_order = ? WHERE id = ? AND user_id = ?`,
+      params: [index, id, userId],
+    })),
+  );
 }
 
 export async function getClassById(id: string, userId: string): Promise<SchoolClass | null> {

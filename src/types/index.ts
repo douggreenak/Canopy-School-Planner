@@ -31,6 +31,9 @@ export interface SchoolClass {
   // 4.0 scale, standard AP weighting) in the weighted-GPA calculation on the
   // Transcript page, distinct from the always-shown unweighted GPA.
   isAp?: boolean;
+  // User's drag-to-reorder position on the Classes page. undefined until the
+  // user has dragged a card there — see getClasses/setClassOrder in db.ts.
+  sortOrder?: number;
 }
 
 // One step in a completion pipeline (e.g. "Done" -> "Turned In"). Each

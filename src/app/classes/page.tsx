@@ -28,7 +28,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import RoomIcon from '@mui/icons-material/Room';
 import PersonIcon from '@mui/icons-material/Person';
-import { useClasses, apiPost, apiPut, apiDelete, useEnterConfirm } from '@/lib/hooks';
+import { useClasses, apiPost, apiPut, apiPatch, apiDelete, useEnterConfirm } from '@/lib/hooks';
 import { contrastTextFor } from '@/lib/theme';
 import dynamic from 'next/dynamic';
 // Only needed once the Add/Edit dialog actually opens — deferring it to its
@@ -37,6 +37,7 @@ import dynamic from 'next/dynamic';
 // transition), so ssr:false is what actually keeps its chunk out of the
 // hydration-critical path — with default ssr:true it'd still ship on load.
 const ClassDialog = dynamic(() => import('@/components/ClassDialog'), { ssr: false });
+const ClassRosterDialog = dynamic(() => import('@/components/ClassRosterDialog'), { ssr: false });
 import type { SchoolClass } from '@/types';
 // (No synthetic lunch button here — Lunch is added to the schedule view only.)
 
@@ -49,6 +50,30 @@ export default function ClassesPage() {
   const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; cls: SchoolClass } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<SchoolClass | null>(null);
+  const [detailClass, setDetailClass] = useState<SchoolClass | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  // Drag-to-reorder — same native HTML5 drag-and-drop pattern used for
+  // moving disruptions on the Schedule calendar (no DnD library in this
+  // app). Reordering sends the FULL new id order, not a diff, matching
+  // setClassOrder's contract.
+  const handleDrop = (targetId: string) => {
+    if (!classes || !dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return; }
+    const from = classes.findIndex((c) => c.id === dragId);
+    const to = classes.findIndex((c) => c.id === targetId);
+    if (from === -1 || to === -1) { setDragId(null); setDragOverId(null); return; }
+    const reordered = [...classes];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+    mutate(reordered);
+    setDragId(null);
+    setDragOverId(null);
+    apiPatch('/api/classes', { order: reordered.map((c) => c.id) }).catch(() => {
+      mutate(classes);
+      setDeleteError('Could not save the new class order.');
+    });
+  };
 
   const handleSave = async (cls: SchoolClass) => {
     if (editing) {
@@ -130,14 +155,37 @@ export default function ClassesPage() {
       <Grid container spacing={2} sx={{ pb: classes && classes.length > 0 ? 10 : 0 }}>
         {!loading && classes?.map((cls) => (
           <Grid key={cls.id} size={{ xs: 12, sm: 6, md: 4 }} sx={{ display: 'flex' }}>
-            <Card sx={{ position: 'relative', width: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Card
+              draggable
+              onDragStart={(e) => { setDragId(cls.id); e.dataTransfer.effectAllowed = 'move'; }}
+              onDragOver={(e) => { e.preventDefault(); setDragOverId(cls.id); }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverId(null); }}
+              onDrop={(e) => { e.preventDefault(); handleDrop(cls.id); }}
+              onDragEnd={() => { setDragId(null); setDragOverId(null); }}
+              onClick={() => setDetailClass(cls)}
+              sx={{
+                position: 'relative',
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                cursor: 'grab',
+                opacity: dragId === cls.id ? 0.45 : 1,
+                outline: dragOverId === cls.id && dragId !== cls.id ? '2px solid' : 'none',
+                outlineColor: 'primary.main',
+                transition: 'opacity 0.12s',
+              }}
+            >
               <Box sx={{ height: 6, backgroundColor: cls.color, borderRadius: '12px 12px 0 0' }} />
               <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <Typography variant="h5" sx={{ fontWeight: 600, color: cls.color }}>
                     {cls.name}
                   </Typography>
-                  <IconButton size="small" onClick={(e) => setMenuAnchor({ el: e.currentTarget, cls })}>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => { e.stopPropagation(); setMenuAnchor({ el: e.currentTarget, cls }); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
                     <MoreVertIcon fontSize="small" />
                   </IconButton>
                 </Box>
@@ -200,6 +248,12 @@ export default function ClassesPage() {
         onClose={() => { setDialogOpen(false); setEditing(null); }}
         onSave={handleSave}
         initial={editing}
+      />
+
+      <ClassRosterDialog
+        cls={detailClass}
+        onClose={() => setDetailClass(null)}
+        onEdit={(cls) => { setDetailClass(null); setEditing(cls); setDialogOpen(true); }}
       />
 
       {/* Delete confirmation */}

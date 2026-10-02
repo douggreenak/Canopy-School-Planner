@@ -397,6 +397,16 @@ export async function apiPut<T>(url: string, body: T) {
   return res.json();
 }
 
+export async function apiPatch<T>(url: string, body: T) {
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function apiDelete(url: string) {
   const res = await fetch(url, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

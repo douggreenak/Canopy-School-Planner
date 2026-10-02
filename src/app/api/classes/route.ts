@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getClasses, addClass, updateClass, deleteClass } from '@/lib/db';
+import { getClasses, addClass, updateClass, deleteClass, setClassOrder } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 import type { SchoolClass } from '@/types';
 
@@ -42,6 +42,24 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('PUT /api/classes error:', error);
     return Response.json({ error: 'Failed to update class' }, { status: 500 });
+  }
+}
+
+// Drag-to-reorder on the Classes page — body is the user's full class list
+// in its new display order (an array of ids), not a partial reorder.
+export async function PATCH(request: NextRequest) {
+  try {
+    const userId = await getSessionUserId(request);
+    if (!userId) return unauth();
+    const body: { order?: unknown } = await request.json();
+    if (!Array.isArray(body.order) || !body.order.every((id) => typeof id === 'string')) {
+      return Response.json({ error: 'Missing or invalid order' }, { status: 400 });
+    }
+    await setClassOrder(userId, body.order);
+    return Response.json({ success: true });
+  } catch (error) {
+    console.error('PATCH /api/classes error:', error);
+    return Response.json({ error: 'Failed to reorder classes' }, { status: 500 });
   }
 }
 
