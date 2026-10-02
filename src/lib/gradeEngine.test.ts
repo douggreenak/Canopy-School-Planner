@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { unweightedGpaPoints, weightedGpaPoints } from '@/lib/gradeEngine';
+import { unweightedGpaPoints, weightedGpaPoints, overallGrade, simulateWhatIf } from '@/lib/gradeEngine';
+import type { Homework } from '@/types';
+
+function hw(category: string, scorePercent: number | undefined): Homework {
+  return {
+    id: `${category}-${Math.random()}`, classId: 'c1', title: 'Item', description: '',
+    dueDate: '', completed: scorePercent !== undefined, priority: 'medium', source: 'manual',
+    category, scorePercent,
+  };
+}
 
 describe('unweightedGpaPoints', () => {
   // Regression test: a prior version used a granular +/- scale (A=4.0,
@@ -44,5 +53,68 @@ describe('weightedGpaPoints', () => {
 
   it('an AP class with an A- hits a clean 5.0, not 4.7', () => {
     expect(weightedGpaPoints(91, true)).toBe(5.0);
+  });
+});
+
+describe('overallGrade', () => {
+  it('weights categories by their configured percentages, not equally', () => {
+    const assignments = [hw('Tests', 100), hw('Homework', 50)];
+    const weights = { Tests: 80, Homework: 20 };
+    // 100*0.8 + 50*0.2 = 90 — dominated by the heavily-weighted category,
+    // not the 75 a plain average of the two categories would give.
+    expect(overallGrade(assignments, weights)).toBeCloseTo(90, 5);
+  });
+
+  it('renormalizes over only categories with at least one graded item', () => {
+    // Quizzes (30%) has no graded work yet — should drop out entirely
+    // rather than averaging in as 0, leaving Tests/Homework renormalized
+    // to their relative share of the remaining 70%.
+    const assignments = [hw('Tests', 90), hw('Homework', 80)];
+    const weights = { Tests: 50, Homework: 20, Quizzes: 30 };
+    // 90*(50/70) + 80*(20/70)
+    expect(overallGrade(assignments, weights)).toBeCloseTo(90 * (50 / 70) + 80 * (20 / 70), 5);
+  });
+
+  it('averages multiple assignments within the same category equally', () => {
+    const assignments = [hw('Tests', 100), hw('Tests', 80), hw('Homework', 60)];
+    const weights = { Tests: 70, Homework: 30 };
+    // Tests avg = 90, Homework avg = 60 -> 90*0.7 + 60*0.3 = 81
+    expect(overallGrade(assignments, weights)).toBeCloseTo(81, 5);
+  });
+
+  it('ignores ungraded assignments (no scorePercent) entirely', () => {
+    const assignments = [hw('Tests', 100), hw('Tests', undefined)];
+    expect(overallGrade(assignments, { Tests: 100 })).toBeCloseTo(100, 5);
+  });
+
+  it('returns undefined when nothing is graded yet', () => {
+    expect(overallGrade([hw('Tests', undefined)], { Tests: 100 })).toBeUndefined();
+  });
+});
+
+describe('simulateWhatIf', () => {
+  it('projects the overall grade with a hypothetical assignment injected, respecting category weights', () => {
+    const assignments = [hw('Tests', 90), hw('Homework', 80)];
+    const weights = { Tests: 70, Homework: 30 };
+    const before = overallGrade(assignments, weights)!; // 90*0.7 + 80*0.3 = 87
+    expect(before).toBeCloseTo(87, 5);
+
+    // A hypothetical 100 on a Tests item pulls the Tests average from 90
+    // to 95 (two items, 90 and 100) — weighted: 95*0.7 + 80*0.3 = 90.5.
+    const after = simulateWhatIf(assignments, weights, { category: 'Tests', percent: 100 });
+    expect(after).toBeCloseTo(95 * 0.7 + 80 * 0.3, 5);
+    expect(after! - before).toBeGreaterThan(0);
+  });
+
+  it('a hypothetical score in a brand-new category pulls it into the renormalized weighting', () => {
+    const assignments = [hw('Tests', 100)];
+    const weights = { Tests: 50, Homework: 50 };
+    // Before: Homework has no graded work, so Tests (renormalized to 100%
+    // of the active weight) is the whole grade.
+    expect(overallGrade(assignments, weights)).toBeCloseTo(100, 5);
+    // After injecting a 60 into Homework, both categories are now active
+    // at their configured 50/50 split.
+    const after = simulateWhatIf(assignments, weights, { category: 'Homework', percent: 60 });
+    expect(after).toBeCloseTo(100 * 0.5 + 60 * 0.5, 5);
   });
 });
