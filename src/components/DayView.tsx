@@ -124,16 +124,18 @@ const ClassBlock = memo(({ entry, top, height, theme, onClassClick, debug, index
         opacity: entry.cancelled ? 0.65 : 1,
         cursor: clickable ? 'pointer' : 'default',
         transition: 'box-shadow 0.15s, background-color 0.15s',
-        '&:hover': clickable ? {
-          boxShadow: `0 4px 20px ${alpha(theme.palette.common.black, 0.22)}`,
-          // Was alpha(..., 0.8) — near-opaque enough that the fixed
-          // text.primary label color failed WCAG AA against several class
-          // colors in dark mode. See the matching fix + explanation in
-          // WeekView.tsx's ClassBlock hover style.
-          backgroundColor: entry.cancelled
-            ? theme.palette.action.disabledBackground
-            : alpha(entry.classInfo.color, 0.28),
-        } : undefined,
+        '@media (hover: hover) and (pointer: fine)': {
+          '&:hover': clickable ? {
+            boxShadow: `0 4px 20px ${alpha(theme.palette.common.black, 0.22)}`,
+            // Was alpha(..., 0.8) — near-opaque enough that the fixed
+            // text.primary label color failed WCAG AA against several class
+            // colors in dark mode. See the matching fix + explanation in
+            // WeekView.tsx's ClassBlock hover style.
+            backgroundColor: entry.cancelled
+              ? theme.palette.action.disabledBackground
+              : alpha(entry.classInfo.color, 0.28),
+          } : {},
+        },
         '&:focus-visible': clickable ? {
           outline: `2px solid ${entry.classInfo.color}`,
           outlineOffset: 2,

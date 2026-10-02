@@ -32,9 +32,17 @@ body {
 
 /* Task-complete "fill" — a green circle grows from the checkbox out across
    the whole row, then fades, when a task is checked off. See TaskRow.tsx. */
+/* Radius grows in two roughly-equal-rate segments (0→55% time covers
+   0→90% radius, 55→100% covers 90→150%) instead of one single 0→150%
+   span — with only two stops, the tail end of an eased animation has to
+   cover a disproportionate amount of radius in very little remaining
+   time, which read as a stutter right before the overlay disappears.
+   The extra stop keeps the sweep's visual speed roughly constant, and
+   the opacity fade is spread smoothly across the whole animation
+   instead of holding until 70% then dropping sharply at the end. */
 @keyframes taskCompleteFill {
-  0%   { clip-path: circle(0% at var(--fill-origin-x, 24px) 50%); opacity: 0.55; }
-  70%  { opacity: 0.4; }
+  0%   { clip-path: circle(0% at var(--fill-origin-x, 24px) 50%); opacity: 0.5; }
+  55%  { clip-path: circle(90% at var(--fill-origin-x, 24px) 50%); opacity: 0.32; }
   100% { clip-path: circle(150% at var(--fill-origin-x, 24px) 50%); opacity: 0; }
 }
 

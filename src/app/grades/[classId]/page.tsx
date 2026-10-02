@@ -329,7 +329,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
           <Typography
             variant="body2"
             color="text.secondary"
-            sx={{ cursor: 'pointer', flexShrink: 0, '&:hover': { textDecoration: 'underline' } }}
+            sx={{ cursor: 'pointer', flexShrink: 0, '@media (hover: hover) and (pointer: fine)': { '&:hover': { textDecoration: 'underline' } } }}
             onClick={() => router.push('/grades')}
           >
             Grades

@@ -411,7 +411,7 @@ export default function Dashboard() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         cursor: 'pointer',
-                        '&:hover': { opacity: 0.8 },
+                        '@media (hover: hover) and (pointer: fine)': { '&:hover': { opacity: 0.8 } },
                         '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 1 },
                       }}
                     >

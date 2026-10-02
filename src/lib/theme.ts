@@ -6,6 +6,15 @@ import { createTheme, alpha, type Theme } from '@mui/material/styles';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
+// Gate for every hover-only visual effect (shadow lift, background tint,
+// scale) below. Touch devices have no real "hover" — a tap triggers :hover
+// and it then sticks to whatever was last tapped until something else is
+// tapped, which reads as a stray highlight rather than an affordance. This
+// restricts those effects to devices with a real pointer (mouse/trackpad),
+// leaving every non-hover resting style (including Card's own ambient
+// shadow) untouched on both desktop and mobile.
+const HOVER_CAPABLE = '@media (hover: hover) and (pointer: fine)';
+
 // Each theme is exactly ONE brand color, used everywhere — buttons, selected
 // nav, links, icons, the AP-class chip, FAB "add" buttons, highlight
 // callouts. A prior version paired it with a second "accent" color (MUI's
@@ -200,6 +209,19 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
       borderRadius: 10,
     },
     components: {
+      MuiButtonBase: {
+        styleOverrides: {
+          // Kills MUI's own default hover state-layer (and focus ripple
+          // remnants) on touch devices only — this is what made Buttons,
+          // IconButtons, ListItemButtons, and clickable Chips all stay
+          // tinted at wherever was last tapped.
+          root: {
+            '@media (hover: none)': {
+              '&:hover': { backgroundColor: 'transparent' },
+            },
+          },
+        },
+      },
       MuiButton: {
         styleOverrides: {
           root: {
@@ -211,7 +233,9 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
           },
           contained: {
             boxShadow: 'none',
-            '&:hover': { boxShadow: '0 2px 8px rgba(0,0,0,0.18)' },
+            [HOVER_CAPABLE]: {
+              '&:hover': { boxShadow: '0 2px 8px rgba(0,0,0,0.18)' },
+            },
           },
         },
       },
@@ -239,12 +263,14 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
             // relying on the border alone for separation.
             boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.05)' : '0 1px 2px rgba(0,0,0,0.35)',
             transition: 'box-shadow 0.2s ease',
-            '&:hover': {
-              // Two-layer shadow: tight edge + wide ambient gives depth/elevation
-              // without any transform, so text stays perfectly crisp.
-              boxShadow: isLight
-                ? '0 1px 4px rgba(0,0,0,0.06), 0 10px 32px rgba(0,0,0,0.14)'
-                : '0 1px 4px rgba(0,0,0,0.28), 0 10px 32px rgba(0,0,0,0.58)',
+            [HOVER_CAPABLE]: {
+              '&:hover': {
+                // Two-layer shadow: tight edge + wide ambient gives depth/elevation
+                // without any transform, so text stays perfectly crisp.
+                boxShadow: isLight
+                  ? '0 1px 4px rgba(0,0,0,0.06), 0 10px 32px rgba(0,0,0,0.14)'
+                  : '0 1px 4px rgba(0,0,0,0.28), 0 10px 32px rgba(0,0,0,0.58)',
+              },
             },
           }),
         },
@@ -263,9 +289,11 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
           root: {
             boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
             transition: 'box-shadow 0.2s ease, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1)',
-            '&:hover': {
-              boxShadow: '0 6px 18px rgba(0,0,0,0.22)',
-              transform: 'scale(1.10)',
+            [HOVER_CAPABLE]: {
+              '&:hover': {
+                boxShadow: '0 6px 18px rgba(0,0,0,0.22)',
+                transform: 'scale(1.10)',
+              },
             },
             '&:active': { transform: 'scale(0.95)' },
           },
@@ -299,8 +327,10 @@ export function getTheme(mode: 'light' | 'dark', accentColor: string = DEFAULT_A
             '&.Mui-selected': {
               backgroundColor: alpha(theme.palette.primary.main, isLight ? 0.10 : 0.18),
               color: theme.palette.primary.main,
-              '&:hover': {
-                backgroundColor: alpha(theme.palette.primary.main, isLight ? 0.16 : 0.26),
+              [HOVER_CAPABLE]: {
+                '&:hover': {
+                  backgroundColor: alpha(theme.palette.primary.main, isLight ? 0.16 : 0.26),
+                },
               },
             },
           }),

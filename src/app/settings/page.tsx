@@ -707,7 +707,7 @@ function SettingsInner() {
                         borderColor: selected ? 'text.primary' : 'transparent',
                         cursor: 'pointer',
                         transition: 'transform 0.15s',
-                        '&:hover': { transform: 'scale(1.12)' },
+                        '@media (hover: hover) and (pointer: fine)': { '&:hover': { transform: 'scale(1.12)' } },
                       }}
                     />
                   </Tooltip>

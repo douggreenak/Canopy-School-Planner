@@ -123,7 +123,9 @@ export default function YearView({ year, classes, disruptions, onDateClick }: Pr
                         boxShadow: accentColor ? `inset 0 -2px 0 ${accentColor}` : 'none',
                         cursor: 'pointer',
                         transition: 'all 0.15s',
-                        '&:hover': { boxShadow: `0 0 0 2px ${theme.palette.primary.main}` },
+                        '@media (hover: hover) and (pointer: fine)': {
+                          '&:hover': { boxShadow: `0 0 0 2px ${theme.palette.primary.main}` },
+                        },
                         '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 1 },
                         mx: 'auto',
                       }}

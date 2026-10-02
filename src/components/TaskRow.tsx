@@ -121,7 +121,10 @@ export default function TaskRow({
             bgcolor: 'success.main',
             pointerEvents: 'none',
             zIndex: 0,
-            animation: 'taskCompleteFill 0.6s ease-out',
+            // Material's "emphasized decelerate" curve — smoother through
+            // the tail than a plain ease-out, which visibly stuttered as
+            // the circle neared its final radius.
+            animation: 'taskCompleteFill 0.6s cubic-bezier(0.05, 0.7, 0.1, 1)',
           }}
         />
       )}
@@ -158,7 +161,7 @@ export default function TaskRow({
             role="button" tabIndex={0}
             onClick={onOpenDetail}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(); } }}
-            sx={{ display: { xs: 'block', md: 'none' }, flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, '&:hover': { bgcolor: 'action.hover' } }}
+            sx={{ display: { xs: 'block', md: 'none' }, flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, '@media (hover: hover) and (pointer: fine)': { '&:hover': { bgcolor: 'action.hover' } } }}
           >
             <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: completed ? 'line-through' : 'none' }}>{title}</Typography>
             {description && <Typography variant="body2" color="text.secondary" noWrap>{description}</Typography>}
@@ -186,7 +189,7 @@ export default function TaskRow({
           role="button" tabIndex={0}
           onClick={onOpenDetail}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(); } }}
-          sx={{ display: { xs: 'none', md: 'block' }, ...cellSx, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, transition: 'background-color 0.12s', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
+          sx={{ display: { xs: 'none', md: 'block' }, ...cellSx, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, transition: 'background-color 0.12s', '@media (hover: hover) and (pointer: fine)': { '&:hover': { bgcolor: 'action.hover' } }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
         >
           <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: completed ? 'line-through' : 'none' }} noWrap>{title}</Typography>
           {description && <Typography variant="body2" color="text.secondary" noWrap>{description}</Typography>}

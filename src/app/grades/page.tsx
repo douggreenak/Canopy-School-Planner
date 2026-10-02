@@ -513,7 +513,7 @@ export default function GradesPage() {
                             gap: 1,
                             py: 0.75,
                             cursor: 'pointer',
-                            '&:hover': { bgcolor: 'action.hover' },
+                            '@media (hover: hover) and (pointer: fine)': { '&:hover': { bgcolor: 'action.hover' } },
                             borderRadius: 1,
                             px: 0.5,
                           }}
@@ -685,7 +685,7 @@ export default function GradesPage() {
                 }}
                 sx={{
                   '& .MuiCardActionArea-focusHighlight': { display: 'none' },
-                  '&:hover': { bgcolor: 'action.hover' },
+                  '@media (hover: hover) and (pointer: fine)': { '&:hover': { bgcolor: 'action.hover' } },
                 }}
               >
                 <CardContent>

@@ -131,17 +131,19 @@ const ClassBlock = memo(({ entry, top, height, theme, date, onClassClick, debug,
         opacity: entry.cancelled ? 0.5 : 1,
         cursor: clickable ? 'pointer' : 'default',
         transition: 'background-color 0.12s',
-        '&:hover': clickable ? {
-          // Was alpha(..., 0.9) — near-opaque enough that the label's fixed
-          // text.primary color failed WCAG AA against several class colors
-          // in dark mode (as low as 1.67:1). A much lower hover alpha still
-          // reads as a clear "raised" state (vs. the 0.14 resting fill) and
-          // keeps text.primary legible against every swatch in both modes.
-          backgroundColor: entry.cancelled
-            ? theme.palette.action.disabledBackground
-            : alpha(entry.classInfo.color, 0.26),
-          boxShadow: `0 4px 18px ${alpha(theme.palette.common.black, 0.14)}`,
-        } : undefined,
+        '@media (hover: hover) and (pointer: fine)': {
+          '&:hover': clickable ? {
+            // Was alpha(..., 0.9) — near-opaque enough that the label's fixed
+            // text.primary color failed WCAG AA against several class colors
+            // in dark mode (as low as 1.67:1). A much lower hover alpha still
+            // reads as a clear "raised" state (vs. the 0.14 resting fill) and
+            // keeps text.primary legible against every swatch in both modes.
+            backgroundColor: entry.cancelled
+              ? theme.palette.action.disabledBackground
+              : alpha(entry.classInfo.color, 0.26),
+            boxShadow: `0 4px 18px ${alpha(theme.palette.common.black, 0.14)}`,
+          } : {},
+        },
         '&:focus-visible': clickable ? {
           outline: `2px solid ${entry.classInfo.color}`,
           outlineOffset: 1,

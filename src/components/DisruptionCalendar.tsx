@@ -90,8 +90,10 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
               borderColor: isCurrentMonth ? 'divider' : 'primary.main',
               bgcolor: isCurrentMonth ? 'transparent' : 'primary.main',
               color: isCurrentMonth ? 'text.secondary' : 'primary.contrastText',
-              '&:hover': {
-                bgcolor: isCurrentMonth ? alpha(theme.palette.primary.main, 0.08) : 'primary.dark',
+              '@media (hover: hover) and (pointer: fine)': {
+                '&:hover': {
+                  bgcolor: isCurrentMonth ? alpha(theme.palette.primary.main, 0.08) : 'primary.dark',
+                },
               },
             }}
           >
@@ -197,9 +199,11 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
                 opacity: inMonth ? 1 : 0.3,
                 cursor: inMonth ? 'pointer' : 'default',
                 transition: 'border-color 0.12s, background-color 0.12s',
-                '&:hover': inMonth
-                  ? { bgcolor: isDragTarget ? alpha(theme.palette.primary.main, 0.12) : alpha(theme.palette.primary.main, 0.08) }
-                  : {},
+                '@media (hover: hover) and (pointer: fine)': {
+                  '&:hover': inMonth
+                    ? { bgcolor: isDragTarget ? alpha(theme.palette.primary.main, 0.12) : alpha(theme.palette.primary.main, 0.08) }
+                    : {},
+                },
                 '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: -2 },
                 display: 'flex',
                 flexDirection: 'column',
@@ -253,7 +257,7 @@ export default function DisruptionCalendar({ disruptions, onAdd, onEdit, onMove 
                       fontWeight: 600,
                       '& .MuiChip-label': { px: 0.75, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
                       '&:active': { cursor: 'grabbing' },
-                      '&:hover': { filter: 'brightness(0.92)' },
+                      '@media (hover: hover) and (pointer: fine)': { '&:hover': { filter: 'brightness(0.92)' } },
                       pointerEvents: 'auto',
                       opacity: dragId === dis.id ? 0.4 : 1,
                       transition: 'opacity 0.1s, filter 0.12s',

@@ -491,7 +491,7 @@ export default function TasksPage() {
                   label={c.name}
                   onClick={() => quickAddHomework(c)}
                   title={`Adds Homework for ${c.name}, due next class`}
-                  sx={{ borderLeft: `4px solid ${c.color}`, backgroundColor: alpha(c.color, 0.1), borderRadius: 1, cursor: 'pointer', '&:hover': { backgroundColor: alpha(c.color, 0.2) } }}
+                  sx={{ borderLeft: `4px solid ${c.color}`, backgroundColor: alpha(c.color, 0.1), borderRadius: 1, cursor: 'pointer', '@media (hover: hover) and (pointer: fine)': { '&:hover': { backgroundColor: alpha(c.color, 0.2) } } }}
                 />
               ))}
             </Stack>

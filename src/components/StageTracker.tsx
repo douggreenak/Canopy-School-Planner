@@ -74,7 +74,7 @@ export default function StageTracker({ stages, currentStageId, onSelectStage, co
                     cursor: interactive ? 'pointer' : 'default',
                     boxShadow: isCurrent ? `0 0 0 3px ${alpha(activeColor, 0.2)}` : 'none',
                     transition: 'background-color 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s',
-                    ...(interactive ? { '&:hover': { transform: 'scale(1.08)' } } : {}),
+                    ...(interactive ? { '@media (hover: hover) and (pointer: fine)': { '&:hover': { transform: 'scale(1.08)' } } } : {}),
                     '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
                   }}
                 >
