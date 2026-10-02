@@ -830,7 +830,7 @@ export async function scrapePowerSchool(
               const pctMatch = txt.match(/(\d{1,3}(?:\.\d+)?)\s*%?/);
               if (pctMatch) {
                 const n = parseFloat(pctMatch[1]);
-                if (!isNaN(n) && n >= 0 && n <= 100) gradePercent = n;
+                if (!isNaN(n) && n >= 0 && n <= 150) gradePercent = n;
               }
             }
             termFrns.push({ term, termType, frn, href: link.href, grade, gradePercent });
@@ -1993,7 +1993,7 @@ export async function scrapePowerSchool(
             const m = pctTxt.match(/(-?\d+(?:\.\d+)?)/);
             if (m) {
               const n = parseFloat(m[1]);
-              if (!isNaN(n) && n >= 0 && n <= 100) scorePercent = n;
+              if (!isNaN(n) && n >= 0 && n <= 150) scorePercent = n;
             }
           }
           // Fallback: derive from a score cell that's a fraction like "18/20".
@@ -2010,7 +2010,7 @@ export async function scrapePowerSchool(
                 const n = parseFloat(pctM[1]);
                 // Only treat as a percent if it's plausibly one (>20). Bare
                 // small numbers are almost always raw points, not percents.
-                if (!isNaN(n) && n > 20 && n <= 100) scorePercent = n;
+                if (!isNaN(n) && n > 20 && n <= 150) scorePercent = n;
               }
             }
           }

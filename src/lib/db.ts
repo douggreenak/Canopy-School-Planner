@@ -87,6 +87,28 @@ async function addColumnIfMissing(
   }
 }
 
+// Check if an index already exists on a table via INFORMATION_SCHEMA.
+async function indexExists(table: string, indexName: string): Promise<boolean> {
+  const rows = await query(
+    `SELECT 1 FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+    [table, indexName],
+  );
+  return rows.length > 0;
+}
+
+// Conditionally create an index; standard MySQL (unlike MariaDB) has no
+// IF NOT EXISTS clause on CREATE INDEX at all.
+async function createIndexIfMissing(
+  indexName: string,
+  table: string,
+  columnsExpr: string,
+): Promise<void> {
+  if (!(await indexExists(table, indexName))) {
+    await execute(`CREATE INDEX \`${indexName}\` ON \`${table}\` (${columnsExpr})`);
+  }
+}
+
 // ---- Schema initialization ----
 
 export async function initializeDatabase() {
@@ -112,9 +134,9 @@ export async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS classes (
       id VARCHAR(191) PRIMARY KEY,
       user_id VARCHAR(191) NOT NULL DEFAULT '',
-      name TEXT NOT NULL DEFAULT '',
-      teacher TEXT NOT NULL DEFAULT '',
-      room TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT (''),
+      teacher TEXT NOT NULL DEFAULT (''),
+      room TEXT NOT NULL DEFAULT (''),
       color VARCHAR(50) NOT NULL DEFAULT '',
       period INTEGER NOT NULL DEFAULT 0,
       start_time VARCHAR(20) NOT NULL DEFAULT '',
@@ -136,8 +158,8 @@ export async function initializeDatabase() {
       id VARCHAR(191) PRIMARY KEY,
       user_id VARCHAR(191) NOT NULL DEFAULT '',
       class_id VARCHAR(191) NOT NULL DEFAULT '',
-      title TEXT NOT NULL DEFAULT '',
-      description TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT (''),
+      description TEXT NOT NULL DEFAULT (''),
       due_date VARCHAR(20) NOT NULL DEFAULT '',
       completed TINYINT(1) NOT NULL DEFAULT 0,
       priority VARCHAR(20) NOT NULL DEFAULT 'medium',
@@ -158,12 +180,12 @@ export async function initializeDatabase() {
       id VARCHAR(191) PRIMARY KEY,
       user_id VARCHAR(191) NOT NULL DEFAULT '',
       class_id VARCHAR(191) NOT NULL DEFAULT '',
-      title TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT (''),
       date VARCHAR(20) NOT NULL DEFAULT '',
       start_time VARCHAR(20) NOT NULL DEFAULT '',
       end_time VARCHAR(20) NOT NULL DEFAULT '',
-      location TEXT NOT NULL DEFAULT '',
-      notes TEXT NOT NULL DEFAULT '',
+      location TEXT NOT NULL DEFAULT (''),
+      notes TEXT NOT NULL DEFAULT (''),
       weight_percent DECIMAL(10,4)
     )
   `);
@@ -171,8 +193,8 @@ export async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS tasks (
       id VARCHAR(191) PRIMARY KEY,
       user_id VARCHAR(191) NOT NULL DEFAULT '',
-      title TEXT NOT NULL DEFAULT '',
-      description TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT (''),
+      description TEXT NOT NULL DEFAULT (''),
       due_date VARCHAR(20) NOT NULL DEFAULT '',
       completed TINYINT(1) NOT NULL DEFAULT 0,
       priority VARCHAR(20) NOT NULL DEFAULT 'medium',
@@ -190,7 +212,7 @@ export async function initializeDatabase() {
       date VARCHAR(20) NOT NULL DEFAULT '',
       end_date VARCHAR(20) NOT NULL DEFAULT '',
       type VARCHAR(50) NOT NULL DEFAULT '',
-      label TEXT NOT NULL DEFAULT '',
+      label TEXT NOT NULL DEFAULT (''),
       period_overrides JSON NOT NULL,
       source_day_of_week INTEGER
     )
@@ -216,13 +238,13 @@ export async function initializeDatabase() {
   await addColumnIfMissing('disruptions', 'source_day_of_week', 'INTEGER');
 
   // Indexes
-  await execute(`CREATE INDEX IF NOT EXISTS idx_classes_user ON classes (user_id)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_homework_user ON homework (user_id)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_homework_user_source_class ON homework (user_id, source(20), class_id)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_exams_user ON exams (user_id)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks (user_id)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_disruptions_user ON disruptions (user_id)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)`);
+  await createIndexIfMissing('idx_classes_user', 'classes', `user_id`);
+  await createIndexIfMissing('idx_homework_user', 'homework', `user_id`);
+  await createIndexIfMissing('idx_homework_user_source_class', 'homework', `user_id, source(20), class_id`);
+  await createIndexIfMissing('idx_exams_user', 'exams', `user_id`);
+  await createIndexIfMissing('idx_tasks_user', 'tasks', `user_id`);
+  await createIndexIfMissing('idx_disruptions_user', 'disruptions', `user_id`);
+  await createIndexIfMissing('idx_sessions_user', 'sessions', `user_id`);
 
   // Migration: category weights
   await addColumnIfMissing('classes', 'category_weights', 'JSON');
@@ -241,7 +263,7 @@ export async function initializeDatabase() {
       captured_at DATETIME DEFAULT NOW()
     )
   `);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_grade_history_class ON grade_history (user_id, class_id, captured_at)`);
+  await createIndexIfMissing('idx_grade_history_class', 'grade_history', `user_id, class_id, captured_at`);
 
   // sync_log
   await execute(`
@@ -253,13 +275,13 @@ export async function initializeDatabase() {
       entity_type VARCHAR(50) NOT NULL DEFAULT '',
       entity_id VARCHAR(191) NOT NULL DEFAULT '',
       class_id VARCHAR(191),
-      label TEXT NOT NULL DEFAULT '',
+      label TEXT NOT NULL DEFAULT (''),
       change_type VARCHAR(50) NOT NULL DEFAULT '',
-      detail TEXT NOT NULL DEFAULT ''
+      detail TEXT NOT NULL DEFAULT ('')
     )
   `);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_sync_log_user_time ON sync_log (user_id, occurred_at)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_sync_log_class ON sync_log (user_id, class_id, occurred_at)`);
+  await createIndexIfMissing('idx_sync_log_user_time', 'sync_log', `user_id, occurred_at`);
+  await createIndexIfMissing('idx_sync_log_class', 'sync_log', `user_id, class_id, occurred_at`);
 
   // powerschool_sync_status
   await execute(`
