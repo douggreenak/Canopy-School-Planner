@@ -24,12 +24,46 @@ const MAX_USERNAME_LEN = 128;
 const MAX_PASSWORD_LEN = 1024;
 const MIN_PASSWORD_LEN = 1;
 
+// A simple per-IP sliding-window limit on login/register attempts — in-
+// memory, so it only holds across warm serverless invocations on the same
+// instance (resets on cold start), but that's a real, free improvement over
+// no limit at all, with no new infra/dependency and nothing a legitimate
+// user doing normal sign-in/sign-up would ever notice. See
+// docs/SECURITY_AUDIT.md (H2).
+const RATE_LIMITS: Record<'login' | 'register', { max: number; windowMs: number }> = {
+  login: { max: 10, windowMs: 5 * 60 * 1000 },
+  register: { max: 10, windowMs: 60 * 60 * 1000 },
+};
+const attemptLog = new Map<string, number[]>();
+
+function clientIp(request: Request): string {
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  return forwardedFor?.split(',')[0]?.trim() || 'unknown';
+}
+
+function isRateLimited(request: Request, action: 'login' | 'register'): boolean {
+  const { max, windowMs } = RATE_LIMITS[action];
+  const key = `${action}:${clientIp(request)}`;
+  const now = Date.now();
+  const recent = (attemptLog.get(key) ?? []).filter((t) => now - t < windowMs);
+  recent.push(now);
+  attemptLog.set(key, recent);
+  return recent.length > max;
+}
+
 let dbReady = false;
 async function ensureDb() {
   if (!dbReady) {
     await initializeDatabase();
     const adminPassword = process.env.ADMIN_PASSWORD;
     if (adminPassword) {
+      // This re-applies on every cold start, so a weak/default password left
+      // in the env var silently "self-heals" back even after someone
+      // manually changes it in the DB — loud enough to not be missed in
+      // deploy logs, but never blocks startup (see docs/SECURITY_AUDIT.md M3).
+      if (/^(changeme|password|admin)$/i.test(adminPassword)) {
+        console.warn('[SECURITY] ADMIN_PASSWORD is set to an example/default value. Change it before — or immediately after — deploying to production.');
+      }
       const adminUsername = (process.env.ADMIN_USERNAME || 'admin').toLowerCase();
       const hash = await hashPassword(adminPassword);
       await createOrUpdateAdminUser(adminUsername, hash);
@@ -57,6 +91,9 @@ export async function POST(request: NextRequest) {
     const { action } = body;
 
     if (action === 'register') {
+      if (isRateLimited(request, 'register')) {
+        return Response.json({ error: 'Too many attempts. Please try again later.' }, { status: 429 });
+      }
       const { username, password } = body;
       if (!username || !password) {
         return Response.json({ error: 'Username and password are required.' }, { status: 400 });
@@ -90,6 +127,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'login') {
+      if (isRateLimited(request, 'login')) {
+        return Response.json({ error: 'Too many attempts. Please try again later.' }, { status: 429 });
+      }
       const { username, password } = body;
       if (!username || !password) {
         return Response.json({ error: 'Username and password are required.' }, { status: 400 });

@@ -16,6 +16,21 @@ function unauth() {
   return Response.json({ error: 'Unauthorized' }, { status: 401 });
 }
 
+function forbidden() {
+  return Response.json({ error: 'Forbidden' }, { status: 403 });
+}
+
+// googleClientId/googleClientSecret/calendarSecretToken in config.ts are a
+// single shared file for the WHOLE deployment, not per-user — unlike every
+// other action in this file, which only ever touches the calling user's own
+// settings. These four actions read, write, or wipe that shared config, so
+// (like export-config just below) they're admin-only. None of them are
+// currently called from the app's UI — see docs/SECURITY_AUDIT.md (C2).
+async function requireAdmin(userId: string): Promise<boolean> {
+  const user = await getUserById(userId);
+  return !!user && user.role === 'admin';
+}
+
 export async function GET(request: Request) {
   const { configured } = isConfigured();
   const cfg = getConfigFromRequest(request);
@@ -74,6 +89,7 @@ export async function POST(request: NextRequest) {
     if (action === 'save-classroom-oauth') {
       const userId = await getSessionUserId(request);
       if (!userId) return unauth();
+      if (!(await requireAdmin(userId))) return forbidden();
       const { clientId, clientSecret } = body;
       writeConfigFile({ googleClientId: clientId, googleClientSecret: clientSecret });
       return Response.json({ success: true });
@@ -82,6 +98,7 @@ export async function POST(request: NextRequest) {
     if (action === 'generate-setup-code') {
       const userId = await getSessionUserId(request);
       if (!userId) return unauth();
+      if (!(await requireAdmin(userId))) return forbidden();
       const { passphrase } = body;
       if (!passphrase || passphrase.length < 1) {
         return Response.json({ success: false, error: 'Passphrase is required.' });
@@ -102,6 +119,7 @@ export async function POST(request: NextRequest) {
     if (action === 'use-setup-code') {
       const userId = await getSessionUserId(request);
       if (!userId) return unauth();
+      if (!(await requireAdmin(userId))) return forbidden();
       const { setupCode, passphrase } = body;
       if (!setupCode || !passphrase) {
         return Response.json({ success: false, error: 'Setup code and passphrase are required.' });
@@ -132,10 +150,7 @@ export async function POST(request: NextRequest) {
     if (action === 'export-config') {
       const userId = await getSessionUserId(request);
       if (!userId) return unauth();
-      const user = await getUserById(userId);
-      if (!user || user.role !== 'admin') {
-        return Response.json({ error: 'Forbidden' }, { status: 403 });
-      }
+      if (!(await requireAdmin(userId))) return forbidden();
       const cfg = getConfigFromRequest(request);
       const safe = { googleClientId: cfg.googleClientId };
       return Response.json({ success: true, config: safe });
@@ -144,6 +159,7 @@ export async function POST(request: NextRequest) {
     if (action === 'logout') {
       const userId = await getSessionUserId(request);
       if (!userId) return unauth();
+      if (!(await requireAdmin(userId))) return forbidden();
       writeConfigFile({ googleClientId: '', googleClientSecret: '', calendarSecretToken: '' });
       await clearPowerSchoolCredentials(userId);
       return Response.json({ success: true });

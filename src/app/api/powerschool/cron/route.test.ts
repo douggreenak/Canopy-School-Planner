@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Regression test for a real crash risk: this route used to fire every
 // matched user's sync via after() in a loop with no concurrency limit at
@@ -25,9 +25,11 @@ vi.mock('@/lib/powerschoolSync', () => ({
 
 const { GET } = await import('./route');
 
+const TEST_CRON_SECRET = 'test-cron-secret';
+
 function makeRequest(): Parameters<typeof GET>[0] {
   return {
-    headers: { get: () => null },
+    headers: { get: () => `Bearer ${TEST_CRON_SECRET}` },
     nextUrl: { searchParams: new URLSearchParams() },
   } as unknown as Parameters<typeof GET>[0];
 }
@@ -35,12 +37,38 @@ function makeRequest(): Parameters<typeof GET>[0] {
 const CREDS = { url: 'https://ps.example.com', username: 'stu', password: 'pw' };
 
 beforeEach(() => {
+  // The route now fails closed without a configured CRON_SECRET (see
+  // docs/SECURITY_AUDIT.md C3) — these tests exercise the sync-loop logic,
+  // not the auth gate, so they authenticate like a real Vercel Cron request.
+  vi.stubEnv('CRON_SECRET', TEST_CRON_SECRET);
   vi.clearAllMocks();
   mocks.getPowerSchoolCredentials.mockResolvedValue(CREDS);
   mocks.startPowerSchoolSync.mockImplementation(async (userId: string) => `sync-${userId}`);
 });
 
 describe('GET /api/powerschool/cron', () => {
+  it('fails closed (401) when CRON_SECRET is not configured, rather than skipping the auth check', async () => {
+    vi.stubEnv('CRON_SECRET', '');
+    mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1']);
+
+    const res = await GET(makeRequest());
+
+    expect(res.status).toBe(401);
+    expect(mocks.getUsersWithAutoSyncEnabled).not.toHaveBeenCalled();
+  });
+
+  it('rejects a request whose bearer token does not match CRON_SECRET', async () => {
+    mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1']);
+
+    const res = await GET({
+      headers: { get: () => 'Bearer wrong-secret' },
+      nextUrl: { searchParams: new URLSearchParams() },
+    } as unknown as Parameters<typeof GET>[0]);
+
+    expect(res.status).toBe(401);
+    expect(mocks.getUsersWithAutoSyncEnabled).not.toHaveBeenCalled();
+  });
+
   it('never runs more than one scrape at a time, even when several users share the daily run', async () => {
     mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1', 'u2', 'u3']);
 
@@ -83,4 +111,8 @@ describe('GET /api/powerschool/cron', () => {
     expect(mocks.runPowerSchoolSync).not.toHaveBeenCalled();
     expect(body).toMatchObject({ fired: 0, skipped: 1 });
   });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });

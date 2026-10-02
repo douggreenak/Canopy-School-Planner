@@ -33,7 +33,12 @@ const SAFETY_DEADLINE_MS = 250_000;
 // for tomorrow's tick" instead of a timeout mid-scrape.
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization') ?? '';
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Fails CLOSED: an unset CRON_SECRET used to mean "skip the check
+  // entirely," making this a public, unauthenticated trigger for a full
+  // Chromium PowerSchool scrape of every auto-sync user. See
+  // docs/SECURITY_AUDIT.md (C3) — CRON_SECRET must be set as a Vercel
+  // project env var for this endpoint (and therefore scheduled sync) to work.
+  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

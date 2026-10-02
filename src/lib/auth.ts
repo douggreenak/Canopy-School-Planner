@@ -1,18 +1,34 @@
-import { scrypt, randomBytes, timingSafeEqual } from 'crypto';
-import { promisify } from 'util';
+import { scrypt, randomBytes, timingSafeEqual, type ScryptOptions } from 'crypto';
 import { cookies } from 'next/headers';
 import { createDbSession, getDbSession, deleteDbSession, getUserById } from './db';
 
-const scryptAsync = promisify(scrypt);
+// util.promisify(scrypt) resolves to the no-options overload, so this wraps
+// the options-taking overload directly instead.
+function scryptAsync(password: string, salt: string, keylen: number, options: ScryptOptions): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scrypt(password, salt, keylen, options, (err, derivedKey) => {
+      if (err) reject(err); else resolve(derivedKey);
+    });
+  });
+}
 
 export const SESSION_COOKIE = 'sp-session';
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Explicit scrypt cost parameters — these are exactly Node's own defaults
+// (N=16384, r=8, p=1), so this changes no behavior/output for any existing
+// password hash. Pinned explicitly so the cost can't silently drift if a
+// future Node version ever changes its defaults (see docs/SECURITY_AUDIT.md
+// L2). maxmem is deliberately left unset so Node applies its own default
+// (32MB), which is exactly what already comfortably covers these N/r/p
+// values — hand-computing it came out too low and broke scrypt outright.
+const SCRYPT_OPTIONS: ScryptOptions = { N: 16384, r: 8, p: 1 };
+
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString('hex');
-  const hash = (await scryptAsync(password, salt, 64)) as Buffer;
+  const hash = await scryptAsync(password, salt, 64, SCRYPT_OPTIONS);
   return `${salt}:${hash.toString('hex')}`;
 }
 
@@ -21,7 +37,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
     const [salt, hash] = stored.split(':');
     if (!salt || !hash) return false;
     const hashBuffer = Buffer.from(hash, 'hex');
-    const derivedHash = (await scryptAsync(password, salt, 64)) as Buffer;
+    const derivedHash = await scryptAsync(password, salt, 64, SCRYPT_OPTIONS);
     return timingSafeEqual(hashBuffer, derivedHash);
   } catch {
     return false;

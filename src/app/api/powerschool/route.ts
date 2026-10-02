@@ -4,6 +4,15 @@ import { getPowerSchoolCredentials, getSyncStatus } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 import { runPowerSchoolSync, startPowerSchoolSync } from '@/lib/powerschoolSync';
 
+// Redacts the password before this request's body ever reaches a log line —
+// Vercel function logs are retained/searchable by anyone with log access,
+// and a plaintext PowerSchool password has no business sitting in them.
+function redactBody(body: unknown): unknown {
+  if (!body || typeof body !== 'object') return body;
+  const { password, ...rest } = body as Record<string, unknown>;
+  return { ...rest, password: password ? '[redacted]' : undefined };
+}
+
 // Kicks off a sync and returns immediately (syncId + status:'running') — the
 // actual scrape+persist keeps running server-side via after(), so it
 // survives the client closing the tab or navigating away. The client polls
@@ -14,10 +23,10 @@ export async function POST(request: NextRequest) {
   let body;
   try {
     body = await request.json();
-    console.log("POST /api/powerschool payload:", body);
+    console.log("POST /api/powerschool payload:", redactBody(body));
   } catch (error) {
     console.error("Validation error:", error);
-    return Response.json({ error: "Invalid payload", details: error }, { status: 400 });
+    return Response.json({ error: "Invalid payload" }, { status: 400 });
   }
 
   const userId = await getSessionUserId(request);
@@ -29,7 +38,7 @@ export async function POST(request: NextRequest) {
   const password = body?.password || saved?.password || '';
 
   if (!url || !username || !password) {
-    console.error("Validation error: Missing PowerSchool credentials. Payload:", body);
+    console.error("Validation error: Missing PowerSchool credentials. Payload:", redactBody(body));
     return Response.json({
       success: false,
       error: 'Missing PowerSchool credentials. Save them in Settings first.',

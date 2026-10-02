@@ -63,15 +63,21 @@ const DEMO_CLASS = {
   sourceId: 'demo-source-class',
 };
 
+const TEST_CRON_SECRET = 'test-cron-secret';
+
 function makeRequest(): Parameters<typeof GET>[0] {
   return {
-    headers: { get: () => null },
+    headers: { get: () => `Bearer ${TEST_CRON_SECRET}` },
     nextUrl: { searchParams: new URLSearchParams() },
   } as unknown as Parameters<typeof GET>[0];
 }
 
 beforeEach(() => {
-  vi.stubEnv('CRON_SECRET', '');
+  // The route now fails closed without a configured CRON_SECRET (see
+  // docs/SECURITY_AUDIT.md C3) — this test is exercising the sync-loop
+  // logic below, not the auth gate, so it authenticates like a real
+  // Vercel Cron request would.
+  vi.stubEnv('CRON_SECRET', TEST_CRON_SECRET);
   vi.clearAllMocks();
   mocks.statuses.length = 0;
   mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['demo-user']);

@@ -1029,7 +1029,19 @@ const CRED_ALGORITHM = 'aes-256-gcm';
 const CRED_IV_LENGTH = 12;
 const CRED_TAG_LENGTH = 16;
 
+let warnedMissingCredentialKey = false;
+
 function credentialKey(): Buffer {
+  if (!process.env.CREDENTIAL_KEY && !warnedMissingCredentialKey) {
+    // Once per process, not once per encrypt/decrypt call — this runs on
+    // every PowerSchool credential read/write. Behavior is unchanged (still
+    // falls back to deriving from DATABASE_URL) so this can't break a
+    // deployment that currently relies on the fallback; it's visibility
+    // only. See docs/SECURITY_AUDIT.md (H1) for why a dedicated
+    // CREDENTIAL_KEY is recommended instead.
+    warnedMissingCredentialKey = true;
+    console.warn('[SECURITY] CREDENTIAL_KEY is not set — falling back to deriving the PowerSchool-password encryption key from DATABASE_URL. Set a dedicated CREDENTIAL_KEY (e.g. `openssl rand -hex 32`) so rotating the database URL does not also silently break decryption of every stored PowerSchool password.');
+  }
   const secret = process.env.CREDENTIAL_KEY || process.env.DATABASE_URL || '';
   // Derive a stable 32-byte key from whatever secret is available.
   return crypto.createHash('sha256').update(secret).digest();
