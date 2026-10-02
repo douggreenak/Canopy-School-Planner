@@ -7,6 +7,8 @@ import {
   setPowerSchoolCredentials,
   clearPowerSchoolCredentials,
   getUserById,
+  getSettings,
+  setSetting,
 } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 
@@ -51,6 +53,14 @@ export async function POST(request: NextRequest) {
         return Response.json({ success: false, error: 'URL, username, and password are all required.' });
       }
       await setPowerSchoolCredentials(userId, url, username, password);
+      // Scheduled sync is opt-out: the first time a user connects
+      // PowerSchool, turn it on for them rather than leaving it off until
+      // they find the toggle in Settings. Only when no explicit choice
+      // exists yet — never overwrites a user who previously opted out.
+      const existing = await getSettings(userId);
+      if (existing.powerschoolAutoSync === undefined) {
+        await setSetting('powerschoolAutoSync', JSON.stringify({ enabled: true }), userId);
+      }
       return Response.json({ success: true });
     }
 

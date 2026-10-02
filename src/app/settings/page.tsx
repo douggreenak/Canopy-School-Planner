@@ -181,7 +181,13 @@ function SettingsInner() {
   // saved value yet, so Lathrop Mode reads as "on" everywhere before the
   // settings fetch below resolves either way.
   const [lathropMode, setLathropMode] = useState(true);
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+  // Opt-out, not opt-in: once PowerSchool credentials are saved, scheduled
+  // sync defaults ON (see /api/setup's 'save-powerschool' action, which
+  // persists this explicitly the first time) — so this optimistic default
+  // matches, and only a pre-existing account from before that default
+  // shipped would ever need the fetch below to correct it to false.
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
+  const [confirmDisableAutoSync, setConfirmDisableAutoSync] = useState(false);
 
   // Change password
   const [currentPassword, setCurrentPassword] = useState('');
@@ -279,6 +285,9 @@ function SettingsInner() {
             // ignore malformed stored value — keep defaults
           }
         }
+        // else: no saved row at all (no PowerSchool connected yet, or a
+        // connection from before the opt-out default shipped) — leave the
+        // optimistic `true` default in place.
         if (s.early_out_schedule) {
           const raw = typeof s.early_out_schedule === 'string' ? JSON.parse(s.early_out_schedule) : s.early_out_schedule;
           const tpl: Record<number, { startTime: string; endTime: string }> = {};
@@ -448,6 +457,13 @@ function SettingsInner() {
       setAutoSyncEnabled(previousEnabled);
       setSnackbar({ open: true, message: 'Could not save scheduled sync settings.', severity: 'error' });
     }
+  };
+
+  // Scheduled sync is opt-out, so turning it OFF is the one direction that
+  // needs a second confirmation — flipping it on needs none.
+  const handleAutoSyncToggle = (checked: boolean) => {
+    if (checked) { saveAutoSync(true); return; }
+    setConfirmDisableAutoSync(true);
   };
 
   const handleChangePassword = async () => {
@@ -939,7 +955,7 @@ function SettingsInner() {
                   control={
                     <Switch
                       checked={autoSyncEnabled}
-                      onChange={(e) => saveAutoSync(e.target.checked)}
+                      onChange={(e) => handleAutoSyncToggle(e.target.checked)}
                       size="small"
                       disabled={!setupStatus?.hasPowerschool}
                     />
@@ -1499,6 +1515,27 @@ function SettingsInner() {
         onClose={() => setSyncReminderOpen(false)}
         onConfirm={syncPowerSchool}
       />
+
+      <Dialog
+        open={confirmDisableAutoSync}
+        onClose={() => setConfirmDisableAutoSync(false)}
+        onKeyDown={useEnterConfirm(confirmDisableAutoSync, () => { setConfirmDisableAutoSync(false); saveAutoSync(false); })}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Turn off scheduled sync?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Canopy will stop automatically checking PowerSchool for new grades and assignments once a day. You can still sync manually with &quot;Sync Now&quot;, and you can turn this back on anytime.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirmDisableAutoSync(false)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={() => { setConfirmDisableAutoSync(false); saveAutoSync(false); }}>
+            Turn Off
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={snackbar.open}
