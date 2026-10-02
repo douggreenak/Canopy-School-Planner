@@ -141,7 +141,13 @@ export default function ExamsPage() {
 
   const renderExamCard = (exam: Exam) => {
     const isPast = dayjs(exam.date).isBefore(dayjs(), 'day');
-    const daysUntil = dayjs(exam.date).diff(dayjs(), 'day');
+    // Both sides normalized to midnight before diffing — dayjs' .diff(_, 'day')
+    // otherwise truncates toward zero based on the exact elapsed milliseconds,
+    // not the calendar-day gap. Late in the day, that under-counted an exam
+    // 2 days out as "1d" away, and could even show a *tomorrow* exam as
+    // "Today!" if it happened to be within 24 raw hours. Same normalization
+    // relativeDueLabel (lib/grades.ts) already uses for exactly this reason.
+    const daysUntil = dayjs(exam.date).startOf('day').diff(dayjs().startOf('day'), 'day');
     // The exam happens during the class's normal period: pull the time/room
     // from the linked class. Fall back to whatever's stored on the exam (for
     // legacy rows that still have those fields filled in) so old exams keep

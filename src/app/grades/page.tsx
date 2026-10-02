@@ -191,7 +191,11 @@ export default function GradesPage() {
       .filter(isUpcoming)
       .filter((h) => {
         const d = dayjs(h.dueDate);
-        return d.isValid() && d.diff(dayjs(), 'day') <= 7;
+        // Normalized to midnight on both sides before diffing — otherwise
+        // dayjs truncates toward zero by exact elapsed milliseconds, not
+        // the calendar-day gap, so late in the day an item due in 8
+        // calendar days could read as "<= 7" and wrongly show up here.
+        return d.isValid() && d.startOf('day').diff(dayjs().startOf('day'), 'day') <= 7;
       })
       .sort((a, b) => dayjs(a.dueDate).valueOf() - dayjs(b.dueDate).valueOf())
       .slice(0, 6);
