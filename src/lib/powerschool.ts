@@ -2099,7 +2099,7 @@ export async function scrapePowerSchool(
           // bail out or grab the wrong one. We use a waitForFunction that
           // scans for a table whose header row mentions both a date-ish
           // column AND an assignment-ish column.
-          await Promise.race([
+          const tableSignal = await Promise.race([
             page.waitForFunction(() => {
               const tbls = Array.from(document.querySelectorAll('table'));
               return tbls.some((t) => {
@@ -2110,9 +2110,15 @@ export async function scrapePowerSchool(
               });
             }, { timeout: 12000 }),
             page.waitForSelector('.scoresTable, [id^="scoresTable"], [class*="assignment"], [class*="Assignment"]', { timeout: 12000 }),
-          ]).catch(() => null);
-          // Small settle delay in case of additional async hydration.
-          await new Promise((r) => setTimeout(r, 500));
+          ]).then(() => true).catch(() => false);
+          // Settle delay in case of additional async hydration. The real
+          // table already confirmed present above, so this only needs to be
+          // long enough for any trailing XHR fill-in — 500ms only when we
+          // timed out above and the page may still be mid-load; a confirmed
+          // hit needs much less. This alone was costing ~0.5s × every term
+          // page visited (often 10+ per sync) for no benefit in the common
+          // case, which is real Vercel function-duration cost.
+          await new Promise((r) => setTimeout(r, tableSignal ? 150 : 500));
         } catch {
           log.push(`    · could not load ${t.term || t.termType} page`);
           continue;
