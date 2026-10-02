@@ -52,10 +52,11 @@ Theme, accent color, school info, school breaks, and PowerSchool credentials —
 
 ### Core Planner
 - **Dashboard** — Day/Week/Year calendar views + Heatmap tab; stat chips for today's classes, homework, and exams
-- **Classes** — manage classes with colors, meeting days, period times, and teacher/room info
-- **Schedule** — full calendar that treats school as in session every day, with breaks (summer, winter, etc.) marked as exceptions, plus bell-schedule support and early-dismissal overrides
+- **Classes** — manage classes with colors, meeting days, period times, and teacher/room info; drag to reorder, click a card for a quick view of when it next meets and its open/done items, edit from there
+- **Schedule** — full calendar that treats school as in session every day, with breaks (summer, winter, etc.) marked as exceptions, plus bell-schedule support and early-dismissal overrides; the calendar/ICS feed always reflects the latest schedule and disruptions, regenerated fresh on every request
 - **Exams** — upcoming exam list with countdown and grade-impact preview
 - **Tasks** — unified to-do combining PowerSchool homework + custom tasks; filterable, quick-add, bulk clear
+- **Multiple schools** — secondary to the single-school default: a user who takes classes at more than one school (each with its own PowerSchool login) can add the extra ones from Settings → Other Schools without changing anything about the single-school experience
 
 ### Grade Analytics
 - **PowerSchool sync** — headless Chromium scrapes your portal and imports classes, assignments, and grades automatically
@@ -67,8 +68,8 @@ Theme, accent color, school info, school breaks, and PowerSchool credentials —
 - **Exam stakes framing** — "Worth 20% — below 75% drops you to a B−" shown on exam cards when weights are set
 
 ### Long-term Tracking
-- **Workload heatmap** — 14-day forward heatmap colored by due-item density
-- **Rebalancing suggestions** — inline captions flag tasks that cluster with other deadlines
+- **Workload heatmap** — 14-day forward heatmap colored by due-item density; counts only the tasks and homework you created yourself, never PowerSchool-synced assignments, so a busy school isn't mistaken for a busy you
+- **Rebalancing suggestions** — inline captions flag tasks that cluster with other deadlines (same user-created-only rule as the heatmap)
 - **PowerSchool change log** — reverse-chron feed of every grade change and new assignment detected at sync time
 - **Cross-semester GPA** — cumulative unweighted GPA estimate from all synced semesters
 
@@ -87,7 +88,7 @@ Theme, accent color, school info, school breaks, and PowerSchool credentials —
 | Framework | Next.js 16 (App Router) |
 | UI | Material UI (MUI) v6 + Emotion |
 | Language | TypeScript / React 19 |
-| Database | MySQL |
+| Database | MySQL 8.0+ (or MariaDB) |
 | Date handling | dayjs |
 | Scraping | Puppeteer Core + @sparticuz/chromium-min |
 | Deployment | Vercel |
@@ -118,6 +119,18 @@ CHROMIUM_EXECUTABLE_PATH=/path/to/chromium
 # Admin account (change before deploying)
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=changeme
+
+# Recommended: a dedicated secret for encrypting stored PowerSchool
+# passwords at rest. If unset, the app derives this key from DATABASE_URL
+# instead — functional, but means rotating your database URL silently
+# breaks decryption of every stored PowerSchool password. See
+# docs/SECURITY_AUDIT.md for the full writeup.
+CREDENTIAL_KEY=some-long-random-secret
+
+# Recommended: required to authenticate Vercel Cron's call to
+# /api/powerschool/cron. If unset, that endpoint has no auth check at all —
+# see docs/SECURITY_AUDIT.md.
+CRON_SECRET=some-other-long-random-secret
 ```
 
 The database schema is created automatically on first run — no migrations to run manually.
@@ -151,7 +164,7 @@ Sync history is recorded in a change log — every score change and new assignme
 
 ### Scheduled Sync
 
-Scheduled Sync is controlled by the on/off switch in **Settings**. One Vercel Cron job, configured in `vercel.json`, runs daily at **12:00 UTC** and processes every account with scheduled sync enabled. Accounts do not choose separate run times; existing saved hour values are ignored. Syncs run one at a time to limit browser memory use.
+Scheduled Sync is **opt-out**: it turns on automatically the first time you save a PowerSchool login (toggle it off in Settings, or in the reminder dialog shown before a manual "Sync Now", if you'd rather sync manually — turning it off asks for confirmation since it's the one direction that changes default behavior). One Vercel Cron job, configured in `vercel.json`, runs daily at **12:00 UTC** and processes every account with scheduled sync enabled. Accounts do not choose separate run times; existing saved hour values are ignored. Syncs run one at a time (sharing a single launched Chromium instance across the batch) to limit browser memory use.
 
 For the current Alaska-based deployment, 12:00 UTC is about **4:00 AM Alaska time during daylight time** and **3:00 AM during standard time**. On Vercel Hobby, delivery can occur at any point in the configured UTC hour, so the local run may be up to 59 minutes later.
 
@@ -185,4 +198,11 @@ To change the admin password, update the env var in Vercel and redeploy — the 
    - `ADMIN_USERNAME` + `ADMIN_PASSWORD`
    - `CHROMIUM_EXECUTABLE_PATH` (if using Puppeteer on Vercel — see [@sparticuz/chromium](https://github.com/Sparticuz/chromium))
 4. Deploy
+
+---
+
+## Further reading
+
+- [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) — a backend security audit (report only; findings not yet acted on) covering API authz/authn, credential encryption, and the cron endpoint's auth gate.
+- [`docs/PERFORMANCE_AUDIT.md`](docs/PERFORMANCE_AUDIT.md) — a Lighthouse-backed performance pass across the main pages, plus a flagged follow-up around unbounded homework/classes fetches at real data scale.
 
