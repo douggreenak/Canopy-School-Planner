@@ -536,7 +536,7 @@ export default function TasksPage() {
       {!loading && merged.length > 0 && (
         <Box
           sx={{
-            display: { xs: 'none', md: 'grid' },
+            display: { xs: 'none', lg: 'grid' },
             gridTemplateColumns: TASK_ROW_GRID_TEMPLATE,
             gap: 1.5,
             px: 2,

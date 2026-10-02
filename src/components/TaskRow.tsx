@@ -25,9 +25,14 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { contrastTextFor } from '@/lib/theme';
 import type { DueTiming } from '@/types';
 
-// Shared column template — desktop (md+) only. Mobile keeps a stacked
+// Shared column template — desktop (lg+) only. Mobile keeps a stacked
 // flex layout (see below) since a rigid table read doesn't fit a narrow
-// screen anyway.
+// screen anyway. This used to switch at `md` (900px), but the grid's own
+// minimum width (sum of fixed columns + the Item column's 160px floor,
+// plus gaps) is ~900px — comfortably wider than the content area actually
+// available once AppShell's 256px permanent drawer is subtracted at
+// typical `md`-range window widths, clipping the rightmost columns. `lg`
+// (1200px) leaves enough room in practice.
 //
 // Every column except the flexible Item column is a FIXED pixel width —
 // deliberately not `auto` for the checkbox/actions columns. The header row
@@ -134,15 +139,15 @@ export default function TaskRow({
           zIndex: 1,
           py: 1.5,
           '&:last-child': { pb: 1.5 },
-          display: { xs: 'flex', md: 'grid' },
-          flexDirection: { xs: 'column', md: undefined },
-          gap: { xs: 0.5, md: 1.5 },
-          gridTemplateColumns: { md: TASK_ROW_GRID_TEMPLATE },
-          alignItems: { md: 'center' },
+          display: { xs: 'flex', lg: 'grid' },
+          flexDirection: { xs: 'column', lg: undefined },
+          gap: { xs: 0.5, lg: 1.5 },
+          gridTemplateColumns: { lg: TASK_ROW_GRID_TEMPLATE },
+          alignItems: { lg: 'center' },
         }}
       >
         {/* Checkbox — own cell on desktop, leads the row on mobile */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 2, md: 0 } }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 2, lg: 0 } }}>
           <Checkbox
             checked={completed}
             onChange={onToggle}
@@ -161,7 +166,7 @@ export default function TaskRow({
             role="button" tabIndex={0}
             onClick={onOpenDetail}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(); } }}
-            sx={{ display: { xs: 'block', md: 'none' }, flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, '@media (hover: hover) and (pointer: fine)': { '&:hover': { bgcolor: 'action.hover' } } }}
+            sx={{ display: { xs: 'block', lg: 'none' }, flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, '@media (hover: hover) and (pointer: fine)': { '&:hover': { bgcolor: 'action.hover' } } }}
           >
             <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: completed ? 'line-through' : 'none' }}>{title}</Typography>
             {description && <Typography variant="body2" color="text.secondary" noWrap>{description}</Typography>}
@@ -189,27 +194,27 @@ export default function TaskRow({
           role="button" tabIndex={0}
           onClick={onOpenDetail}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(); } }}
-          sx={{ display: { xs: 'none', md: 'block' }, ...cellSx, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, transition: 'background-color 0.12s', '@media (hover: hover) and (pointer: fine)': { '&:hover': { bgcolor: 'action.hover' } }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
+          sx={{ display: { xs: 'none', lg: 'block' }, ...cellSx, cursor: 'pointer', borderRadius: 1, px: 0.5, py: 0.25, mx: -0.5, transition: 'background-color 0.12s', '@media (hover: hover) and (pointer: fine)': { '&:hover': { bgcolor: 'action.hover' } }, '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
         >
           <Typography variant="body1" sx={{ fontWeight: 500, textDecoration: completed ? 'line-through' : 'none' }} noWrap>{title}</Typography>
           {description && <Typography variant="body2" color="text.secondary" noWrap>{description}</Typography>}
         </Box>
 
         {/* Class */}
-        <Box sx={{ display: { xs: 'none', md: 'flex' }, ...cellSx }}>
+        <Box sx={{ display: { xs: 'none', lg: 'flex' }, ...cellSx }}>
           {classChip && (
             <Chip size="small" label={classChip.name} sx={{ backgroundColor: classChip.color, color: contrastTextFor(classChip.color), fontWeight: 500, fontSize: '0.7rem', maxWidth: '100%' }} />
           )}
         </Box>
 
         {/* Category */}
-        <Box sx={{ display: { xs: 'none', md: 'flex' }, ...cellSx, alignItems: 'center', gap: 0.5 }}>
+        <Box sx={{ display: { xs: 'none', lg: 'flex' }, ...cellSx, alignItems: 'center', gap: 0.5 }}>
           <Chip size="small" label={categoryLabel} variant="outlined" sx={{ fontSize: '0.7rem', maxWidth: '100%' }} />
           {stageChip}
         </Box>
 
         {/* Due date */}
-        <Box sx={{ display: { xs: 'none', md: 'block' }, ...cellSx }}>
+        <Box sx={{ display: { xs: 'none', lg: 'block' }, ...cellSx }}>
           {dueDateLabel && (
             <Typography variant="body2" color={overdue ? 'error.main' : 'text.secondary'} sx={{ fontWeight: overdue ? 600 : 400 }} noWrap>
               {overdue ? 'OVERDUE • ' : ''}{dueDateLabel}
@@ -220,7 +225,7 @@ export default function TaskRow({
         {/* When: in-class / after-class. A disrupted "in class" item swaps
             in a warning icon/color instead of adding a second chip — this
             column is a fixed 100px wide, too narrow for two. */}
-        <Box sx={{ display: { xs: 'none', md: 'flex' }, ...cellSx, alignItems: 'center' }}>
+        <Box sx={{ display: { xs: 'none', lg: 'flex' }, ...cellSx, alignItems: 'center' }}>
           {dueTiming && (() => {
             const disrupted = classDisrupted && !completed;
             return (
@@ -239,13 +244,13 @@ export default function TaskRow({
         </Box>
 
         {/* Priority */}
-        <Box sx={{ display: { xs: 'none', md: 'flex' }, ...cellSx }}>
+        <Box sx={{ display: { xs: 'none', lg: 'flex' }, ...cellSx }}>
           <Chip size="small" label={priority} color={PRIORITY_COLOR[priority]} sx={{ fontSize: '0.7rem' }} />
         </Box>
 
         {/* Actions */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: { xs: 'flex-end', md: 'flex-start' }, pl: { xs: 7, md: 0 } }}>
-          <Box sx={{ display: { xs: 'flex', md: 'none' } }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: { xs: 'flex-end', lg: 'flex-start' }, pl: { xs: 7, lg: 0 } }}>
+          <Box sx={{ display: { xs: 'flex', lg: 'none' } }}>
             <Chip size="small" label={priority} color={PRIORITY_COLOR[priority]} sx={{ fontSize: '0.7rem', mr: 0.5 }} />
           </Box>
           <IconButton size="small" onClick={onEdit} aria-label="Edit"><EditIcon fontSize="small" /></IconButton>
@@ -254,7 +259,7 @@ export default function TaskRow({
 
         {/* Rebalance hint — full-width sub-row, doesn't fit a rigid column */}
         {rebalanceHint && (
-          <Box sx={{ gridColumn: { md: '2 / -1' }, display: 'flex', alignItems: 'center', gap: 0.25, mt: { xs: 0.5, md: 0 } }}>
+          <Box sx={{ gridColumn: { lg: '2 / -1' }, display: 'flex', alignItems: 'center', gap: 0.25, mt: { xs: 0.5, lg: 0 } }}>
             <SwapHorizIcon sx={{ fontSize: 12, color: 'warning.main' }} />
             {rebalanceHint}
           </Box>
