@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Card from '@mui/material/Card';
@@ -53,6 +53,20 @@ export default function ClassesPage() {
   const [detailClass, setDetailClass] = useState<SchoolClass | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [schoolFilter, setSchoolFilter] = useState<string | null>(null);
+
+  // Classes with no schoolName are the overwhelming default (one implicit
+  // school) and are never shown as a group of their own unless at least one
+  // OTHER class actually has a schoolName set — i.e. this whole filter row
+  // is invisible for a single-school user, exactly matching today's page.
+  const schoolNames = useMemo(() => {
+    const names = new Set((classes ?? []).map((c) => c.schoolName).filter((s): s is string => !!s));
+    return Array.from(names).sort();
+  }, [classes]);
+  const visibleClasses = useMemo(() => {
+    if (!schoolFilter || !classes) return classes;
+    return classes.filter((c) => c.schoolName === schoolFilter);
+  }, [classes, schoolFilter]);
 
   // Drag-to-reorder — same native HTML5 drag-and-drop pattern used for
   // moving disruptions on the Schedule calendar (no DnD library in this
@@ -152,8 +166,28 @@ export default function ClassesPage() {
         </Box>
       )}
 
+      {schoolNames.length > 0 && (
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+          <Chip
+            label="All Schools"
+            size="small"
+            color={schoolFilter === null ? 'primary' : 'default'}
+            onClick={() => setSchoolFilter(null)}
+          />
+          {schoolNames.map((name) => (
+            <Chip
+              key={name}
+              label={name}
+              size="small"
+              color={schoolFilter === name ? 'primary' : 'default'}
+              onClick={() => setSchoolFilter(name)}
+            />
+          ))}
+        </Box>
+      )}
+
       <Grid container spacing={2} sx={{ pb: classes && classes.length > 0 ? 10 : 0 }}>
-        {!loading && classes?.map((cls) => (
+        {!loading && visibleClasses?.map((cls) => (
           <Grid key={cls.id} size={{ xs: 12, sm: 6, md: 4 }} sx={{ display: 'flex' }}>
             <Card
               draggable
@@ -209,7 +243,12 @@ export default function ClassesPage() {
                     <Chip key={d} label={DAY_NAMES[d]} size="small" variant="outlined" />
                   ))}
                 </Box>
-                <Chip label={cls.semester} size="small" sx={{ mt: 1, backgroundColor: cls.color, color: contrastTextFor(cls.color), fontWeight: 500 }} />
+                <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
+                  <Chip label={cls.semester} size="small" sx={{ backgroundColor: cls.color, color: contrastTextFor(cls.color), fontWeight: 500 }} />
+                  {schoolNames.length > 0 && cls.schoolName && (
+                    <Chip label={cls.schoolName} size="small" variant="outlined" />
+                  )}
+                </Box>
               </CardContent>
             </Card>
           </Grid>

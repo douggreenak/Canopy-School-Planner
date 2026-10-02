@@ -263,7 +263,7 @@ async function fetchWithDeduplication<T>(url: string, forceRefresh = false): Pro
   return requestPromise;
 }
 
-function useFetch<T>(url: string) {
+export function useFetch<T>(url: string) {
   ensureGlobalListeners();
 
   const cached = useSyncExternalStore(

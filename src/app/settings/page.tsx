@@ -59,6 +59,7 @@ import ScheduleIcon from '@mui/icons-material/Schedule';
 import { useThemeMode } from '@/components/ThemeRegistry';
 import { ACCENT_PRESETS, resolvePresetColors } from '@/lib/theme';
 import TimezonePicker from '@/components/TimezonePicker';
+import OtherSchoolsSection from '@/components/OtherSchoolsSection';
 import type { SchoolClass } from '@/types';
 
 export default function SettingsPage() {
@@ -1017,6 +1018,8 @@ function SettingsInner() {
             </Grid>
           </AccordionDetails>
         </Accordion>
+
+        <OtherSchoolsSection />
 
         {/* ===== SCHEDULE WIZARD ===== */}
         <Accordion id="settings-wizard" expanded={!!expandedSections['settings-wizard']} onChange={() => toggleSection('settings-wizard')} disableGutters sx={{ '&:before': { display: 'none' } }}>

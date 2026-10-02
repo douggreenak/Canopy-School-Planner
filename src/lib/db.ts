@@ -306,6 +306,35 @@ export async function initializeDatabase() {
     )
   `);
 
+  // Multi-school support (secondary to the single-school default — a user
+  // with zero rows here is simply treated as having one, unlabeled school,
+  // and nothing about their experience changes). Each row is an ADDITIONAL
+  // PowerSchool login beyond the user's primary one (still stored via the
+  // existing getPowerSchoolCredentials/setPowerSchoolCredentials settings
+  // keys, untouched) — deliberately a separate table/sync path rather than
+  // threading a school id through the primary syncClassesFromSource/
+  // syncHomeworkFromSource merge logic, which is exactly the
+  // delicate/battle-tested code the "make sure PowerSchool sync is right"
+  // ask was about not risking a regression in.
+  await execute(`
+    CREATE TABLE IF NOT EXISTS school_accounts (
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL DEFAULT (''),
+      school_name TEXT NOT NULL DEFAULT (''),
+      url TEXT NOT NULL DEFAULT (''),
+      username TEXT NOT NULL DEFAULT (''),
+      password TEXT NOT NULL DEFAULT (''),
+      created_at DATETIME DEFAULT NOW()
+    )
+  `);
+  await createIndexIfMissing('idx_school_accounts_user', 'school_accounts', 'user_id');
+
+  // Which school a class/task belongs to — NULL means "the user's one
+  // (primary) school", matching every row that existed before this feature.
+  // Only meaningful once a user has 1+ school_accounts rows; otherwise every
+  // class is NULL and the UI never shows school grouping at all.
+  await addColumnIfMissing('classes', 'school_name', 'TEXT');
+
   // Admin support
   await addColumnIfMissing('users', 'role', "VARCHAR(20) NOT NULL DEFAULT 'user'");
   await addColumnIfMissing('sessions', 'created_at', 'DATETIME DEFAULT NOW()');
@@ -378,6 +407,7 @@ function dbToClass(row: Record<string, unknown>): SchoolClass {
     weightSource: (row.weight_source as SchoolClass['weightSource']) ?? undefined,
     isAp: Boolean(row.is_ap),
     sortOrder: row.sort_order != null ? Number(row.sort_order) : undefined,
+    schoolName: (row.school_name as string) || undefined,
   };
 }
 
@@ -673,8 +703,8 @@ export async function getClassById(id: string, userId: string): Promise<SchoolCl
 
 export async function addClass(c: SchoolClass, userId: string): Promise<void> {
   await execute(
-    `INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO classes (id, user_id, name, teacher, room, color, period, start_time, end_time, days, day_times, semester, source, source_id, grade, grade_percent, category_weights, weight_source, is_ap, school_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       c.id, userId, c.name, c.teacher, c.room, c.color, c.period,
       c.startTime, c.endTime, JSON.stringify(c.days),
@@ -684,6 +714,7 @@ export async function addClass(c: SchoolClass, userId: string): Promise<void> {
       c.categoryWeights ? JSON.stringify(c.categoryWeights) : null,
       c.weightSource ?? null,
       c.isAp ?? detectApFromName(c.name) ? 1 : 0,
+      c.schoolName ?? null,
     ],
   );
 }
@@ -695,7 +726,7 @@ export async function updateClass(c: SchoolClass, userId: string): Promise<void>
          name = ?, teacher = ?, room = ?, color = ?, period = ?,
          start_time = ?, end_time = ?, days = ?,
          semester = ?, source = ?, source_id = ?, grade = ?,
-         grade_percent = ?, category_weights = ?, weight_source = ?, is_ap = ?
+         grade_percent = ?, category_weights = ?, weight_source = ?, is_ap = ?, school_name = ?
        WHERE id = ? AND user_id = ?`,
       [
         c.name, c.teacher, c.room, c.color, c.period,
@@ -703,7 +734,7 @@ export async function updateClass(c: SchoolClass, userId: string): Promise<void>
         c.semester, c.source ?? null, c.sourceId ?? null, c.grade ?? null,
         c.gradePercent ?? null,
         c.categoryWeights ? JSON.stringify(c.categoryWeights) : null,
-        c.weightSource ?? null, c.isAp ?? false ? 1 : 0,
+        c.weightSource ?? null, c.isAp ?? false ? 1 : 0, c.schoolName ?? null,
         c.id, userId,
       ],
     );
@@ -713,7 +744,7 @@ export async function updateClass(c: SchoolClass, userId: string): Promise<void>
          name = ?, teacher = ?, room = ?, color = ?, period = ?,
          start_time = ?, end_time = ?, days = ?, day_times = ?,
          semester = ?, source = ?, source_id = ?, grade = ?,
-         grade_percent = ?, category_weights = ?, weight_source = ?, is_ap = ?
+         grade_percent = ?, category_weights = ?, weight_source = ?, is_ap = ?, school_name = ?
        WHERE id = ? AND user_id = ?`,
       [
         c.name, c.teacher, c.room, c.color, c.period,
@@ -722,7 +753,7 @@ export async function updateClass(c: SchoolClass, userId: string): Promise<void>
         c.semester, c.source ?? null, c.sourceId ?? null, c.grade ?? null,
         c.gradePercent ?? null,
         c.categoryWeights ? JSON.stringify(c.categoryWeights) : null,
-        c.weightSource ?? null, c.isAp ?? false ? 1 : 0,
+        c.weightSource ?? null, c.isAp ?? false ? 1 : 0, c.schoolName ?? null,
         c.id, userId,
       ],
     );
@@ -1079,6 +1110,125 @@ export async function clearPowerSchoolCredentials(userId: string): Promise<void>
     `DELETE FROM settings WHERE user_id = ? AND \`key\` IN ('powerschoolUrl', 'powerschoolUsername', 'powerschoolPassword')`,
     [userId],
   );
+}
+
+// ---- Additional schools (secondary to the one-school default) ----
+// A separate table/path from the primary PowerSchool login above — see the
+// doc comment on the school_accounts CREATE TABLE in initializeDatabase for
+// why this is kept independent rather than folded into the same storage.
+
+export interface SchoolAccount {
+  id: string;
+  schoolName: string;
+  url: string;
+  username: string;
+  password: string;
+}
+
+export async function getSchoolAccounts(userId: string): Promise<SchoolAccount[]> {
+  const rows = await query<RowDataPacket>(
+    `SELECT * FROM school_accounts WHERE user_id = ? ORDER BY created_at ASC`,
+    [userId],
+  );
+  return rows.map((r) => ({
+    id: r.id as string,
+    schoolName: (r.school_name as string) || '',
+    url: (r.url as string) || '',
+    username: (r.username as string) || '',
+    password: (() => {
+      const raw = r.password as string;
+      if (!raw) return '';
+      try { return decryptCredential(raw); } catch { return ''; }
+    })(),
+  }));
+}
+
+export async function addSchoolAccount(
+  userId: string,
+  schoolName: string,
+  url: string,
+  username: string,
+  password: string,
+): Promise<string> {
+  const id = uuid();
+  await execute(
+    `INSERT INTO school_accounts (id, user_id, school_name, url, username, password) VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, userId, schoolName, url, username, encryptCredential(password)],
+  );
+  return id;
+}
+
+/** `password` left blank keeps the previously-saved one, matching the primary PowerSchool form's convention. */
+export async function updateSchoolAccount(
+  userId: string,
+  id: string,
+  schoolName: string,
+  url: string,
+  username: string,
+  password: string,
+): Promise<void> {
+  if (password) {
+    await execute(
+      `UPDATE school_accounts SET school_name = ?, url = ?, username = ?, password = ? WHERE id = ? AND user_id = ?`,
+      [schoolName, url, username, encryptCredential(password), id, userId],
+    );
+  } else {
+    await execute(
+      `UPDATE school_accounts SET school_name = ?, url = ?, username = ? WHERE id = ? AND user_id = ?`,
+      [schoolName, url, username, id, userId],
+    );
+  }
+}
+
+export async function deleteSchoolAccount(userId: string, id: string): Promise<void> {
+  await execute(`DELETE FROM school_accounts WHERE id = ? AND user_id = ?`, [id, userId]);
+  // Classes tagged with this school are kept (not deleted) — just orphaned
+  // from any further auto-sync for that account. The user still manually
+  // owns and can edit/delete them like any other class.
+}
+
+/**
+ * A deliberately simple replace-in-place sync for an ADDITIONAL school's
+ * classes/homework: every class/homework row this account previously synced
+ * (source='powerschool' AND school_name = this account's name) is replaced
+ * wholesale with what was just scraped, rather than running through the
+ * primary path's add/update/remove diffing and change log. That diffing
+ * (syncClassesFromSource/syncHomeworkFromSource) is deliberately NOT reused
+ * here — threading a second school through its merge/dedup logic would risk
+ * the one sync path every user depends on, for a feature only a minority
+ * need. The trade-off: a secondary school's sync log/history is coarser
+ * (no per-field change tracking) than the primary school's.
+ */
+export async function replaceSchoolAccountData(
+  userId: string,
+  schoolName: string,
+  classes: SchoolClass[],
+  homework: Homework[],
+): Promise<{ classCount: number; homeworkCount: number }> {
+  const oldRows = await query<RowDataPacket>(
+    `SELECT id FROM classes WHERE user_id = ? AND school_name = ? AND source = 'powerschool'`,
+    [userId, schoolName],
+  );
+  const oldIds = oldRows.map((r) => r.id as string);
+  if (oldIds.length > 0) {
+    const { clause, params } = inClause(oldIds);
+    await execute(`DELETE FROM homework WHERE class_id ${clause} AND user_id = ?`, [...params, userId]);
+    await execute(`DELETE FROM classes WHERE id ${clause} AND user_id = ?`, [...params, userId]);
+  }
+
+  const idRemap = new Map<string, string>();
+  for (const cls of classes) {
+    const newId = uuid();
+    idRemap.set(cls.id, newId);
+    await addClass({ ...cls, id: newId, source: 'powerschool', schoolName }, userId);
+  }
+  for (const hw of homework) {
+    const classId = idRemap.get(hw.classId);
+    if (!classId) continue;
+    await addHomework({ ...hw, id: uuid(), classId, source: 'powerschool' }, userId);
+  }
+
+  return { classCount: classes.length, homeworkCount: homework.length };
 }
 
 // ---- Grade history & sync log ----

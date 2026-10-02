@@ -34,6 +34,10 @@ export interface SchoolClass {
   // User's drag-to-reorder position on the Classes page. undefined until the
   // user has dragged a card there — see getClasses/setClassOrder in db.ts.
   sortOrder?: number;
+  // Which school this class belongs to, for users with more than one (see
+  // school_accounts in db.ts). undefined means "the user's one/primary
+  // school" — the overwhelmingly common case, where this is never shown.
+  schoolName?: string;
 }
 
 // One step in a completion pipeline (e.g. "Done" -> "Turned In"). Each
