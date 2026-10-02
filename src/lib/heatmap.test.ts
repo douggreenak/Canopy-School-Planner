@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import dayjs from 'dayjs';
-import { buildHeatmap } from '@/lib/heatmap';
+import { buildHeatmap, suggestRebalancing } from '@/lib/heatmap';
 import type { Homework, Task, ScheduleDisruption } from '@/types';
 
 const today = dayjs().startOf('day');
 const dateAt = (offset: number) => today.add(offset, 'day').format('YYYY-MM-DD');
 
-function hw(dueDate: string, completed = false): Homework {
-  return { id: `hw-${dueDate}-${Math.random()}`, classId: 'c1', title: 'Worksheet', description: '', dueDate, completed, priority: 'medium', source: 'manual' };
+function hw(dueDate: string, completed = false, source: Homework['source'] = 'manual'): Homework {
+  return { id: `hw-${dueDate}-${Math.random()}`, classId: 'c1', title: 'Worksheet', description: '', dueDate, completed, priority: 'medium', source };
 }
 function task(dueDate: string, completed = false): Task {
   return { id: `t-${dueDate}-${Math.random()}`, title: 'Study', dueDate, completed } as Task;
@@ -49,6 +49,35 @@ describe('buildHeatmap intensity', () => {
     expect(day.hwCount).toBe(2);
     expect(day.taskCount).toBe(1);
     expect(day.total).toBe(3);
+  });
+
+  it('excludes PowerSchool/Classroom-synced homework — only manually-added items and tasks count as workload', () => {
+    const days = buildHeatmap(
+      [hw(dateAt(5), false, 'powerschool'), hw(dateAt(5), false, 'classroom'), hw(dateAt(5), false, 'manual')],
+      [task(dateAt(5))],
+    );
+    const day = days.find((d) => d.date === dateAt(5))!;
+    expect(day.hwCount).toBe(1);
+    expect(day.taskCount).toBe(1);
+    expect(day.total).toBe(2);
+  });
+});
+
+describe('suggestRebalancing', () => {
+  it('ignores PowerSchool/Classroom-synced homework when clustering', () => {
+    const synced = [
+      hw(dateAt(3), false, 'powerschool'),
+      hw(dateAt(3), false, 'powerschool'),
+      hw(dateAt(3), false, 'powerschool'),
+    ];
+    expect(suggestRebalancing(synced)).toEqual([]);
+
+    const manual = [
+      hw(dateAt(3), false, 'manual'),
+      hw(dateAt(3), false, 'manual'),
+      hw(dateAt(3), false, 'manual'),
+    ];
+    expect(suggestRebalancing(manual).length).toBeGreaterThan(0);
   });
 });
 

@@ -35,6 +35,14 @@ function intensityFor(total: number): 0 | 1 | 2 | 3 {
  * Counts homework + tasks due on each day, and flags any day a schedule
  * disruption (no-school, early-out, 1-6, etc.) covers so the UI can surface
  * that context next to the workload count.
+ *
+ * Only user-created items count toward workload: `tasks` are always
+ * user-created, but `homework` also includes PowerSchool/Classroom-synced
+ * assignments (source !== 'manual'), which are filtered out here. A
+ * school's assignment list isn't something the student chose to take on —
+ * counting it as "workload" would make every day PowerSchool happens to
+ * have due dates on look artificially busy, independent of what the user
+ * actually planned for themselves.
  */
 export function buildHeatmap(
   homework: Homework[],
@@ -51,7 +59,7 @@ export function buildHeatmap(
   }
 
   for (const h of homework) {
-    if (!h.dueDate || h.completed) continue;
+    if (h.source !== 'manual' || !h.dueDate || h.completed) continue;
     if (counts.has(h.dueDate)) {
       counts.get(h.dueDate)!.hw++;
     }
@@ -89,11 +97,13 @@ export type RebalanceSuggestion = {
 /**
  * Suggest starting earlier for homework items whose due dates cluster with
  * 2+ other items in a ±1-day window. Computed on-the-fly, never persisted.
+ * Only considers user-created (source: 'manual') items — see buildHeatmap's
+ * doc comment above for why PowerSchool-synced assignments don't count.
  */
 export function suggestRebalancing(homework: Homework[]): RebalanceSuggestion[] {
   const today = dayjs().startOf('day');
   const upcoming = homework.filter(
-    (h) => !h.completed && h.dueDate && dayjs(h.dueDate).diff(today, 'day') >= 0,
+    (h) => h.source === 'manual' && !h.completed && h.dueDate && dayjs(h.dueDate).diff(today, 'day') >= 0,
   );
 
   // Count items per due date (±1 day window for cluster detection)
