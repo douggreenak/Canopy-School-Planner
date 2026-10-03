@@ -38,6 +38,9 @@ export async function GET(request: NextRequest) {
   // Chromium PowerSchool scrape of every auto-sync user. See
   // docs/SECURITY_AUDIT.md (C3) — CRON_SECRET must be set as a Vercel
   // project env var for this endpoint (and therefore scheduled sync) to work.
+  if (!process.env.CRON_SECRET) {
+    console.error('[PowerSchool cron] CRON_SECRET is not set in this deployment — rejecting the scheduled call, so NO scheduled syncs will run. Set CRON_SECRET in the Vercel project env vars and redeploy.');
+  }
   if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }

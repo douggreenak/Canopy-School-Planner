@@ -992,22 +992,31 @@ export async function setSettingsBatch(entries: [string, string][], userId: stri
  * `powerschoolAutoSync` setting is enabled.
  */
 export async function getUsersWithAutoSyncEnabled(): Promise<string[]> {
-  const rows = await query<RowDataPacket>(
+  // Scheduled sync is opt-out: every user with a saved PowerSchool login is
+  // synced unless they explicitly turned it off. (Previously only users with
+  // an explicit enabled:true row were picked up, so anyone who connected
+  // PowerSchool before the opt-out default shipped — whose Settings toggle
+  // showed ON — was silently never synced.)
+  const connected = await query<RowDataPacket>(
+    `SELECT DISTINCT user_id FROM settings WHERE \`key\` = 'powerschoolPassword' AND value <> ''`,
+  );
+  const prefs = await query<RowDataPacket>(
     `SELECT user_id, value FROM settings WHERE \`key\` = 'powerschoolAutoSync'`,
   );
-  const due: string[] = [];
+  const optedOut = new Set<string>();
   let malformedRows = 0;
-  for (const row of rows) {
+  for (const row of prefs) {
     try {
       const parsed = JSON.parse((row.value as string) || '{}') as { enabled?: unknown };
-      if (parsed.enabled) due.push(row.user_id as string);
+      if (!parsed.enabled) optedOut.add(row.user_id as string);
     } catch {
-      // malformed setting value — skip rather than fail the whole scan
-      malformedRows++;
+      malformedRows++; // malformed value — treat as no explicit choice (stays enabled)
     }
   }
+  const due = connected.map((r) => r.user_id as string).filter((id) => !optedOut.has(id));
   console.info('[PowerSchool cron] auto-sync selection', {
-    settingsRows: rows.length,
+    connectedUsers: connected.length,
+    optedOut: optedOut.size,
     malformedRows,
     matchedUsers: due.length,
   });
