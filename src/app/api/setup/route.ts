@@ -9,6 +9,8 @@ import {
   getUserById,
   getSettings,
   setSetting,
+  getSyncStatus,
+  setSyncStatus,
 } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 
@@ -68,6 +70,14 @@ export async function POST(request: NextRequest) {
         return Response.json({ success: false, error: 'URL, username, and password are all required.' });
       }
       await setPowerSchoolCredentials(userId, url, username, password);
+      // Re-saving the login is the fix for a "PowerSchool rejected your
+      // password" sync failure — clear that failed status so the warning
+      // banner on Home/Grades goes away right away instead of waiting for the
+      // next successful sync. Other failure types are left alone.
+      const prior = await getSyncStatus(userId);
+      if (prior?.status === 'error' && /login failed|invalid (username|password)|incorrect (username|password)/i.test(prior.error ?? '')) {
+        await setSyncStatus(userId, { syncId: prior.syncId, status: 'idle', log: [], result: null, error: null });
+      }
       // Scheduled sync is opt-out: the first time a user connects
       // PowerSchool, turn it on for them rather than leaving it off until
       // they find the toggle in Settings. Only when no explicit choice
