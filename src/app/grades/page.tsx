@@ -67,6 +67,7 @@ import {
 } from '@/lib/grades';
 import type { SchoolClass, Homework } from '@/types';
 import dynamic from 'next/dynamic';
+import PowerSchoolLoginWarning from '@/components/PowerSchoolLoginWarning';
 // Both are full sibling pages embedded here as tabs — the default tab is
 // "grades", so most visits never touch either. Deferring them to their own
 // chunks keeps their JS out of the (already substantial) Grades page bundle
@@ -326,6 +327,8 @@ export default function GradesPage() {
 
   return (
     <Box>
+      <PowerSchoolLoginWarning />
+
       {/* ===== Header ===== */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 1 }}>
         <Box sx={{ flex: 1 }}>
