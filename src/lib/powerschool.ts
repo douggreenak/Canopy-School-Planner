@@ -2063,6 +2063,58 @@ export async function scrapePowerSchool(
       }).then((r) => ({ assignments: r.results, diagnostic: r.diagnostic }));
     };
 
+    // Pulls category weights (e.g. Tests 40%, Homework 20%) off a class's
+    // scores page when PowerSchool shows them — usually a small "Category /
+    // Weight" table in the grade-calculation area. Skins differ a lot, so
+    // this tries a header-based table match first, then a conservative
+    // "Name: NN%" line match inside a block that mentions weights. Returns
+    // {} when nothing recognizable is found (the UI then falls back to an
+    // equal-weight estimate and says so).
+    const scrapeCategoryWeightsFromPage = async (): Promise<Record<string, number>> => {
+      return await page!.evaluate(() => {
+        const out: Record<string, number> = {};
+        const num = (t: string) => {
+          const m = t.replace(/\s+/g, ' ').match(/(\d{1,3}(?:\.\d+)?)\s*%?/);
+          return m ? parseFloat(m[1]) : NaN;
+        };
+        const add = (name: string, w: number) => {
+          const n = name.replace(/\s+/g, ' ').trim();
+          if (!n || n.length > 40 || !isFinite(w) || w <= 0 || w > 100) return;
+          if (/^(total|overall|final grade|grade|average)$/i.test(n)) return;
+          if (!(n in out)) out[n] = w;
+        };
+
+        for (const t of Array.from(document.querySelectorAll<HTMLTableElement>('table'))) {
+          const header = (t.rows[0]?.textContent || '').toLowerCase();
+          if (!header.includes('category') || !/weight|%|percent/.test(header)) continue;
+          if (header.includes('due') || header.includes('assignment')) continue;
+          const labels = Array.from(t.rows[0].cells).map((c) => (c.textContent || '').toLowerCase());
+          const wIdx = labels.findIndex((l) => /weight/.test(l));
+          const cIdx = Math.max(0, labels.findIndex((l) => /category/.test(l)));
+          for (const row of Array.from(t.rows).slice(1)) {
+            const cells = Array.from(row.cells);
+            if (cells.length < 2) continue;
+            const name = cells[cIdx]?.textContent || '';
+            const w = wIdx >= 0 ? num(cells[wIdx]?.textContent || '') : num(cells[cells.length - 1]?.textContent || '');
+            add(name, w);
+          }
+          if (Object.keys(out).length > 0) return out;
+        }
+
+        const blocks = Array.from(document.querySelectorAll<HTMLElement>('div, section, td, p, li'))
+          .filter((el) => /weight/i.test(el.textContent || '') && (el.textContent || '').length < 600);
+        for (const el of blocks) {
+          const lines = (el.innerText || '').split(/\n+/);
+          for (const line of lines) {
+            const m = line.trim().match(/^([A-Za-z][A-Za-z &/'-]{1,30}?)\s*(?:[:\-–(]|\s)\s*(\d{1,3}(?:\.\d+)?)\s*%\)?$/);
+            if (m) add(m[1], parseFloat(m[2]));
+          }
+          if (Object.keys(out).length >= 2) return out;
+        }
+        return Object.keys(out).length >= 2 ? out : {};
+      });
+    };
+
     for (const cls of classes) {
       const terms = classTermFrns.get(cls.id) || [];
       if (terms.length === 0) {
@@ -2147,6 +2199,14 @@ export async function scrapePowerSchool(
         }
 
         const { assignments: scraped, diagnostic } = await scrapeAssignmentsFromPage();
+        if (!cls.categoryWeights) {
+          const w = await scrapeCategoryWeightsFromPage().catch(() => ({} as Record<string, number>));
+          if (Object.keys(w).length > 0) {
+            cls.categoryWeights = w;
+            cls.weightSource = 'scraped';
+            log.push(`    · category weights: ${Object.entries(w).map(([k, v]) => `${k} ${v}%`).join(', ')}`);
+          }
+        }
         let added = 0;
         for (const a of scraped) {
           const key = `${a.title.toLowerCase()}||${a.dueDate}`;

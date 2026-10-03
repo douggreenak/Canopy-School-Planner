@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { unweightedGpaPoints, weightedGpaPoints, overallGrade, simulateWhatIf, simulateScoreChange } from '@/lib/gradeEngine';
+import { unweightedGpaPoints, weightedGpaPoints, overallGrade, simulateWhatIf, simulateScoreChange, predictGradeChange } from '@/lib/gradeEngine';
 import type { Homework } from '@/types';
 
 function hw(category: string, scorePercent: number | undefined): Homework {
@@ -150,5 +150,36 @@ describe('simulateScoreChange', () => {
     const before = overallGrade(assignments, weights);
     const after = simulateScoreChange(assignments, weights, 'does-not-exist', 0);
     expect(after).toBeCloseTo(before!, 5);
+  });
+});
+
+describe('predictGradeChange', () => {
+  it('anchors the old grade on the official PowerSchool grade and applies the calculated change', () => {
+    const a = [hw('Tests', 70), hw('Tests', 90), hw('Homework', 80)];
+    const w = { Tests: 70, Homework: 30 };
+    const r = predictGradeChange(a, w, a[0].id, 100, 83);
+    expect(r.method).toBe('weighted');
+    expect(r.oldGrade).toBe(83);
+    expect(r.newGrade).toBeCloseTo(83 + 15 * 0.7, 5);
+  });
+
+  it('falls back to an equal-weight average when no weights are known', () => {
+    const a = [hw('Tests', 70), hw('Homework', 90)];
+    const r = predictGradeChange(a, {}, a[0].id, 100);
+    expect(r.method).toBe('average');
+    expect(r.oldGrade).toBeCloseTo(80, 5);
+    expect(r.newGrade).toBeCloseTo(95, 5);
+  });
+
+  it('falls back when weight names do not match any assignment category', () => {
+    const a = [hw('Tests', 70)];
+    const r = predictGradeChange(a, { Quizzes: 100 }, a[0].id, 90);
+    expect(r.method).toBe('average');
+    expect(r.newGrade).toBeCloseTo(90, 5);
+  });
+
+  it('matches category names case/punctuation-insensitively', () => {
+    const a = [hw('tests', 80), hw('Homework', 100)];
+    expect(overallGrade(a, { Tests: 50, 'HOMEWORK': 50 })).toBeCloseTo(90, 5);
   });
 });

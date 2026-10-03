@@ -32,9 +32,15 @@ export function weightedGpaPoints(percent: number, isAp?: boolean): number {
   return unweightedGpaPoints(percent) + (isAp ? 1.0 : 0);
 }
 
+/** Category names compare case/punctuation-insensitively ("Tests" == "tests", "Quizzes/Labs" == "quizzes labs"). */
+function normCat(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
 /** Equal-weight mean of scorePercent for graded assignments in one category. */
 export function categoryAverage(assignments: Homework[], category: string): number | undefined {
-  const graded = assignments.filter((h) => h.category === category && h.scorePercent !== undefined);
+  const key = normCat(category);
+  const graded = assignments.filter((h) => normCat(h.category ?? '') === key && h.scorePercent !== undefined);
   if (graded.length === 0) return undefined;
   return graded.reduce((sum, h) => sum + (h.scorePercent ?? 0), 0) / graded.length;
 }
@@ -162,4 +168,46 @@ export function missingWorkImpact(
   });
 
   return results.sort((a, b) => b.gradeImpactPercent - a.gradeImpactPercent);
+}
+
+export interface GradePrediction {
+  /** The class grade today — PowerSchool's own when we have it, else our calculation. */
+  oldGrade?: number;
+  /** The class grade if the assignment scored the simulated percent. */
+  newGrade?: number;
+  /** 'weighted' = real category weights were applied; 'average' = no usable weights, so every graded assignment counts equally (an estimate). */
+  method: 'weighted' | 'average';
+}
+
+function calcGrade(assignments: Homework[], weights: Record<string, number>): { grade?: number; method: 'weighted' | 'average' } {
+  const weighted = overallGrade(assignments, weights);
+  if (weighted !== undefined) return { grade: weighted, method: 'weighted' };
+  const scored = assignments.filter((h) => h.scorePercent !== undefined);
+  if (scored.length === 0) return { grade: undefined, method: 'average' };
+  return { grade: scored.reduce((s, h) => s + (h.scorePercent ?? 0), 0) / scored.length, method: 'average' };
+}
+
+/**
+ * Predicts the class grade if ONE assignment scored `percent`. Computes the
+ * grade with and without that change and applies the difference to
+ * PowerSchool's own reported grade (when known), so the "old grade" shown
+ * is exactly what the student sees in PowerSchool rather than our slightly
+ * different re-calculation.
+ */
+export function predictGradeChange(
+  assignments: Homework[],
+  weights: Record<string, number>,
+  assignmentId: string,
+  percent: number,
+  officialGrade?: number | null,
+): GradePrediction {
+  const before = calcGrade(assignments, weights);
+  const updated = assignments.map((h) => (h.id === assignmentId ? { ...h, scorePercent: percent } : h));
+  const after = calcGrade(updated, weights);
+  // Weighted-before but average-after (or vice versa) can't be compared fairly.
+  const method = after.method;
+  if (officialGrade != null && before.grade !== undefined && after.grade !== undefined && before.method === after.method) {
+    return { oldGrade: officialGrade, newGrade: Math.max(0, officialGrade + (after.grade - before.grade)), method };
+  }
+  return { oldGrade: officialGrade ?? before.grade, newGrade: after.grade, method };
 }

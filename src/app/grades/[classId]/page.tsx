@@ -821,6 +821,10 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
           </Box>
         </Alert>
       ) : (
+        <>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+          Tip: click any assignment to see how a different score would change your grade.
+        </Typography>
         <Card variant="outlined" sx={{ overflow: 'hidden' }}>
           {groupedRows.map((group) => (
             <BucketGroup
@@ -831,6 +835,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
             />
           ))}
         </Card>
+        </>
       )}
 
       {cls && (
