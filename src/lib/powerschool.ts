@@ -2224,6 +2224,16 @@ export async function scrapePowerSchool(
             cls.categoryWeights = w;
             cls.weightSource = 'scraped';
             log.push(`    · category weights: ${Object.entries(w).map(([k, v]) => `${k} ${v}%`).join(', ')}`);
+          } else {
+            // Nothing recognizable — dump what the page does contain so the
+            // scraper can be taught this school's layout from the sync log.
+            const diag = await page!.evaluate(() => ({
+              tables: Array.from(document.querySelectorAll('table')).slice(0, 9).map((t) => (t.rows[0]?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90)),
+              weightText: Array.from(document.querySelectorAll<HTMLElement>('div, td, p, li, span'))
+                .filter((el) => /weight|categor/i.test(el.textContent || '') && (el.textContent || '').length < 200 && el.children.length < 4)
+                .slice(0, 6).map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim()),
+            })).catch(() => null);
+            log.push(`    · no category weights found; page tables=${JSON.stringify(diag?.tables)} weightText=${JSON.stringify(diag?.weightText)}`);
           }
         }
         let added = 0;
