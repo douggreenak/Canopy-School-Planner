@@ -124,12 +124,14 @@ export interface SyncLogEntry {
   // 'sync' is the synthetic whole-sync entry written when a completed sync
   // found zero class/homework diffs — see runPowerSchoolSyncInner in
   // powerschoolSync.ts. Every real sync writes at least one log entry now,
-  // so "no rows for this sync" always means the sync never ran/completed.
+  // so "no rows for this sync" always means the sync never ran. A sync that
+  // fails (bad password, PowerSchool unreachable, ...) logs a changeType
+  // 'error' entry carrying the reason.
   entityType: 'class' | 'homework' | 'sync';
   entityId: string;
   classId?: string;
   label: string;
-  changeType: 'added' | 'removed' | 'score_changed' | 'grade_changed' | 'flag_changed' | 'none';
+  changeType: 'added' | 'removed' | 'score_changed' | 'grade_changed' | 'flag_changed' | 'none' | 'error';
   detail: string;
 }
 

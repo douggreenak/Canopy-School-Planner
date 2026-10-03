@@ -112,6 +112,26 @@ describe('runPowerSchoolSync', () => {
     expect(mocks.releaseSyncLock).toHaveBeenCalledWith('user1');
     expect(mocks.setSyncStatus).toHaveBeenCalledWith('user1', expect.objectContaining({ status: 'error' }));
   });
+
+  it('records a failed sync in the Sync Log, not just the status row', async () => {
+    mocks.scrapePowerSchool.mockRejectedValue(new Error('PowerSchool login failed: Invalid Username or Password!'));
+
+    await runPowerSchoolSync('user1', CREDS, 'sync1');
+
+    expect(mocks.addSyncLogEntries).toHaveBeenCalledWith('user1', [
+      expect.objectContaining({ syncId: 'sync1', entityType: 'sync', changeType: 'error', detail: expect.stringContaining('login failed') }),
+    ]);
+  });
+
+  it('records a Sync Log entry when the scrape finds nothing at all', async () => {
+    mocks.scrapePowerSchool.mockResolvedValue({ classes: [], assignments: [], log: [] });
+
+    await runPowerSchoolSync('user1', CREDS, 'sync1');
+
+    expect(mocks.addSyncLogEntries).toHaveBeenCalledWith('user1', [
+      expect.objectContaining({ changeType: 'error' }),
+    ]);
+  });
 });
 
 // Regression coverage for a real bug: the Lathrop bell schedule used to be

@@ -58,6 +58,7 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
         result: null,
         error: 'Connected to PowerSchool but could not find any classes or assignments.',
       });
+      await logSyncFailure(userId, syncId, 'Connected to PowerSchool but could not find any classes or assignments.');
       return;
     }
 
@@ -178,7 +179,22 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
       result: null,
       error: safeMsg,
     }).catch(() => {});
+    await logSyncFailure(userId, syncId, safeMsg);
   }
+}
+
+// Every sync — including one that fails before it can change anything —
+// leaves a row in the user's Sync Log, so a missing/failed scheduled run is
+// visible there instead of silently absent. Never throws.
+async function logSyncFailure(userId: string, syncId: string, message: string): Promise<void> {
+  await addSyncLogEntries(userId, [{
+    syncId,
+    entityType: 'sync',
+    entityId: syncId,
+    label: 'Sync failed',
+    changeType: 'error',
+    detail: message,
+  }]).catch(() => {});
 }
 
 /**
