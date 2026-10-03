@@ -4,7 +4,7 @@
 // Falls back to multiple selector strategies.
 // ============================================================
 import puppeteer from 'puppeteer-core';
-import type { Browser, BrowserContext, Page } from 'puppeteer-core';
+import type { Browser, Page } from 'puppeteer-core';
 import chromium from '@sparticuz/chromium-min';
 import { existsSync } from 'fs';
 import type { SchoolClass, Homework } from '@/types';
@@ -302,8 +302,27 @@ function parseDaysFromExpression(expression: string, letterMap?: Record<string, 
 // Extracting this was what let onboarding get a fast, dedicated "check the
 // password" step instead of only ever finding out credentials were wrong
 // after waiting on a full class+assignment scrape.
-async function loginToPowerSchool(browser: Browser | BrowserContext, creds: PowerSchoolCredentials, baseUrl: string, log: string[]): Promise<Page> {
+// Wipes every cookie in the browser. A cron batch shares ONE Chromium across
+// users, and all pages share its cookie jar, so the first user to log in left
+// a live PowerSchool session behind: every later user's login page redirected
+// straight to that logged-in session ("Could not find login form fields" at
+// best, scraping the wrong student at worst). Isolated browser contexts would
+// be cleaner, but @sparticuz/chromium runs --single-process, which crashes on
+// createBrowserContext ("Target closed"), so cookies are cleared instead.
+async function clearBrowserSession(page: Page | undefined): Promise<void> {
+  if (!page) return;
+  try {
+    const client = await page.createCDPSession();
+    await client.send('Network.clearBrowserCookies');
+    await client.detach();
+  } catch {
+    // best effort — the page/browser may already be gone
+  }
+}
+
+async function loginToPowerSchool(browser: Browser, creds: PowerSchoolCredentials, baseUrl: string, log: string[]): Promise<Page> {
   const page = await browser.newPage();
+  await clearBrowserSession(page);
   await page.setUserAgent(
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   );
@@ -487,16 +506,9 @@ export async function scrapePowerSchool(
 
   const browser = sharedBrowser ?? await launchBrowser();
   let page: Page | undefined;
-  // Each scrape gets its OWN incognito-style browser context. Pages in the
-  // default context share cookies, so with one browser shared across a cron
-  // batch, the first user to log in left a live PowerSchool session behind:
-  // every later user's login page then redirected straight to that first
-  // user's logged-in home — "Could not find login form fields" for them at
-  // best, and a risk of scraping the wrong student's data at worst.
-  const context = await browser.createBrowserContext();
 
   try {
-    page = await loginToPowerSchool(context, creds, baseUrl, log);
+    page = await loginToPowerSchool(browser, creds, baseUrl, log);
 
     // ===================== SCRAPE CLASSES =====================
     log.push('Scraping class schedule...');
@@ -2306,7 +2318,9 @@ export async function scrapePowerSchool(
     log.push(`ERROR: ${(err as Error).message}`);
     throw new Error(`PowerSchool scrape failed: ${(err as Error).message}\n\nLog:\n${log.join('\n')}`);
   } finally {
-    await context.close().catch(() => {});
+    // Drop this user's PowerSchool session before the (possibly shared)
+    // browser moves on to the next user — see clearBrowserSession.
+    await clearBrowserSession(page);
     if (sharedBrowser) {
       // Shared across a batch — only this user's page is ours to clean up;
       // the browser process outlives this call for the next user in line.
