@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { unweightedGpaPoints, weightedGpaPoints, overallGrade, simulateWhatIf } from '@/lib/gradeEngine';
+import { unweightedGpaPoints, weightedGpaPoints, overallGrade, simulateWhatIf, simulateScoreChange } from '@/lib/gradeEngine';
 import type { Homework } from '@/types';
 
 function hw(category: string, scorePercent: number | undefined): Homework {
@@ -116,5 +116,39 @@ describe('simulateWhatIf', () => {
     // at their configured 50/50 split.
     const after = simulateWhatIf(assignments, weights, { category: 'Homework', percent: 60 });
     expect(after).toBeCloseTo(100 * 0.5 + 60 * 0.5, 5);
+  });
+});
+
+describe('simulateScoreChange', () => {
+  it('swaps one existing graded assignment\'s score and recomputes, leaving every other assignment untouched', () => {
+    const assignments = [hw('Tests', 70), hw('Tests', 90), hw('Homework', 80)];
+    const weights = { Tests: 70, Homework: 30 };
+    const before = overallGrade(assignments, weights)!; // Tests avg 80 -> 80*0.7 + 80*0.3 = 80
+    expect(before).toBeCloseTo(80, 5);
+
+    // Swap the 70 for a hypothetical 100 -> Tests avg becomes 95.
+    const targetId = assignments[0].id;
+    const after = simulateScoreChange(assignments, weights, targetId, 100);
+    expect(after).toBeCloseTo(95 * 0.7 + 80 * 0.3, 5);
+  });
+
+  it('assigns a hypothetical score to a still-ungraded assignment', () => {
+    const assignments = [hw('Tests', 90), hw('Tests', undefined), hw('Homework', 80)];
+    const weights = { Tests: 70, Homework: 30 };
+    // Before: the ungraded Tests item doesn't count, so Tests avg is just 90.
+    expect(overallGrade(assignments, weights)).toBeCloseTo(90 * 0.7 + 80 * 0.3, 5);
+
+    const ungradedId = assignments[1].id;
+    const after = simulateScoreChange(assignments, weights, ungradedId, 70);
+    // Now both Tests items count: avg (90+70)/2 = 80.
+    expect(after).toBeCloseTo(80 * 0.7 + 80 * 0.3, 5);
+  });
+
+  it('returns the same grade as before when given an unknown assignment id', () => {
+    const assignments = [hw('Tests', 90), hw('Homework', 80)];
+    const weights = { Tests: 70, Homework: 30 };
+    const before = overallGrade(assignments, weights);
+    const after = simulateScoreChange(assignments, weights, 'does-not-exist', 0);
+    expect(after).toBeCloseTo(before!, 5);
   });
 });

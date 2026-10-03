@@ -21,6 +21,7 @@ import dynamic from 'next/dynamic';
 // ship them on load.
 const WhatIfDialog = dynamic(() => import('@/components/WhatIfDialog'), { ssr: false });
 const FinalGradeDialog = dynamic(() => import('@/components/FinalGradeDialog'), { ssr: false });
+const AssignmentGradeSimulatorDialog = dynamic(() => import('@/components/AssignmentGradeSimulatorDialog'), { ssr: false });
 import { mostImpactfulAssignment } from '@/lib/gradeEngine';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -105,6 +106,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [whatIfOpen, setWhatIfOpen] = useState(false);
   const [finalCalcOpen, setFinalCalcOpen] = useState(false);
+  const [simAssignment, setSimAssignment] = useState<Homework | null>(null);
 
   const { data: gradeHistory } = useGradeHistory(classId);
   const { data: syncLog } = useSyncLog(classId, 50);
@@ -825,6 +827,7 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
               key={group.bucket}
               group={group}
               theme={theme}
+              onSelectAssignment={setSimAssignment}
             />
           ))}
         </Card>
@@ -836,6 +839,16 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
           onClose={() => setWhatIfOpen(false)}
           cls={cls}
           homework={classHomework}
+        />
+      )}
+
+      {cls && (
+        <AssignmentGradeSimulatorDialog
+          open={!!simAssignment}
+          onClose={() => setSimAssignment(null)}
+          cls={cls}
+          homework={classHomework}
+          assignment={simAssignment}
         />
       )}
 
@@ -863,9 +876,11 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
 function BucketGroup({
   group,
   theme,
+  onSelectAssignment,
 }: {
   group: { bucket: TimeBucket | 'all'; items: Homework[] };
   theme: Theme;
+  onSelectAssignment: (h: Homework) => void;
 }) {
   const showHeader = group.bucket !== 'all';
   return (
@@ -912,17 +927,26 @@ function BucketGroup({
         return (
           <Box
             key={h.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelectAssignment(h)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectAssignment(h); } }}
             sx={{
               display: 'flex',
               alignItems: 'center',
               gap: 2,
               px: 2,
               py: 1.25,
+              cursor: 'pointer',
               borderBottom: '1px solid',
               borderColor: 'divider',
               bgcolor: stripeColor ? alpha(stripeColor, 0.04) : 'transparent',
               borderLeft: stripeColor ? `3px solid ${stripeColor}` : '3px solid transparent',
               '&:last-child': { borderBottom: 0 },
+              '@media (hover: hover) and (pointer: fine)': {
+                '&:hover': { bgcolor: stripeColor ? alpha(stripeColor, 0.08) : 'action.hover' },
+              },
+              '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 },
             }}
           >
             <Box sx={{ flex: 1, minWidth: 0 }}>

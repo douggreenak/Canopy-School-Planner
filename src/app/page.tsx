@@ -117,13 +117,15 @@ export default function Dashboard() {
   // day) so the grid's scale doesn't jump around while navigating.
   const calendarBounds = useMemo(() => computeDayBounds(classesWithLunch ?? []), [classesWithLunch]);
 
-  // The dashboard's "what's due" widgets show ALL homework regardless of
-  // source (manual or PowerSchool-synced) — for most students nearly every
-  // assignment comes from PowerSchool, so excluding it here made "Upcoming
-  // Homework" and "Due Today" look permanently empty. The Grades page
-  // remains the dedicated gradebook view with per-class breakdowns; this is
-  // just "what's due," holistically.
-  const allHomework = useMemo(() => homework || [], [homework]);
+  // The dashboard's "what's due" widgets (Upcoming Homework, Due Today) only
+  // count user-created homework (source: 'manual') — PowerSchool/Classroom-
+  // synced assignments don't count, same rule as the heatmap, rebalancing
+  // suggestions, and the schedule's per-class due-count badges (see
+  // buildHeatmap/buildDueCountMap's doc comments). A school's assignment
+  // list isn't something the user planned for themselves, so it shouldn't
+  // drive a personal "this is due" reminder. The Grades page remains the
+  // place to see every PowerSchool assignment's due date and status.
+  const allHomework = useMemo(() => (homework ?? []).filter((h) => h.source === 'manual'), [homework]);
 
   const classMap = useMemo(() => {
     const m = new Map<string, { name: string; color: string }>();
@@ -167,8 +169,7 @@ export default function Dashboard() {
   const completedToday = useMemo(() => {
     if (!tasks) return { hw: 0, hwTotal: 0, tasks: 0, tasksTotal: 0 };
     const todayStr = dayjs().format('YYYY-MM-DD');
-    // Count only manual / non-PowerSchool homework here — PowerSchool
-    // assignments live on the Grades tab.
+    // allHomework is already manual-only (see its definition above).
     const todayHw = allHomework.filter((h) => h.dueDate === todayStr);
     const todayTasks = tasks.filter((t) => t.dueDate === todayStr);
     return {

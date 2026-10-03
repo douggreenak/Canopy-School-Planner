@@ -83,6 +83,29 @@ export function simulateWhatIf(
 }
 
 /**
+ * What-if projection for ONE SPECIFIC existing assignment: swap its score
+ * for a hypothetical one (rather than injecting a new item, like
+ * simulateWhatIf above) and return the projected overall grade. Works just
+ * as well on an already-graded assignment ("what if I'd gotten an 85
+ * instead of a 70") as on a still-ungraded one ("what if I get a 95 on
+ * this") — either way the target assignment's category average, and
+ * therefore the overall grade, recomputes with that one score swapped in.
+ * Every other assignment (including other ungraded ones) is left exactly
+ * as-is.
+ */
+export function simulateScoreChange(
+  assignments: Homework[],
+  weights: Record<string, number>,
+  assignmentId: string,
+  percent: number,
+): number | undefined {
+  const updated = assignments.map((h) =>
+    h.id === assignmentId ? { ...h, scorePercent: percent } : h,
+  );
+  return overallGrade(updated, weights);
+}
+
+/**
  * Find which assignment most moved the overall grade between two snapshots.
  * Compares "after" against "before" by sourceId/id. Returns the largest
  * contributor and the approximate grade delta it caused.

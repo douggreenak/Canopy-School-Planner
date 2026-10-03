@@ -5,7 +5,7 @@
 // render of the schedule grid.
 import type { Homework, Task } from '@/types';
 
-type DueItem = Pick<Homework | Task, 'dueDate' | 'dueTiming'> & { classId?: string };
+type DueItem = Pick<Homework | Task, 'dueDate' | 'dueTiming'> & { classId?: string; source?: Homework['source'] };
 
 function dueCountKey(classId: string, date: string): string {
   return `${classId}::${date}`;
@@ -19,10 +19,18 @@ function dueCountKey(classId: string, date: string): string {
  * items, see TaskRow/ItemDetailDialog's "no chip when unset" convention).
  * Completed items still count — a badge reflects what's due that day
  * regardless of whether it's already been checked off.
+ *
+ * Only user-created items count: Tasks are always user-created (no
+ * `source` field at all), but Homework also includes PowerSchool/Classroom-
+ * synced assignments (source !== 'manual'), which are excluded here — same
+ * rule as buildHeatmap/suggestRebalancing in lib/heatmap.ts, and for the
+ * same reason: a school's assignment list isn't something the user planned
+ * for themselves, so it shouldn't drive a "you have X due here" badge.
  */
 export function buildDueCountMap(items: DueItem[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const item of items) {
+    if (item.source !== undefined && item.source !== 'manual') continue;
     if (!item.classId || !item.dueDate) continue;
     if (item.dueTiming === 'after_class') continue;
     const key = dueCountKey(item.classId, item.dueDate);

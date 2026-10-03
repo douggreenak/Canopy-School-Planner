@@ -36,4 +36,14 @@ describe('buildDueCountMap / dueCountFor', () => {
     ]);
     expect(dueCountFor(map, 'c1', '2026-09-08')).toBe(2);
   });
+
+  it('excludes PowerSchool/Classroom-synced homework — only manually-added items and tasks (no source field) count', () => {
+    const map = buildDueCountMap([
+      { classId: 'c1', dueDate: '2026-09-08', source: 'powerschool' },
+      { classId: 'c1', dueDate: '2026-09-08', source: 'classroom' },
+      { classId: 'c1', dueDate: '2026-09-08', source: 'manual' },
+      { classId: 'c1', dueDate: '2026-09-08' }, // a Task — no source field at all
+    ]);
+    expect(dueCountFor(map, 'c1', '2026-09-08')).toBe(2);
+  });
 });
