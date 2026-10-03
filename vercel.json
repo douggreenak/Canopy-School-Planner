@@ -1,11 +1,10 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "src/app/api/powerschool/**": {
-      "memory": 1024,
+    "src/app/api/powerschool/**/*": {
       "maxDuration": 280
     },
-    "src/app/api/powerschool/migrate/**": {
-      "memory": 1024,
+    "src/app/api/powerschool/migrate/**/*": {
       "maxDuration": 60
     }
   },

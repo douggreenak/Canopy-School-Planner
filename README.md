@@ -170,7 +170,7 @@ For the current Alaska-based deployment, 12:00 UTC is about **4:00 AM Alaska tim
 
 After deploying, the Production Cron Jobs page should show one `/api/powerschool/cron` job with schedule `0 12 * * *`. Invocation success alone does not guarantee a sync started; check the function log for the auto-sync selection counts and the app's Sync Log for the outcome.
 
-On Vercel, PowerSchool routes use a 1 GB memory limit and a 280-second maximum duration.
+On Vercel, PowerSchool routes use a 280-second maximum duration (set in `vercel.json`). Function memory can't be set there when Fluid compute is on — set it under Project → Functions in the Vercel dashboard (1 GB recommended for the Chromium scrape). The cron only registers on **Production** deployments; check Project → Settings → Cron Jobs after deploying, and make sure `CRON_SECRET` is set.
 
 ---
 

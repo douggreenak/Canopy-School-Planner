@@ -31,6 +31,10 @@ const SAFETY_DEADLINE_MS = 250_000;
 // no matter how many users are enabled; a hard per-invocation time
 // budget (SAFETY_DEADLINE_MS) means a large batch degrades to "the rest wait
 // for tomorrow's tick" instead of a timeout mid-scrape.
+// Vercel Cron docs: a cached/static response means the invocation never runs
+// or logs, so force this route to execute on every call.
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization') ?? '';
   // Fails CLOSED: an unset CRON_SECRET used to mean "skip the check
