@@ -183,3 +183,28 @@ describe('predictGradeChange', () => {
     expect(overallGrade(a, { Tests: 50, 'HOMEWORK': 50 })).toBeCloseTo(90, 5);
   });
 });
+
+describe('category name matching', () => {
+  it('matches assignment categories to differently-worded weight names (Quizzes - Short Writes -> Quiz)', () => {
+    const a = [hw('Quizzes - Short Writes', 80), hw('Test', 100)];
+    expect(overallGrade(a, { Quiz: 25, Test: 75 })).toBeCloseTo(80 * 0.25 + 100 * 0.75, 5);
+  });
+});
+
+describe('predictGradeChange — points-based classes (no category weights)', () => {
+  it('weights by points possible, so a big assignment moves the grade more than a small one', () => {
+    const big = { ...hw('Test', 80), score: '80/100' };
+    const small = { ...hw('Classwork', 100), score: '5/5' };
+    const r = predictGradeChange([big, small], {}, small.id, 0);
+    // before: 85/105 = 80.95; after small scores 0: 80/105 = 76.19
+    expect(r.oldGrade).toBeCloseTo((85 / 105) * 100, 3);
+    expect(r.newGrade).toBeCloseTo((80 / 105) * 100, 3);
+  });
+
+  it('can fill in an ungraded assignment using the points possible shown as "--/30"', () => {
+    const graded = { ...hw('Test', 100), score: '100/100' };
+    const open = { ...hw('Quiz', undefined), score: '--/30' };
+    const r = predictGradeChange([graded, open], {}, open.id, 50);
+    expect(r.newGrade).toBeCloseTo(((100 + 15) / 130) * 100, 3);
+  });
+});

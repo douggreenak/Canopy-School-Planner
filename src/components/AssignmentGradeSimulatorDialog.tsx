@@ -138,7 +138,8 @@ export default function AssignmentGradeSimulatorDialog({ open, onClose, cls, hom
         <Alert severity="info" variant="outlined" sx={{ mt: 2, fontSize: '0.8rem' }}>
           {prediction?.method === 'weighted'
             ? `Estimated using your class's grade categories and weights (${Object.entries(weights).map(([k, v]) => `${k} ${v}%`).join(', ')}). "Grade now" is your PowerSchool grade.`
-            : "PowerSchool didn't share this class's category weights, so this treats every graded assignment equally — a rough estimate. You can enter the weights in the class editor for a closer prediction."}
+            : "This class doesn't use category weights, so it's graded on total points — a 100-point test moves your grade more than a 5-point worksheet. This is an estimate of that calculation; 'Grade now' is your PowerSchool grade."
+          }
         </Alert>
       </DialogContent>
       <DialogActions>

@@ -2089,8 +2089,8 @@ export async function scrapePowerSchool(
     // "Name: NN%" line match inside a block that mentions weights. Returns
     // {} when nothing recognizable is found (the UI then falls back to an
     // equal-weight estimate and says so).
-    const scrapeCategoryWeightsFromPage = async (): Promise<Record<string, number>> => {
-      return await page!.evaluate(() => {
+    const scrapeCategoryWeightsFromPage = async (term: string): Promise<Record<string, number>> => {
+      return await page!.evaluate((wantTerm: string) => {
         const out: Record<string, number> = {};
         const num = (t: string) => {
           const m = t.replace(/\s+/g, ' ').match(/(\d{1,3}(?:\.\d+)?)\s*%?/);
@@ -2102,6 +2102,32 @@ export async function scrapePowerSchool(
           if (/^(total|overall|final grade|grade|average)$/i.test(n)) return;
           if (!(n in out)) out[n] = w;
         };
+
+        // Layout seen on premier.k12northstar.org: one small table per grading
+        // term whose header row reads "Term S1 | Name | Weight" (Q1/Q2 add
+        // "Discard Low Scores?" columns) and whose rows are category + weight.
+        // Prefer the table for the term being scraped, else the first filled one.
+        const termTables = Array.from(document.querySelectorAll<HTMLTableElement>('table'))
+          .filter((t) => /^\s*term\s+\S+\s+name\s+weight/i.test((t.rows[0]?.textContent || '').replace(/\s+/g, ' ')));
+        const ordered = [
+          ...termTables.filter((t) => (t.rows[0]?.textContent || '').replace(/\s+/g, ' ').toLowerCase().includes(`term ${wantTerm.toLowerCase()} `)),
+          ...termTables,
+        ];
+        for (const t of ordered) {
+          // Data rows have a leading "Category Based" cell the header row
+          // doesn't label, so align Name/Weight from the END of each row.
+          const headerLabels = Array.from(t.rows[0].cells).map((c) => (c.textContent || '').toLowerCase());
+          const nameFromEnd = headerLabels.length - 1 - headerLabels.findIndex((l) => l.trim() === 'name');
+          const weightFromEnd = headerLabels.length - 1 - headerLabels.findIndex((l) => l.trim() === 'weight');
+          for (const row of Array.from(t.rows).slice(1)) {
+            const cells = Array.from(row.cells).map((c) => (c.textContent || '').replace(/\s+/g, ' ').trim());
+            if (cells.length < 2) continue;
+            const name = cells[cells.length - 1 - nameFromEnd] ?? cells[0];
+            const w = parseFloat((cells[cells.length - 1 - weightFromEnd] ?? '').replace('%', ''));
+            add(name, w);
+          }
+          if (Object.keys(out).length > 0) return out;
+        }
 
         for (const t of Array.from(document.querySelectorAll<HTMLTableElement>('table'))) {
           const header = (t.rows[0]?.textContent || '').toLowerCase();
@@ -2131,7 +2157,7 @@ export async function scrapePowerSchool(
           if (Object.keys(out).length >= 2) return out;
         }
         return Object.keys(out).length >= 2 ? out : {};
-      });
+      }, term);
     };
 
     for (const cls of classes) {
@@ -2219,7 +2245,7 @@ export async function scrapePowerSchool(
 
         const { assignments: scraped, diagnostic } = await scrapeAssignmentsFromPage();
         if (!cls.categoryWeights) {
-          const w = await scrapeCategoryWeightsFromPage().catch(() => ({} as Record<string, number>));
+          const w = await scrapeCategoryWeightsFromPage(t.term || '').catch(() => ({} as Record<string, number>));
           if (Object.keys(w).length > 0) {
             cls.categoryWeights = w;
             cls.weightSource = 'scraped';
@@ -2229,11 +2255,12 @@ export async function scrapePowerSchool(
             // scraper can be taught this school's layout from the sync log.
             const diag = await page!.evaluate(() => ({
               tables: Array.from(document.querySelectorAll('table')).slice(0, 9).map((t) => (t.rows[0]?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90)),
+              weightTableRows: Array.from(document.querySelectorAll('table')).filter((t) => /name\s+weight/i.test((t.rows[0]?.textContent || '').replace(/\s+/g, ' '))).slice(0, 3).map((t) => ({ rows: t.rows.length, html: t.outerHTML.replace(/\s+/g, ' ').slice(0, 700) })),
               weightText: Array.from(document.querySelectorAll<HTMLElement>('div, td, p, li, span'))
                 .filter((el) => /weight|categor/i.test(el.textContent || '') && (el.textContent || '').length < 200 && el.children.length < 4)
                 .slice(0, 6).map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim()),
             })).catch(() => null);
-            log.push(`    · no category weights found; page tables=${JSON.stringify(diag?.tables)} weightText=${JSON.stringify(diag?.weightText)}`);
+            log.push(`    · no category weights found; page tables=${JSON.stringify(diag?.tables)} weightTableRows=${JSON.stringify(diag?.weightTableRows)} weightText=${JSON.stringify(diag?.weightText)}`);
           }
         }
         let added = 0;

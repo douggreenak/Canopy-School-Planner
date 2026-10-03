@@ -37,10 +37,23 @@ function normCat(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
+/**
+ * Assignment category names rarely match the weight table's names exactly
+ * ("Quizzes - Short Writes" scores into the "Quiz" weight, "Tests" into
+ * "Test"), so one name matching the start of the other counts as a match.
+ */
+function categoriesMatch(a: string, b: string): boolean {
+  const x = normCat(a);
+  const y = normCat(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  return short.length >= 3 && long.startsWith(short);
+}
+
 /** Equal-weight mean of scorePercent for graded assignments in one category. */
 export function categoryAverage(assignments: Homework[], category: string): number | undefined {
-  const key = normCat(category);
-  const graded = assignments.filter((h) => normCat(h.category ?? '') === key && h.scorePercent !== undefined);
+  const graded = assignments.filter((h) => categoriesMatch(h.category ?? '', category) && h.scorePercent !== undefined);
   if (graded.length === 0) return undefined;
   return graded.reduce((sum, h) => sum + (h.scorePercent ?? 0), 0) / graded.length;
 }
@@ -175,7 +188,7 @@ export interface GradePrediction {
   oldGrade?: number;
   /** The class grade if the assignment scored the simulated percent. */
   newGrade?: number;
-  /** 'weighted' = real category weights were applied; 'average' = no usable weights, so every graded assignment counts equally (an estimate). */
+  /** 'weighted' = real category weights were applied; 'average' = no usable category weights, so it's computed from total points (or an equal-weight mean when points are unknown) — an estimate. */
   method: 'weighted' | 'average';
 }
 
@@ -184,6 +197,20 @@ function calcGrade(assignments: Homework[], weights: Record<string, number>): { 
   if (weighted !== undefined) return { grade: weighted, method: 'weighted' };
   const scored = assignments.filter((h) => h.scorePercent !== undefined);
   if (scored.length === 0) return { grade: undefined, method: 'average' };
+  // No category weights usually means a points-based class (PowerSchool shows
+  // an empty weight table): the grade is total points earned / total points
+  // possible, so a 100-point test moves it far more than a 5-point worksheet.
+  // Points possible come from the score text ("15/15", or "--/100" while
+  // still ungraded). Falls back to a plain mean when any count is unknown.
+  const possible = scored.map((h) => {
+    const m = (h.score ?? '').match(/\/\s*(\d+(?:\.\d+)?)/);
+    return m ? parseFloat(m[1]) : 0;
+  });
+  if (possible.every((p) => p > 0)) {
+    const total = possible.reduce((a, b) => a + b, 0);
+    const earned = scored.reduce((sum, h, i) => sum + ((h.scorePercent ?? 0) / 100) * possible[i], 0);
+    return { grade: (earned / total) * 100, method: 'average' };
+  }
   return { grade: scored.reduce((s, h) => s + (h.scorePercent ?? 0), 0) / scored.length, method: 'average' };
 }
 
