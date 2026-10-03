@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getUsersWithAutoSyncEnabled: vi.fn(),
   getPowerSchoolCredentials: vi.fn(),
+  getSyncStatus: vi.fn(),
   startPowerSchoolSync: vi.fn(),
   runPowerSchoolSync: vi.fn(),
 }));
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/db', () => ({
   getUsersWithAutoSyncEnabled: mocks.getUsersWithAutoSyncEnabled,
   getPowerSchoolCredentials: mocks.getPowerSchoolCredentials,
+  getSyncStatus: mocks.getSyncStatus,
 }));
 vi.mock('@/lib/powerschoolSync', () => ({
   startPowerSchoolSync: mocks.startPowerSchoolSync,
@@ -43,6 +45,7 @@ beforeEach(() => {
   vi.stubEnv('CRON_SECRET', TEST_CRON_SECRET);
   vi.clearAllMocks();
   mocks.getPowerSchoolCredentials.mockResolvedValue(CREDS);
+  mocks.getSyncStatus.mockResolvedValue(null);
   mocks.startPowerSchoolSync.mockImplementation(async (userId: string) => `sync-${userId}`);
 });
 
@@ -99,6 +102,19 @@ describe('GET /api/powerschool/cron', () => {
     expect(mocks.startPowerSchoolSync).not.toHaveBeenCalled();
     expect(mocks.runPowerSchoolSync).not.toHaveBeenCalled();
     expect(body).toMatchObject({ matched: 1, fired: 0, skipped: 1, deferred: 0 });
+  });
+
+  it('skips a user whose last sync failed on login, instead of retrying a rejected password every day', async () => {
+    mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['bad', 'good']);
+    mocks.getSyncStatus.mockImplementation(async (id: string) =>
+      id === 'bad' ? { status: 'error', error: 'PowerSchool login failed: Invalid Username or Password!' } : null);
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(mocks.runPowerSchoolSync).toHaveBeenCalledTimes(1);
+    expect(mocks.runPowerSchoolSync.mock.calls[0][0]).toBe('good');
+    expect(body).toMatchObject({ matched: 2, fired: 1, skipped: 1 });
   });
 
   it('skips a user already mid-sync instead of racing it', async () => {

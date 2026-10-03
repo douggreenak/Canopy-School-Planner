@@ -23,6 +23,22 @@ import {
   releaseSyncLock,
 } from '@/lib/db';
 
+// A browser crash, dropped connection or navigation timeout is worth one more
+// try — but never a rejected login (retrying would just add a failed login
+// attempt). The retry launches its own browser: the shared one may be the
+// thing that died.
+const TRANSIENT_ERROR = /target closed|connection closed|protocol error|navigation timeout|timeout|net::err|econnreset|socket hang up|browser has disconnected/i;
+async function scrapeWithRetry(creds: PowerSchoolCreds, sharedBrowser?: Browser) {
+  try {
+    return await scrapePowerSchool(creds, sharedBrowser);
+  } catch (err) {
+    const msg = (err as Error).message ?? '';
+    if (/login failed|invalid (username|password)/i.test(msg) || !TRANSIENT_ERROR.test(msg)) throw err;
+    console.warn('[PowerSchool sync] transient failure, retrying once with a fresh browser:', msg.split('\n')[0]);
+    return await scrapePowerSchool(creds);
+  }
+}
+
 export interface PowerSchoolCreds {
   url: string;
   username: string;
@@ -47,7 +63,7 @@ export async function runPowerSchoolSync(userId: string, creds: PowerSchoolCreds
 
 async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, syncId: string, sharedBrowser?: Browser): Promise<void> {
   try {
-    const result = await scrapePowerSchool(creds, sharedBrowser);
+    const result = await scrapeWithRetry(creds, sharedBrowser);
 
     if (result.classes.length === 0 && result.assignments.length === 0) {
       await setSyncStatus(userId, {
@@ -137,7 +153,12 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
     await addGradeHistoryEntries(userId, gradeSnapshots);
 
     console.log('=== PowerSchool sync ===');
-    for (const line of result.log) console.log(`[ps] ${line}`);
+    // Full detail stays in the stored status log (shown in the app); the
+    // function log only gets the summary lines — schedule-grid dumps and
+    // per-page diagnostics made Vercel logs unreadable and costly.
+    for (const line of result.log) {
+      if (!/bodyRow|Matrix debug|matrix keys|^\s+matrix|^\s+(\S+ )+=> days=|landed:|· url:|parsed \d+ row\(s\)|visiting \d+ term page/.test(line)) console.log(`[ps] ${line}`);
+    }
     console.log('=== end sync ===');
 
     // Written here — the one place both the manual "Sync Now" flow and the

@@ -1013,7 +1013,15 @@ export async function getUsersWithAutoSyncEnabled(): Promise<string[]> {
       malformedRows++; // malformed value — treat as no explicit choice (stays enabled)
     }
   }
-  const due = connected.map((r) => r.user_id as string).filter((id) => !optedOut.has(id));
+  // Least-recently-synced first: the cron has a time budget, so when it can't
+  // reach everyone, the users it skips should be the ones synced most
+  // recently — not always the same people at the end of the list.
+  const lastRun = await query<RowDataPacket>(`SELECT user_id, finished_at FROM powerschool_sync_status`);
+  const finishedAt = new Map(lastRun.map((r) => [r.user_id as string, r.finished_at ? new Date(r.finished_at as string).getTime() : 0]));
+  const due = connected
+    .map((r) => r.user_id as string)
+    .filter((id) => !optedOut.has(id))
+    .sort((a, b) => (finishedAt.get(a) ?? 0) - (finishedAt.get(b) ?? 0));
   console.info('[PowerSchool cron] auto-sync selection', {
     connectedUsers: connected.length,
     optedOut: optedOut.size,
@@ -1394,6 +1402,14 @@ export async function releaseSyncLock(userId: string): Promise<void> {
   await execute(`DELETE FROM powerschool_sync_lock WHERE user_id = ?`, [userId]).catch(() => {});
 }
 
+// ISO strings ("...T10:00:00.000Z") are rejected by strict MySQL 8 for DATETIME
+// columns (lenient servers accept them); convert to the plain UTC form.
+function toSqlDateTime(iso?: string): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 /** Upsert this user's sync status row. Also acts as a simple per-user lock — check `status !== 'running'` before starting a new sync. */
 export async function setSyncStatus(
   userId: string,
@@ -1408,7 +1424,7 @@ export async function setSyncStatus(
        log = VALUES(log), result = VALUES(result), error = VALUES(error)`,
     [
       userId, data.syncId, data.status,
-      data.startedAt ?? null, data.finishedAt ?? null,
+      toSqlDateTime(data.startedAt), toSqlDateTime(data.finishedAt),
       data.log ? JSON.stringify(data.log) : null,
       data.result ? JSON.stringify(data.result) : null,
       data.error ?? null,

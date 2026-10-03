@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getUsersWithAutoSyncEnabled: vi.fn(),
   getPowerSchoolCredentials: vi.fn(),
+  getSyncStatus: vi.fn(),
   tryAcquireSyncLock: vi.fn(),
   releaseSyncLock: vi.fn(),
   setSyncStatus: vi.fn(),
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/db', () => ({
   getUsersWithAutoSyncEnabled: mocks.getUsersWithAutoSyncEnabled,
   getPowerSchoolCredentials: mocks.getPowerSchoolCredentials,
+  getSyncStatus: mocks.getSyncStatus,
   tryAcquireSyncLock: mocks.tryAcquireSyncLock,
   releaseSyncLock: mocks.releaseSyncLock,
   setSyncStatus: mocks.setSyncStatus,
@@ -82,6 +84,7 @@ beforeEach(() => {
   mocks.statuses.length = 0;
   mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['demo-user']);
   mocks.getPowerSchoolCredentials.mockResolvedValue(DEMO_CREDS);
+  mocks.getSyncStatus.mockResolvedValue(null);
   mocks.tryAcquireSyncLock.mockResolvedValue(true);
   mocks.setSyncStatus.mockImplementation(async (userId: string, status: { status: string }) => {
     mocks.statuses.push({ userId, status: status.status });

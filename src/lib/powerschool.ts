@@ -320,6 +320,21 @@ async function clearBrowserSession(page: Page | undefined): Promise<void> {
   }
 }
 
+// An extra tab configured like the login page (desktop UA, long default
+// timeout, images/styles/fonts/media blocked — scraping only reads text).
+async function newScrapeTab(browser: Browser): Promise<Page> {
+  const tab = await browser.newPage();
+  await tab.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+  tab.setDefaultTimeout(45000);
+  await tab.setRequestInterception(true);
+  tab.on('request', (req) => {
+    const type = req.resourceType();
+    if (type === 'image' || type === 'stylesheet' || type === 'font' || type === 'media') req.abort();
+    else req.continue();
+  });
+  return tab;
+}
+
 async function loginToPowerSchool(browser: Browser, creds: PowerSchoolCredentials, baseUrl: string, log: string[]): Promise<Page> {
   const page = await browser.newPage();
   await clearBrowserSession(page);
@@ -1813,13 +1828,13 @@ export async function scrapePowerSchool(
     // Returns BOTH the parsed rows and a short diagnostic string — the latter
     // lets us tell the user WHY a page had zero results ("no table found",
     // "table found but no data rows", etc.) instead of just "0 assignments".
-    const scrapeAssignmentsFromPage = async (): Promise<{
+    const scrapeAssignmentsFromPage = async (pg: Page): Promise<{
       assignments: Array<{ title: string; dueDate: string; category: string; score: string; scorePercent: number | null; flags: string; note: string; }>;
       diagnostic: string;
     }> => {
       // Non-null: only ever called after loginToPowerSchool has assigned
       // `page` above; TS can't see that through this closure.
-      return await page!.evaluate(() => {
+      return await pg.evaluate(() => {
         type RawAssignment = {
           title: string;
           dueDate: string;
@@ -2089,8 +2104,8 @@ export async function scrapePowerSchool(
     // "Name: NN%" line match inside a block that mentions weights. Returns
     // {} when nothing recognizable is found (the UI then falls back to an
     // equal-weight estimate and says so).
-    const scrapeCategoryWeightsFromPage = async (term: string): Promise<Record<string, number>> => {
-      return await page!.evaluate((wantTerm: string) => {
+    const scrapeCategoryWeightsFromPage = async (pg: Page, term: string): Promise<Record<string, number>> => {
+      return await pg.evaluate((wantTerm: string) => {
         const out: Record<string, number> = {};
         const num = (t: string) => {
           const m = t.replace(/\s+/g, ' ').match(/(\d{1,3}(?:\.\d+)?)\s*%?/);
@@ -2160,11 +2175,16 @@ export async function scrapePowerSchool(
       }, term);
     };
 
-    for (const cls of classes) {
+    // Scrapes ONE class's score pages on the given tab and returns its
+    // assignments. Split out of the old sequential per-class loop so several
+    // tabs (same browser, same logged-in session) can each take a class —
+    // the score-page loads, not the parsing, are what made a sync slow.
+    const processClass = async (cls: SchoolClass, page: Page): Promise<typeof assignments> => {
+      const out: typeof assignments = [];
       const terms = classTermFrns.get(cls.id) || [];
       if (terms.length === 0) {
         log.push(`  - ${cls.name}: no term frns captured, skipping assignment scrape`);
-        continue;
+        return out;
       }
 
       const toVisit = framesToVisit(terms);
@@ -2243,17 +2263,23 @@ export async function scrapePowerSchool(
           log.push(`    · body preview: "${pageInfo.bodyStart}"`);
         }
 
-        const { assignments: scraped, diagnostic } = await scrapeAssignmentsFromPage();
-        if (!cls.categoryWeights) {
-          const w = await scrapeCategoryWeightsFromPage(t.term || '').catch(() => ({} as Record<string, number>));
+        const { assignments: scraped, diagnostic } = await scrapeAssignmentsFromPage(page);
+        // Checked on EVERY visited term page, not just the first: terms are
+        // visited in order (S1 then S2), and a later term with its own weight
+        // table overwrites an earlier one, so the stored weights follow the
+        // school moving from one semester to the next.
+        {
+          const w = await scrapeCategoryWeightsFromPage(page, t.term || '').catch(() => ({} as Record<string, number>));
           if (Object.keys(w).length > 0) {
+            if (JSON.stringify(w) !== JSON.stringify(cls.categoryWeights)) {
+              log.push(`    · category weights: ${Object.entries(w).map(([k, v]) => `${k} ${v}%`).join(', ')}`);
+            }
             cls.categoryWeights = w;
             cls.weightSource = 'scraped';
-            log.push(`    · category weights: ${Object.entries(w).map(([k, v]) => `${k} ${v}%`).join(', ')}`);
-          } else {
+          } else if (!cls.categoryWeights) {
             // Nothing recognizable — dump what the page does contain so the
             // scraper can be taught this school's layout from the sync log.
-            const diag = await page!.evaluate(() => ({
+            const diag = await page.evaluate(() => ({
               tables: Array.from(document.querySelectorAll('table')).slice(0, 9).map((t) => (t.rows[0]?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90)),
               weightTableRows: Array.from(document.querySelectorAll('table')).filter((t) => /name\s+weight/i.test((t.rows[0]?.textContent || '').replace(/\s+/g, ' '))).slice(0, 3).map((t) => ({ rows: t.rows.length, html: t.outerHTML.replace(/\s+/g, ' ').slice(0, 700) })),
               weightText: Array.from(document.querySelectorAll<HTMLElement>('div, td, p, li, span'))
@@ -2293,7 +2319,7 @@ export async function scrapePowerSchool(
               ]).catch(() => null);
               await new Promise((r) => setTimeout(r, 500));
             } catch { continue; }
-            const { assignments: scraped, diagnostic } = await scrapeAssignmentsFromPage();
+            const { assignments: scraped, diagnostic } = await scrapeAssignmentsFromPage(page);
             log.push(`    · fallback ${t.term || t.termType}: ${scraped.length} parsed — ${diagnostic}`);
             for (const a of scraped) {
               const key = `${a.title.toLowerCase()}||${a.dueDate}`;
@@ -2327,7 +2353,7 @@ export async function scrapePowerSchool(
         // term frns (Q1 and S1) but should be one row in our sheet.
         const sourceId = `${cls.sourceId}||${a.title}||${dueDate || a.dueDate}`;
 
-        assignments.push({
+        out.push({
           id: uuid(),
           classId: cls.id,
           title: a.title,
@@ -2344,6 +2370,36 @@ export async function scrapePowerSchool(
           teacherNote: a.note || undefined,
         });
       }
+      return out;
+    };
+
+    // Up to SCRAPE_TABS classes at once, each on its own tab. Extra tabs share
+    // the browser's cookies, so they're already logged in. Results are stored
+    // by class index and appended in class order so output stays deterministic.
+    const SCRAPE_TABS = 3;
+    const tabs: Page[] = [page!];
+    const extraTabs: Page[] = [];
+    try {
+      for (let i = 1; i < Math.min(SCRAPE_TABS, classes.length); i++) {
+        try {
+          const extra = await newScrapeTab(browser);
+          tabs.push(extra);
+          extraTabs.push(extra);
+        } catch {
+          break; // fewer tabs is fine — just slower
+        }
+      }
+      const perClass: Array<typeof assignments> = new Array(classes.length);
+      let nextIndex = 0;
+      await Promise.all(tabs.map(async (tab) => {
+        while (nextIndex < classes.length) {
+          const i = nextIndex++;
+          perClass[i] = await processClass(classes[i], tab);
+        }
+      }));
+      for (const r of perClass) assignments.push(...(r ?? []));
+    } finally {
+      for (const t of extraTabs) await t.close().catch(() => {});
     }
 
     const withPct = assignments.filter((a) => a.scorePercent !== undefined).length;

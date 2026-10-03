@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getUsersWithAutoSyncEnabled, getPowerSchoolCredentials } from '@/lib/db';
+import { getUsersWithAutoSyncEnabled, getPowerSchoolCredentials, getSyncStatus } from '@/lib/db';
 import { runPowerSchoolSync, startPowerSchoolSync } from '@/lib/powerschoolSync';
 import { launchBrowser } from '@/lib/powerschool';
 
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
   // user. Each user still gets their own page, closed after their scrape —
   // see scrapePowerSchool's sharedBrowser handling — so peak memory stays
   // the same as before; only the repeated launch/teardown goes away.
-  const browser = userIds.length > 0 ? await launchBrowser() : null;
+  let browser = userIds.length > 0 ? await launchBrowser() : null;
 
   try {
     for (let i = 0; i < userIds.length; i++) {
@@ -75,6 +75,23 @@ export async function GET(request: NextRequest) {
       }
 
       const userId = userIds[i];
+
+      // A saved login PowerSchool already rejected stays skipped (instead of
+      // adding another failed login every day — districts can lock accounts
+      // after repeated bad attempts) until the student re-saves their
+      // password, which clears this failed status (see /api/setup).
+      const lastStatus = await getSyncStatus(userId);
+      if (lastStatus?.status === 'error' && /login failed|invalid (username|password)|incorrect (username|password)/i.test(lastStatus.error ?? '')) {
+        skipped.push(userId);
+        continue;
+      }
+
+      // If an earlier user's scrape crashed the shared browser, start a fresh
+      // one rather than failing everyone after them.
+      if (browser && browser.connected === false) {
+        console.warn('[PowerSchool cron] shared browser died — relaunching');
+        browser = await launchBrowser();
+      }
       const creds = await getPowerSchoolCredentials(userId);
       if (!creds.url || !creds.username || !creds.password) { skipped.push(userId); continue; }
 

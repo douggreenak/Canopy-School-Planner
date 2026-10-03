@@ -113,6 +113,25 @@ describe('runPowerSchoolSync', () => {
     expect(mocks.setSyncStatus).toHaveBeenCalledWith('user1', expect.objectContaining({ status: 'error' }));
   });
 
+  it('retries once with a fresh browser on a transient browser failure', async () => {
+    mocks.scrapePowerSchool
+      .mockRejectedValueOnce(new Error('PowerSchool scrape failed: Protocol error (Target.createTarget): Target closed'))
+      .mockResolvedValueOnce({ classes: [], assignments: [], log: [] });
+
+    await runPowerSchoolSync('user1', CREDS, 'sync1', { connected: true } as never);
+
+    expect(mocks.scrapePowerSchool).toHaveBeenCalledTimes(2);
+    expect(mocks.scrapePowerSchool.mock.calls[1][1]).toBeUndefined(); // retry launches its own browser
+  });
+
+  it('does NOT retry a rejected login (it would just add another failed attempt)', async () => {
+    mocks.scrapePowerSchool.mockRejectedValue(new Error('PowerSchool login failed: Invalid Username or Password!'));
+
+    await runPowerSchoolSync('user1', CREDS, 'sync1');
+
+    expect(mocks.scrapePowerSchool).toHaveBeenCalledTimes(1);
+  });
+
   it('records a failed sync in the Sync Log, not just the status row', async () => {
     mocks.scrapePowerSchool.mockRejectedValue(new Error('PowerSchool login failed: Invalid Username or Password!'));
 
