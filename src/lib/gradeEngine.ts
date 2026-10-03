@@ -135,20 +135,26 @@ export function mostImpactfulAssignment(
   weights: Record<string, number>,
 ): { assignment: Homework; delta: number } | undefined {
   const beforeById = new Map(before.map((h) => [h.sourceId ?? h.id, h]));
-  const totalWeight = Object.values(weights).reduce((s, w) => s + w, 0);
-  if (totalWeight === 0) return undefined;
+  const current = calcGrade(after, weights);
+  if (current.grade === undefined) return undefined;
 
+  // Each changed assignment is judged by what the class grade would be with
+  // ONLY that assignment put back to its old score, using the same grade
+  // model as everything else (category weights when the class has them,
+  // total points when it doesn't). That makes a test in a 40% category — or
+  // a 100-point test in a points-based class — outweigh a small extra-credit
+  // item, instead of every item counting the same within its category.
   const candidates: { assignment: Homework; delta: number }[] = [];
   for (const hw of after) {
     const old = beforeById.get(hw.sourceId ?? hw.id);
-    if (!old || hw.scorePercent === undefined || old.scorePercent === undefined) continue;
-    const diff = hw.scorePercent - old.scorePercent;
-    if (Math.abs(diff) < 0.01) continue;
+    if (!old || hw.scorePercent === old.scorePercent) continue;
+    if (hw.scorePercent !== undefined && old.scorePercent !== undefined && Math.abs(hw.scorePercent - old.scorePercent) < 0.01) continue;
 
-    const catWeight = weights[hw.category ?? ''] ?? 0;
-    const catItemCount = after.filter((h) => h.category === hw.category && h.scorePercent !== undefined).length;
-    if (catItemCount === 0) continue;
-    const delta = diff * (catWeight / totalWeight) * (1 / catItemCount);
+    const reverted = after.map((h) => (h.id === hw.id ? { ...h, scorePercent: old.scorePercent } : h));
+    const without = calcGrade(reverted, weights);
+    if (without.grade === undefined || without.method !== current.method) continue;
+    const delta = current.grade - without.grade;
+    if (Math.abs(delta) < 0.001) continue;
     candidates.push({ assignment: hw, delta });
   }
 

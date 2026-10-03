@@ -136,15 +136,17 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
 
   // Most-impactful assignment: reconstruct "before" state from sync log score_changed entries.
   const impactfulChange = useMemo(() => {
-    if (!cls?.categoryWeights || !syncLog || classHomework.length === 0) return null;
-    const weights = cls.categoryWeights;
+    if (!cls || !syncLog || classHomework.length === 0) return null;
+    const weights = cls.categoryWeights ?? {}; // empty = points-based class
     const before: Homework[] = classHomework.map((hw) => {
       const change = (syncLog ?? []).find(
         (e) => e.entityId === hw.id && e.changeType === 'score_changed',
       );
       if (!change) return hw;
       const match = change.detail.match(/^([\d.]+)%/);
-      return match ? { ...hw, scorePercent: parseFloat(match[1]) } : hw;
+      // No number before the arrow means it was ungraded last sync ("— → 85%"),
+      // i.e. a newly graded assignment — often the biggest driver of all.
+      return match ? { ...hw, scorePercent: parseFloat(match[1]) } : { ...hw, scorePercent: undefined };
     });
     return mostImpactfulAssignment(classHomework, before, weights);
   }, [classHomework, syncLog, cls]);

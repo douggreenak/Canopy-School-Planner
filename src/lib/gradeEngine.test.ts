@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { unweightedGpaPoints, weightedGpaPoints, overallGrade, simulateWhatIf, simulateScoreChange, predictGradeChange } from '@/lib/gradeEngine';
+import { unweightedGpaPoints, weightedGpaPoints, overallGrade, simulateWhatIf, simulateScoreChange, predictGradeChange, mostImpactfulAssignment } from '@/lib/gradeEngine';
 import type { Homework } from '@/types';
 
 function hw(category: string, scorePercent: number | undefined): Homework {
@@ -206,5 +206,36 @@ describe('predictGradeChange — points-based classes (no category weights)', ()
     const open = { ...hw('Quiz', undefined), score: '--/30' };
     const r = predictGradeChange([graded, open], {}, open.id, 50);
     expect(r.newGrade).toBeCloseTo(((100 + 15) / 130) * 100, 3);
+  });
+});
+
+describe('mostImpactfulAssignment', () => {
+  it('ranks a test in a heavily-weighted category above a small extra-credit item', () => {
+    const test = { ...hw('Test', 60), sourceId: 't1' };
+    const test2 = { ...hw('Test', 90), sourceId: 't2' };
+    const extra = { ...hw('Notes', 100), sourceId: 'x1' };
+    const weights = { Test: 40, Notes: 5, Homework: 55 };
+    const after = [test, test2, extra, { ...hw('Homework', 85), sourceId: 'h1' }];
+    const before = [{ ...test, scorePercent: 90 }, test2, { ...extra, scorePercent: 80 }, after[3]];
+    const r = mostImpactfulAssignment(after, before, weights)!;
+    expect(r.assignment.sourceId).toBe('t1');
+    expect(r.delta).toBeLessThan(0);
+  });
+
+  it('in a points-based class, a 100-point test outweighs a 5-point extra-credit item', () => {
+    const test = { ...hw('Test', 70), score: '70/100', sourceId: 't1' };
+    const extra = { ...hw('Extra Credit', 100), score: '5/5', sourceId: 'x1' };
+    const filler = { ...hw('Classwork', 90), score: '90/100', sourceId: 'f1' };
+    const after = [test, extra, filler];
+    const before = [{ ...test, scorePercent: 95 }, { ...extra, scorePercent: 0 }, filler];
+    expect(mostImpactfulAssignment(after, before, {})!.assignment.sourceId).toBe('t1');
+  });
+
+  it('counts a newly graded assignment (ungraded before) as a driver', () => {
+    const a = { ...hw('Test', 50), sourceId: 't1' };
+    const b = { ...hw('Test', 90), sourceId: 't2' };
+    const r = mostImpactfulAssignment([a, b], [{ ...a, scorePercent: undefined }, b], { Test: 100 })!;
+    expect(r.assignment.sourceId).toBe('t1');
+    expect(r.delta).toBeLessThan(0);
   });
 });
