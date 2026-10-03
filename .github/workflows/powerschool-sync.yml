@@ -6,8 +6,9 @@
 #   CRON_SECRET  the same value as the CRON_SECRET env var on Vercel
 name: PowerSchool scheduled sync
 on:
-  schedule:
-    - cron: '0 12 * * *'   # 12:00 UTC (~4 AM Alaska in summer)
+  # Manual-only now that Vercel's own cron entry registers (a second daily
+  # trigger would just double-sync). To use this as the scheduler instead,
+  # add back:  schedule: [{ cron: '0 12 * * *' }]
   workflow_dispatch:
 jobs:
   sync:
