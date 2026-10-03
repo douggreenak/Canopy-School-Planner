@@ -378,6 +378,16 @@ export default function GradeDetailPage({ params }: { params: Promise<{ classId:
         />
       </Stack>
 
+      {/* Weights as PowerSchool reports them (or as edited in the class editor) —
+          shown so it's visible whether a class has category weights at all. */}
+      {cls && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+          {cls.categoryWeights && Object.keys(cls.categoryWeights).length > 0
+            ? `Grade weights: ${Object.entries(cls.categoryWeights).map(([k, v]) => `${k} ${v}%`).join(' · ')}`
+            : 'No category weights for this class (graded on total points, or not synced yet — run Sync to check).'}
+        </Typography>
+      )}
+
       {/* ===== Class header card =====
           Big grade on the right, identity + meta chips on the left, and a
           full-width progress bar so the grade reads at a glance. */}
