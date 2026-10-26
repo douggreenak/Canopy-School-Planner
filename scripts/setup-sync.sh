@@ -346,8 +346,9 @@ main() {
     existing_cred_key=$(grep -E '^CREDENTIAL_KEY=' "$env_file" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true)
   fi
 
-  printf "  ${DIM}PowerSchool passwords stored in your database are encrypted with CREDENTIAL_KEY.${RESET}\n"
-  printf "  ${DIM}These should match your existing Vercel project environment variables.${RESET}\n\n"
+  printf "  ${DIM}PowerSchool passwords in your database are decrypted using CREDENTIAL_KEY.${RESET}\n"
+  printf "  ${DIM}If CREDENTIAL_KEY is not set in Vercel, leave this blank (press Enter).${RESET}\n"
+  printf "  ${DIM}The app will automatically derive the key from DATABASE_URL, matching Vercel.${RESET}\n\n"
 
   local db_url=""
   local cred_key=""
@@ -358,21 +359,19 @@ main() {
     prompt_secret "MySQL DATABASE_URL" "" db_url
   done
 
-  # Option to auto-generate CREDENTIAL_KEY if user doesn't have one yet
-  local default_cred="$existing_cred_key"
-  if [ -z "$default_cred" ]; then
-    default_cred=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32 || true)
-  fi
-
-  printf "  ${DIM}Enter CREDENTIAL_KEY (64 hex characters). If migrating from Vercel, use the SAME key.${RESET}\n"
-  prompt_input "CREDENTIAL_KEY" "$default_cred" cred_key
+  prompt_input "CREDENTIAL_KEY (optional — press Enter to leave blank)" "$existing_cred_key" cred_key
 
   # Write .env securely
   cat > "$env_file" << EOF
 # School Planner Local Sync Environment
 DATABASE_URL="${db_url}"
-CREDENTIAL_KEY="${cred_key}"
-NODE_ENV="production"
+EOF
+
+  if [ -n "$cred_key" ]; then
+    echo "CREDENTIAL_KEY=\"${cred_key}\"" >> "$env_file"
+  fi
+
+  echo 'NODE_ENV="production"' >> "$env_file"
 EOF
 
   chmod 600 "$env_file"
