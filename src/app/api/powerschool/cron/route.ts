@@ -37,6 +37,17 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization') ?? '';
+
+  // When LOCAL_SYNC_ENABLED=true is set in Vercel's environment variables,
+  // a self-hosted runner (scripts/sync-local.ts) is handling scheduled syncs.
+  // Return 200 immediately so Vercel doesn't log an error, but skip the
+  // actual scrape work — both modes can coexist without racing each other.
+  // To switch back to cloud-only sync, remove LOCAL_SYNC_ENABLED from
+  // your Vercel project env vars and re-deploy.
+  if (process.env.LOCAL_SYNC_ENABLED === 'true') {
+    console.log('[PowerSchool cron] LOCAL_SYNC_ENABLED=true — skipping cloud sync (self-hosted runner is responsible)');
+    return Response.json({ message: 'Local sync mode enabled; cloud cron is a no-op.', localSyncEnabled: true });
+  }
   // Fails CLOSED: an unset CRON_SECRET used to mean "skip the check
   // entirely," making this a public, unauthenticated trigger for a full
   // Chromium PowerSchool scrape of every auto-sync user. See

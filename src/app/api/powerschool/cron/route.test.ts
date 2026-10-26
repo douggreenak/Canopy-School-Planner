@@ -24,6 +24,12 @@ vi.mock('@/lib/powerschoolSync', () => ({
   startPowerSchoolSync: mocks.startPowerSchoolSync,
   runPowerSchoolSync: mocks.runPowerSchoolSync,
 }));
+// launchBrowser is called at the top of the cron loop whenever there are
+// users to sync — mock it so tests don't try to spawn a real Chrome process.
+// close() must return a Promise because the route calls browser?.close().catch(…)
+vi.mock('@/lib/powerschool', () => ({
+  launchBrowser: vi.fn(async () => ({ close: vi.fn().mockResolvedValue(undefined), connected: true })),
+}));
 
 const { GET } = await import('./route');
 
@@ -50,6 +56,20 @@ beforeEach(() => {
 });
 
 describe('GET /api/powerschool/cron', () => {
+  it('returns 200 immediately without syncing when LOCAL_SYNC_ENABLED=true', async () => {
+    vi.stubEnv('LOCAL_SYNC_ENABLED', 'true');
+    mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1']);
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ localSyncEnabled: true });
+    // Should never touch DB or launch a sync when local runner is handling it
+    expect(mocks.getUsersWithAutoSyncEnabled).not.toHaveBeenCalled();
+    expect(mocks.runPowerSchoolSync).not.toHaveBeenCalled();
+  });
+
   it('fails closed (401) when CRON_SECRET is not configured, rather than skipping the auth check', async () => {
     vi.stubEnv('CRON_SECRET', '');
     mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1']);
