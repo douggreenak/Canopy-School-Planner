@@ -3,18 +3,14 @@
 #  🏫 School Planner — PowerSchool Local Sync Interactive Setup Wizard (TUI)
 #  Installs and configures local outbound automated PowerSchool sync on Linux/Ubuntu.
 #
-#  Usage:
+#  Recommended usage (one-liner):
+#    bash -c "$(curl -fsSL https://raw.githubusercontent.com/douggreenak/Canopy-School-Planner/main/scripts/setup-sync.sh)"
+#
+#  Or if repository is cloned locally:
 #    bash scripts/setup-sync.sh
-#  Or via one-liner:
-#    curl -sSL https://raw.githubusercontent.com/<OWNER>/<REPO>/main/scripts/setup-sync.sh | bash
 # ==============================================================================
 
 set -eo pipefail
-
-# Ensure interactive input works even when piped into bash (e.g., curl ... | bash)
-if [ ! -t 0 ] && [ -e /dev/tty ]; then
-  exec < /dev/tty
-fi
 
 # ------------------------------------------------------------------------------
 # Colors and UI styling
@@ -25,11 +21,8 @@ CYAN="\033[36m"
 GREEN="\033[32m"
 YELLOW="\033[33m"
 RED="\033[31m"
-MAGENTA="\033[35m"
 BLUE="\033[34m"
 RESET="\033[0m"
-
-CLEAR_LINE="\033[2K\r"
 
 header() {
   clear 2>/dev/null || printf "\033c"
@@ -67,8 +60,16 @@ log_error() {
 }
 
 # ------------------------------------------------------------------------------
-# Interactive prompt helpers
+# Safe interactive input reader (reads from /dev/tty so piped curl works)
 # ------------------------------------------------------------------------------
+read_tty() {
+  if [ -c /dev/tty ]; then
+    read "$@" </dev/tty
+  else
+    read "$@"
+  fi
+}
+
 prompt_input() {
   local prompt_text="$1"
   local default_val="$2"
@@ -81,7 +82,7 @@ prompt_input() {
     printf "  ${BOLD}%s${RESET}: " "$prompt_text"
   fi
 
-  read -r user_val
+  read_tty -r user_val
   if [ -z "$user_val" ]; then
     eval "$result_var=\"$default_val\""
   else
@@ -102,10 +103,13 @@ prompt_secret() {
     printf "  ${BOLD}%s${RESET}: " "$prompt_text"
   fi
 
-  # Read without echo
-  stty -echo 2>/dev/null || true
-  read -r user_val
-  stty echo 2>/dev/null || true
+  if [ -c /dev/tty ]; then
+    stty -echo </dev/tty 2>/dev/null || true
+    read_tty -r user_val
+    stty echo </dev/tty 2>/dev/null || true
+  else
+    read_tty -s -r user_val 2>/dev/null || read_tty -r user_val
+  fi
   printf "\n"
 
   if [ -z "$user_val" ]; then
@@ -125,7 +129,7 @@ prompt_yes_no() {
 
   while true; do
     printf "  ${BOLD}%s${RESET} ${DIM}[%s]${RESET}: " "$prompt_text" "$hint"
-    read -r choice
+    read_tty -r choice
     choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]' | xargs)
     if [ -z "$choice" ]; then
       choice="$default_val"
@@ -155,7 +159,7 @@ prompt_choice() {
   while true; do
     printf "  ${BOLD}Select an option${RESET} ${DIM}[1-%d]${RESET}: " "${#options[@]}"
     local sel=""
-    read -r sel
+    read_tty -r sel
     if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#options[@]}" ]; then
       eval "$result_var=\"$sel\""
       return 0
@@ -210,22 +214,23 @@ main() {
     prompt_input "Target installation directory" "$default_target" PROJECT_DIR
 
     if [ ! -d "$PROJECT_DIR" ]; then
-      log_info "Directory does not exist. Creating ${PROJECT_DIR}..."
+      log_info "Creating directory ${PROJECT_DIR}..."
       $SUDO mkdir -p "$PROJECT_DIR"
       $SUDO chown -R "$(id -un):$(id -gn)" "$PROJECT_DIR"
     fi
 
     # Check if project files exist in target
     if [ ! -f "${PROJECT_DIR}/package.json" ]; then
-      log_warn "No project found in ${PROJECT_DIR}."
+      log_warn "No project files found in ${PROJECT_DIR}."
       local clone_choice=""
       prompt_choice "How would you like to retrieve the school-planner repository?" clone_choice \
-        "Clone from Git repository" \
+        "Clone from GitHub (Recommended)" \
         "I will manually copy/rsync files here later"
 
       if [ "$clone_choice" = "1" ]; then
         local git_url=""
-        prompt_input "Enter Git repository URL" "" git_url
+        local default_git="https://github.com/douggreenak/Canopy-School-Planner.git"
+        prompt_input "Git repository URL" "$default_git" git_url
         if [ -n "$git_url" ]; then
           log_info "Cloning ${git_url} into ${PROJECT_DIR}..."
           git clone "$git_url" "$PROJECT_DIR"
@@ -294,14 +299,20 @@ main() {
   else
     log_warn "No system Chromium / Chrome found."
     if prompt_yes_no "Install Chromium & headless rendering libraries via apt?" "y"; then
-      log_info "Installing chromium and dependencies (this may take a minute)..."
+      log_info "Installing chromium and dependencies..."
       $SUDO apt-get update
-      # Try installing chromium-browser or chromium
+
+      # Detect whether Ubuntu 24.04 (noble) t64 package or older package is present
+      local asound_pkg="libasound2"
+      if apt-cache show libasound2t64 >/dev/null 2>&1; then
+        asound_pkg="libasound2t64"
+      fi
+
       $SUDO apt-get install -y chromium-browser 2>/dev/null || $SUDO apt-get install -y chromium || true
       $SUDO apt-get install -y \
-        ca-certificates fonts-liberation libasound2 libatk-bridge2.0-0 \
-        libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 \
-        libfontconfig1 libgbm1 libgcc1 libglib2.0-0 libgtk-3-0 libnspr4 \
+        ca-certificates fonts-liberation "$asound_pkg" libatk-bridge2.0-0* \
+        libatk1.0-0* libc6 libcairo2 libcups2* libdbus-1-3 libexpat1 \
+        libfontconfig1 libgbm1 libgcc-s1 libglib2.0-0* libgtk-3-0* libnspr4 \
         libnss3 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 \
         libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 \
         libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 \
@@ -380,7 +391,7 @@ EOF
       log_success "Test sync completed successfully!"
     else
       printf "${DIM}------------------------------------------------------------${RESET}\n"
-      log_warn "Test sync encountered an issue. Check the logs above."
+      log_warn "Test sync encountered an issue. Check the output above."
       if ! prompt_yes_no "Continue with scheduler setup anyway?" "y"; then
         log_info "Setup aborted before scheduling. You can re-run this script anytime."
         exit 1
@@ -416,8 +427,6 @@ EOF
     log_info "Configuring systemd service and timer..."
     local svc_file="/etc/systemd/system/school-planner-sync.service"
     local timer_file="/etc/systemd/system/school-planner-sync.timer"
-    local node_path
-    node_path="$(command -v node || echo "/usr/bin/node")"
     local npx_path
     npx_path="$(command -v npx || echo "/usr/bin/npx")"
 

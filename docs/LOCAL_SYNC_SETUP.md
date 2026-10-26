@@ -9,7 +9,7 @@ Automate your PowerSchool sync on an Ubuntu or Debian server to eliminate cloud 
 Run this command directly on your Ubuntu server:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/doug-school-planner/school-planner/main/scripts/setup-sync.sh | bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/douggreenak/Canopy-School-Planner/main/scripts/setup-sync.sh)"
 ```
 
 > **Already cloned the repository onto your server?**  
