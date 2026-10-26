@@ -322,8 +322,22 @@ async function clearBrowserSession(page: Page | undefined): Promise<void> {
 
 // An extra tab configured like the login page (desktop UA, long default
 // timeout, images/styles/fonts/media blocked — scraping only reads text).
+async function setupPageEnvironment(page: Page): Promise<void> {
+  // esbuild/tsx wraps functions with __name(...) for name preservation when
+  // keepNames is enabled. In Puppeteer's page.evaluate(), these functions run
+  // inside the browser DOM context where Node helpers do not exist. Polyfill
+  // it on every document so serialized evaluate calls never crash.
+  await page.evaluateOnNewDocument(
+    'window.__name = (t, v) => (typeof Object.defineProperty === "function" ? Object.defineProperty(t, "name", { value: v, configurable: true }) : t);'
+  );
+  await page.evaluate(
+    'window.__name = (t, v) => (typeof Object.defineProperty === "function" ? Object.defineProperty(t, "name", { value: v, configurable: true }) : t);'
+  ).catch(() => {});
+}
+
 async function newScrapeTab(browser: Browser): Promise<Page> {
   const tab = await browser.newPage();
+  await setupPageEnvironment(tab);
   await tab.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
   tab.setDefaultTimeout(45000);
   await tab.setRequestInterception(true);
@@ -337,6 +351,7 @@ async function newScrapeTab(browser: Browser): Promise<Page> {
 
 async function loginToPowerSchool(browser: Browser, creds: PowerSchoolCredentials, baseUrl: string, log: string[]): Promise<Page> {
   const page = await browser.newPage();
+  await setupPageEnvironment(page);
   await clearBrowserSession(page);
   await page.setUserAgent(
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
