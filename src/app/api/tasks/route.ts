@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
     if (!userId) return unauth();
     const tasks = await getTasks(userId);
     return Response.json(tasks);
-  } catch (error) {
-    console.error('GET /api/tasks error:', error);
+  } catch {
+    console.error('GET /api/tasks failed');
     return Response.json([], { status: 200 });
   }
 }
@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
     if (err) return Response.json({ error: err }, { status: 400 });
     await addTask(body, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('POST /api/tasks error:', error);
+  } catch {
+    console.error('POST /api/tasks failed');
     return Response.json({ error: 'Failed to add task' }, { status: 500 });
   }
 }
@@ -50,8 +50,8 @@ export async function PUT(request: NextRequest) {
     if (err) return Response.json({ error: err }, { status: 400 });
     await updateTask(body, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('PUT /api/tasks error:', error);
+  } catch {
+    console.error('PUT /api/tasks failed');
     return Response.json({ error: 'Failed to update task' }, { status: 500 });
   }
 }
@@ -72,8 +72,8 @@ export async function DELETE(request: NextRequest) {
     if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
     await deleteTask(id, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('DELETE /api/tasks error:', error);
+  } catch {
+    console.error('DELETE /api/tasks failed');
     return Response.json({ error: 'Failed to delete task' }, { status: 500 });
   }
 }

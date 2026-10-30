@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
     if (!userId) return unauth();
     const homework = await getHomework(userId);
     return Response.json(homework);
-  } catch (error) {
-    console.error('GET /api/homework error:', error);
+  } catch {
+    console.error('GET /api/homework failed');
     return Response.json([], { status: 200 });
   }
 }
@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
     if (err) return Response.json({ error: err }, { status: 400 });
     await addHomework(body, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('POST /api/homework error:', error);
+  } catch {
+    console.error('POST /api/homework failed');
     return Response.json({ error: 'Failed to add homework' }, { status: 500 });
   }
 }
@@ -51,8 +51,8 @@ export async function PUT(request: NextRequest) {
     if (err) return Response.json({ error: err }, { status: 400 });
     await updateHomework(body, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('PUT /api/homework error:', error);
+  } catch {
+    console.error('PUT /api/homework failed');
     return Response.json({ error: 'Failed to update homework' }, { status: 500 });
   }
 }
@@ -76,8 +76,8 @@ export async function DELETE(request: NextRequest) {
     if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
     await deleteHomework(id, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('DELETE /api/homework error:', error);
+  } catch {
+    console.error('DELETE /api/homework failed');
     return Response.json({ error: 'Failed to delete homework' }, { status: 500 });
   }
 }

@@ -34,9 +34,20 @@ async function scrapeWithRetry(creds: PowerSchoolCreds, sharedBrowser?: Browser)
   } catch (err) {
     const msg = (err as Error).message ?? '';
     if (/login failed|invalid (username|password)/i.test(msg) || !TRANSIENT_ERROR.test(msg)) throw err;
-    console.warn('[PowerSchool sync] transient failure, retrying once with a fresh browser:', msg.split('\n')[0]);
+    console.warn('[PowerSchool sync] transient failure; retrying once with a fresh browser.');
     return await scrapePowerSchool(creds);
   }
+}
+
+function safeSyncError(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  if (/login failed|invalid (username|password)|incorrect (username|password)/i.test(message)) {
+    return 'PowerSchool login failed. Check your saved credentials and try again.';
+  }
+  if (/timeout|timed out/i.test(message)) {
+    return 'PowerSchool sync timed out. Please try again.';
+  }
+  return 'PowerSchool sync failed due to an internal error.';
 }
 
 export interface PowerSchoolCreds {
@@ -66,15 +77,16 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
     const result = await scrapeWithRetry(creds, sharedBrowser);
 
     if (result.classes.length === 0 && result.assignments.length === 0) {
+      const error = 'Connected to PowerSchool but could not find any classes or assignments.';
       await setSyncStatus(userId, {
         syncId,
         status: 'error',
         finishedAt: new Date().toISOString(),
-        log: result.log,
+        log: [],
         result: null,
-        error: 'Connected to PowerSchool but could not find any classes or assignments.',
+        error,
       });
-      await logSyncFailure(userId, syncId, 'Connected to PowerSchool but could not find any classes or assignments.');
+      await logSyncFailure(userId, syncId, error);
       return;
     }
 
@@ -152,14 +164,14 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
       }));
     await addGradeHistoryEntries(userId, gradeSnapshots);
 
-    console.log('=== PowerSchool sync ===');
-    // Full detail stays in the stored status log (shown in the app); the
-    // function log only gets the summary lines — schedule-grid dumps and
-    // per-page diagnostics made Vercel logs unreadable and costly.
-    for (const line of result.log) {
-      if (!/bodyRow|Matrix debug|matrix keys|^\s+matrix|^\s+(\S+ )+=> days=|landed:|· url:|parsed \d+ row\(s\)|visiting \d+ term page/.test(line)) console.log(`[ps] ${line}`);
-    }
-    console.log('=== end sync ===');
+    const classCount = classStats.added + classStats.updated;
+    const assignmentCount = hwStats.added + hwStats.updated;
+    const statusLog = [
+      'PowerSchool sync completed.',
+      `Classes: ${classStats.added} added, ${classStats.updated} updated, ${classStats.removed} removed.`,
+      `Assignments: ${hwStats.added} added, ${hwStats.updated} updated, ${hwStats.removed} removed.`,
+    ];
+    console.info('[PowerSchool sync] completed', { classCount, assignmentCount });
 
     // Written here — the one place both the manual "Sync Now" flow and the
     // scheduled cron flow both pass through — so a scheduled sync (which has
@@ -172,13 +184,13 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
       syncId,
       status: 'success',
       finishedAt: finishedAtIso,
-      log: result.log,
+      log: statusLog,
       result: {
-        classCount: classStats.added + classStats.updated,
+        classCount,
         classAdded: classStats.added,
         classUpdated: classStats.updated,
         classRemoved: classStats.removed,
-        assignmentCount: hwStats.added + hwStats.updated,
+        assignmentCount,
         assignmentAdded: hwStats.added,
         assignmentUpdated: hwStats.updated,
         assignmentRemoved: hwStats.removed,
@@ -187,11 +199,8 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
       error: null,
     });
   } catch (error) {
-    console.error('PowerSchool sync error:', error);
-    const rawMsg = (error as Error).message ?? '';
-    const cleanMsg = rawMsg.split('\n\nLog:')[0].replace(/^PowerSchool scrape failed:\s*/i, '').trim();
-    const isKnown = /PowerSchool|credential|password|username|timeout|login/i.test(cleanMsg);
-    const safeMsg = isKnown && cleanMsg ? cleanMsg : 'Sync failed due to an internal error.';
+    const safeMsg = safeSyncError(error);
+    console.error('[PowerSchool sync] failed', { reason: safeMsg });
     await setSyncStatus(userId, {
       syncId,
       status: 'error',

@@ -77,14 +77,14 @@ async function main(): Promise<void> {
           lastStatus?.status === 'error' &&
           /login failed|invalid (username|password)|incorrect (username|password)/i.test(lastStatus.error ?? '')
         ) {
-          console.log(`[local-sync:w${workerId}] Skipping ${userId} — bad credentials (user must re-save password in Settings)`);
+          console.log(`[local-sync:w${workerId}] Skipping account with rejected credentials`);
           skipped.push(userId);
           continue;
         }
 
         const creds = await getPowerSchoolCredentials(userId);
         if (!creds.url || !creds.username || !creds.password) {
-          console.log(`[local-sync:w${workerId}] Skipping ${userId} — incomplete credentials`);
+          console.log(`[local-sync:w${workerId}] Skipping account with incomplete credentials`);
           skipped.push(userId);
           continue;
         }
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
         // or a previous cron run that's still in progress.
         const syncId = await startPowerSchoolSync(userId);
         if (!syncId) {
-          console.log(`[local-sync:w${workerId}] Skipping ${userId} — sync already in progress`);
+          console.log(`[local-sync:w${workerId}] Skipping account with sync already in progress`);
           skipped.push(userId);
           continue;
         }
@@ -103,13 +103,13 @@ async function main(): Promise<void> {
           browser = await launchBrowser();
         }
 
-        console.log(`[local-sync:w${workerId}] Syncing user ${userId}…`);
+        console.log(`[local-sync:w${workerId}] Syncing account`);
         try {
           await runPowerSchoolSync(userId, creds, syncId, browser);
-          console.log(`[local-sync:w${workerId}] Done: ${userId}`);
+          console.log(`[local-sync:w${workerId}] Account sync finished`);
           fired.push(userId);
-        } catch (err) {
-          console.error(`[local-sync:w${workerId}] Error syncing user ${userId}:`, (err as Error).message ?? err);
+        } catch {
+          console.error(`[local-sync:w${workerId}] Account sync failed`);
           // If browser died or encountered protocol error, close and discard it
           await browser.close().catch(() => {});
           browser = null;
@@ -147,8 +147,8 @@ async function main(): Promise<void> {
 export { main };
 
 if (process.env.RUN_LOCAL_SYNC === 'true') {
-  main().catch((err: Error) => {
-    console.error('[local-sync] Fatal error:', err.message ?? err);
+  main().catch(() => {
+    console.error('[local-sync] Fatal error');
     process.exit(1);
   });
 }

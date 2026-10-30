@@ -10,8 +10,8 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(request.nextUrl.searchParams.get('limit') ?? '200', 10);
     const entries = await getSyncLog(userId, { classId, limit });
     return Response.json(entries);
-  } catch (error) {
-    console.error('GET /api/sync-log error:', error);
+  } catch {
+    console.error('GET /api/sync-log failed');
     return Response.json([], { status: 200 });
   }
 }

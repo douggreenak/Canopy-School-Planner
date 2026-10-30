@@ -25,8 +25,8 @@ export async function DELETE(request: Request) {
 
     await deleteUserAndAllData(target.id);
     return Response.json({ ok: true });
-  } catch (err) {
-    console.error('DELETE /api/admin/users error:', err);
+  } catch {
+    console.error('DELETE /api/admin/users failed');
     return Response.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

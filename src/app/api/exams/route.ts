@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
     if (!userId) return unauth();
     const exams = await getExams(userId);
     return Response.json(exams);
-  } catch (error) {
-    console.error('GET /api/exams error:', error);
+  } catch {
+    console.error('GET /api/exams failed');
     return Response.json([], { status: 200 });
   }
 }
@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
     if (err) return Response.json({ error: err }, { status: 400 });
     await addExam(body, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('POST /api/exams error:', error);
+  } catch {
+    console.error('POST /api/exams failed');
     return Response.json({ error: 'Failed to add exam' }, { status: 500 });
   }
 }
@@ -50,8 +50,8 @@ export async function PUT(request: NextRequest) {
     if (err) return Response.json({ error: err }, { status: 400 });
     await updateExam(body, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('PUT /api/exams error:', error);
+  } catch {
+    console.error('PUT /api/exams failed');
     return Response.json({ error: 'Failed to update exam' }, { status: 500 });
   }
 }
@@ -65,8 +65,8 @@ export async function DELETE(request: NextRequest) {
     if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
     await deleteExam(id, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('DELETE /api/exams error:', error);
+  } catch {
+    console.error('DELETE /api/exams failed');
     return Response.json({ error: 'Failed to delete exam' }, { status: 500 });
   }
 }

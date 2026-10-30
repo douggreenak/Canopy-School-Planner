@@ -636,14 +636,33 @@ export async function getSystemStats(): Promise<SystemStats> {
 
 /** Permanently delete a user and every row they own across all tables. */
 export async function deleteUserAndAllData(userId: string): Promise<void> {
-  await execute(`DELETE FROM settings    WHERE user_id = ?`, [userId]);
-  await execute(`DELETE FROM disruptions WHERE user_id = ?`, [userId]);
-  await execute(`DELETE FROM homework    WHERE user_id = ?`, [userId]);
-  await execute(`DELETE FROM exams       WHERE user_id = ?`, [userId]);
-  await execute(`DELETE FROM tasks       WHERE user_id = ?`, [userId]);
-  await execute(`DELETE FROM classes     WHERE user_id = ?`, [userId]);
-  await execute(`DELETE FROM sessions    WHERE user_id = ?`, [userId]);
-  await execute(`DELETE FROM users       WHERE id      = ?`, [userId]);
+  const connection = await getDb().getConnection();
+  try {
+    await connection.beginTransaction();
+    for (const table of [
+      'settings',
+      'disruptions',
+      'homework',
+      'exams',
+      'tasks',
+      'classes',
+      'sessions',
+      'school_accounts',
+      'grade_history',
+      'sync_log',
+      'powerschool_sync_status',
+      'powerschool_sync_lock',
+    ]) {
+      await connection.execute(`DELETE FROM \`${table}\` WHERE user_id = ?`, [userId]);
+    }
+    await connection.execute(`DELETE FROM users WHERE id = ?`, [userId]);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 // ---- Sessions ----

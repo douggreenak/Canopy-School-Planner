@@ -15,8 +15,8 @@ export async function GET(request: Request) {
     if (!user || user.role !== 'admin') return Response.json({ error: 'Forbidden' }, { status: 403 });
     const stats = await getSystemStats();
     return Response.json(stats);
-  } catch (err) {
-    console.error('GET /api/admin/stats error:', err);
+  } catch {
+    console.error('GET /api/admin/stats failed');
     return Response.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

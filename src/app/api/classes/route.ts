@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
     if (!userId) return unauth();
     const classes = await getClasses(userId);
     return Response.json(classes);
-  } catch (error) {
-    console.error('GET /api/classes error:', error);
+  } catch {
+    console.error('GET /api/classes failed');
     return Response.json([], { status: 200 });
   }
 }
@@ -26,8 +26,8 @@ export async function POST(request: NextRequest) {
     const body: SchoolClass = await request.json();
     await addClass(body, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('POST /api/classes error:', error);
+  } catch {
+    console.error('POST /api/classes failed');
     return Response.json({ error: 'Failed to add class' }, { status: 500 });
   }
 }
@@ -39,8 +39,8 @@ export async function PUT(request: NextRequest) {
     const body: SchoolClass = await request.json();
     await updateClass(body, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('PUT /api/classes error:', error);
+  } catch {
+    console.error('PUT /api/classes failed');
     return Response.json({ error: 'Failed to update class' }, { status: 500 });
   }
 }
@@ -57,8 +57,8 @@ export async function PATCH(request: NextRequest) {
     }
     await setClassOrder(userId, body.order);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('PATCH /api/classes error:', error);
+  } catch {
+    console.error('PATCH /api/classes failed');
     return Response.json({ error: 'Failed to reorder classes' }, { status: 500 });
   }
 }
@@ -72,8 +72,8 @@ export async function DELETE(request: NextRequest) {
     if (!id) return Response.json({ error: 'Missing id' }, { status: 400 });
     await deleteClass(id, userId);
     return Response.json({ success: true });
-  } catch (error) {
-    console.error('DELETE /api/classes error:', error);
+  } catch {
+    console.error('DELETE /api/classes failed');
     return Response.json({ error: 'Failed to delete class' }, { status: 500 });
   }
 }
