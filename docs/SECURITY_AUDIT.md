@@ -3,7 +3,10 @@
 Scope: every API route under `src/app/api/**`, `src/lib/auth.ts`, `src/lib/db.ts`,
 `src/lib/crypto.ts`, `src/lib/config.ts`, `src/lib/powerschoolClient.ts` /
 `powerschoolSync.ts` / `powerschool.ts`, and `vercel.json` (cron auth). This is a
-read-only audit — **no code was changed**. Findings are ordered by severity.
+historical read-only snapshot — **no code was changed for that audit**. Several
+findings have since been addressed, so verify them against the current source
+before treating this document as an active finding list. Findings are ordered
+by their severity in the audited snapshot.
 
 ---
 

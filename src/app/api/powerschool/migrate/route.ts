@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
     }
 
     return Response.json({ success: true, migrated });
-  } catch (err) {
-    console.error('Migration error:', err);
+  } catch {
+    console.error('PowerSchool migration failed');
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

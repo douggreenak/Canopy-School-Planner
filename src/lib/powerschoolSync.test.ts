@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock every DB/scrape dependency so this exercises pure orchestration —
 // this is a regression test for two reported bugs: (1) a "nothing changed"
@@ -63,6 +63,10 @@ beforeEach(() => {
   mocks.updateClass.mockResolvedValue(undefined);
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('runPowerSchoolSync', () => {
   it('writes a synthetic "no changes" sync_log entry when nothing changed', async () => {
     await runPowerSchoolSync('user1', CREDS, 'sync1');
@@ -72,6 +76,27 @@ describe('runPowerSchoolSync', () => {
     expect(userId).toBe('user1');
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ syncId: 'sync1', entityType: 'sync', changeType: 'none' });
+  });
+
+  it('stores only aggregate summaries in sync status, not scraper diagnostics', async () => {
+    const privateValue = 'PRIVATE_STUDENT_DIAGNOSTIC';
+    mocks.scrapePowerSchool.mockResolvedValue({
+      classes: [SCRAPED_CLASS],
+      assignments: [],
+      log: [`Page preview: ${privateValue}`, `Class name: ${SCRAPED_CLASS.name}`],
+    });
+
+    await runPowerSchoolSync('user1', CREDS, 'sync1');
+
+    const status = mocks.setSyncStatus.mock.calls.at(-1)?.[1];
+    expect(status.status).toBe('success');
+    expect(status.log).toEqual([
+      'PowerSchool sync completed.',
+      'Classes: 0 added, 1 updated, 0 removed.',
+      'Assignments: 0 added, 0 updated, 0 removed.',
+    ]);
+    expect(JSON.stringify(status)).not.toContain(privateValue);
+    expect(JSON.stringify(status)).not.toContain(SCRAPED_CLASS.name);
   });
 
   it('does not add a synthetic entry when there are real diffs', async () => {
@@ -111,6 +136,19 @@ describe('runPowerSchoolSync', () => {
 
     expect(mocks.releaseSyncLock).toHaveBeenCalledWith('user1');
     expect(mocks.setSyncStatus).toHaveBeenCalledWith('user1', expect.objectContaining({ status: 'error' }));
+  });
+
+  it('does not persist or log raw scrape errors', async () => {
+    const privateValue = 'PRIVATE_STUDENT_DIAGNOSTIC';
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.scrapePowerSchool.mockRejectedValue(new Error(`PowerSchool login failed: ${privateValue}`));
+
+    await runPowerSchoolSync('user1', CREDS, 'sync1');
+
+    const status = mocks.setSyncStatus.mock.calls.at(-1)?.[1];
+    expect(status.error).toBe('PowerSchool login failed. Check your saved credentials and try again.');
+    expect(status.log).toEqual([]);
+    expect(errorSpy.mock.calls.flat().join(' ')).not.toContain(privateValue);
   });
 
   it('retries once with a fresh browser on a transient browser failure', async () => {

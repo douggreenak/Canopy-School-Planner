@@ -96,8 +96,8 @@ export async function GET(request: NextRequest) {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
       },
     });
-  } catch (error) {
-    console.error('GET /api/calendar error:', error);
+  } catch {
+    console.error('GET /api/calendar failed');
     return new Response('Error generating calendar', { status: 500 });
   }
 }

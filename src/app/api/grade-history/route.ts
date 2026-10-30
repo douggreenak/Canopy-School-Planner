@@ -9,8 +9,8 @@ export async function GET(request: NextRequest) {
     const classId = request.nextUrl.searchParams.get('classId') ?? undefined;
     const entries = await getGradeHistory(userId, classId);
     return Response.json(entries);
-  } catch (error) {
-    console.error('GET /api/grade-history error:', error);
+  } catch {
+    console.error('GET /api/grade-history failed');
     return Response.json([], { status: 200 });
   }
 }

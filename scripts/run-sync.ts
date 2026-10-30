@@ -4,7 +4,7 @@
 import 'dotenv/config';
 import { main } from './sync-local';
 
-main().catch((err: Error) => {
-  console.error('[local-sync] Fatal error:', err.message ?? err);
+main().catch(() => {
+  console.error('[local-sync] Fatal error');
   process.exit(1);
 });

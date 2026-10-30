@@ -176,8 +176,8 @@ export async function POST(request: NextRequest) {
     }
 
     return Response.json({ error: 'Unknown action' }, { status: 400 });
-  } catch (error) {
-    console.error('POST /api/setup error:', error);
+  } catch {
+    console.error('POST /api/setup failed');
     return Response.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

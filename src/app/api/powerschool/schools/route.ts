@@ -46,8 +46,8 @@ export async function POST(request: NextRequest) {
       try {
         const result = await scrapePowerSchool({ url: account.url, username: account.username, password: account.password });
         await replaceSchoolAccountData(userId, account.schoolName, result.classes, result.assignments);
-      } catch (err) {
-        console.error(`School sync failed for ${account.schoolName}:`, err);
+      } catch {
+        console.error('[PowerSchool sync] additional-school sync failed');
       }
     });
     return Response.json({ success: true, status: 'running' });

@@ -203,6 +203,5 @@ To change the admin password, update the env var in Vercel and redeploy — the 
 
 ## Further reading
 
-- [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) — a backend security audit (report only; findings not yet acted on) covering API authz/authn, credential encryption, and the cron endpoint's auth gate.
+- [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) — a historical backend security audit covering API authn/authz, credential encryption, and the cron endpoint; verify findings against current source before acting.
 - [`docs/PERFORMANCE_AUDIT.md`](docs/PERFORMANCE_AUDIT.md) — a Lighthouse-backed performance pass across the main pages, plus a flagged follow-up around unbounded homework/classes fetches at real data scale.
-
