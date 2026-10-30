@@ -2,9 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Unit tests for the main() function exported from scripts/sync-local.ts.
 // All DB / browser / sync dependencies are mocked so no real network calls or
-// Chrome processes are started. The test exercises the same orchestration
-// properties as the Vercel cron route tests (sequential execution, credential
-// guard, lock guard, bad-login skip) so both paths stay in parity.
+// Chrome processes are started.
 
 const mocks = vi.hoisted(() => ({
   getUsersWithAutoSyncEnabled: vi.fn(),
@@ -24,15 +22,12 @@ vi.mock('@/lib/powerschoolSync', () => ({
   startPowerSchoolSync: mocks.startPowerSchoolSync,
   runPowerSchoolSync: mocks.runPowerSchoolSync,
 }));
-// launchBrowser must be mocked — the real implementation spawns Chrome.
-// close() must return a Promise because the script calls browser.close().catch(…)
 vi.mock('@/lib/powerschool', () => ({
   launchBrowser: vi.fn(async () => ({
     close: mocks.closeBrowser,
     connected: true,
   })),
 }));
-// dotenv/config is a side-effect import that reads .env — suppress it in tests.
 vi.mock('dotenv/config', () => ({}));
 
 const { main } = await import('./sync-local');
@@ -53,7 +48,8 @@ afterEach(() => {
 });
 
 describe('sync-local.ts — main()', () => {
-  it('syncs every auto-sync user exactly once, sequentially', async () => {
+  it('syncs users sequentially when SYNC_CONCURRENCY=1', async () => {
+    vi.stubEnv('SYNC_CONCURRENCY', '1');
     mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1', 'u2', 'u3']);
 
     let inFlight = 0;
@@ -61,7 +57,7 @@ describe('sync-local.ts — main()', () => {
     mocks.runPowerSchoolSync.mockImplementation(async () => {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise((r) => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 10));
       inFlight--;
     });
 
@@ -69,6 +65,26 @@ describe('sync-local.ts — main()', () => {
 
     expect(maxInFlight).toBe(1);
     expect(mocks.runPowerSchoolSync).toHaveBeenCalledTimes(3);
+  });
+
+  it('runs multiple users concurrently when SYNC_CONCURRENCY > 1', async () => {
+    vi.stubEnv('SYNC_CONCURRENCY', '3');
+    mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1', 'u2', 'u3', 'u4']);
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mocks.runPowerSchoolSync.mockImplementation(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 20));
+      inFlight--;
+    });
+
+    await main();
+
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(3);
+    expect(mocks.runPowerSchoolSync).toHaveBeenCalledTimes(4);
   });
 
   it('exits cleanly without launching a browser when no users have auto-sync enabled', async () => {
@@ -107,7 +123,7 @@ describe('sync-local.ts — main()', () => {
 
   it('skips a user whose sync lock is already held instead of racing it', async () => {
     mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1']);
-    mocks.startPowerSchoolSync.mockResolvedValue(null); // lock already acquired
+    mocks.startPowerSchoolSync.mockResolvedValue(null);
 
     await main();
 
@@ -115,6 +131,7 @@ describe('sync-local.ts — main()', () => {
   });
 
   it('always closes the browser in the finally block after completing the batch', async () => {
+    vi.stubEnv('SYNC_CONCURRENCY', '1');
     mocks.getUsersWithAutoSyncEnabled.mockResolvedValue(['u1']);
 
     await main();
