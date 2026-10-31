@@ -31,7 +31,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import Button from '@mui/material/Button';
 import dynamic from 'next/dynamic';
-import CircularProgress from '@mui/material/CircularProgress';
+import InitialLoadingScreen from '@/components/InitialLoadingScreen';
 
 // Both are conditionally rendered (SetupWizard: only for a first-time/
 // incomplete setup; LoginScreen: only when logged out) but AppShell wraps
@@ -39,8 +39,8 @@ import CircularProgress from '@mui/material/CircularProgress';
 // page load regardless of whether either was ever shown. Deferring them to
 // separate chunks — fetched only when actually needed — was one of the
 // highest-value trims found in a JS-coverage audit (~40% of shipped JS was
-// unused per page). LoginScreen still needs `ssr: true` (default) since an
-// anonymous visit should render it on the server, not flash blank first.
+// unused per page). The initial auth check renders InitialLoadingScreen on
+// the server; LoginScreen's fallback is only shown while its chunk loads.
 // ssr:false — SetupWizard is mounted unconditionally with `open={wizardOpen}`
 // (so MUI's own close transition still plays), so with the default ssr:true
 // its chunk would still ship as part of every page's hydration bundle even
@@ -49,14 +49,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 // renders null while closed either way).
 const SetupWizard = dynamic(() => import('@/components/SetupWizard'), { ssr: false });
 const LoginScreen = dynamic(() => import('@/components/LoginScreen'), {
-  // Only matters for a client-side-only mount (e.g. right after Sign Out,
-  // with no fresh server render to source HTML from) — the far more common
-  // case, a fresh/anonymous page load, is still fully server-rendered.
-  loading: () => (
-    <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.default' }}>
-      <CircularProgress />
-    </Box>
-  ),
+  loading: () => <InitialLoadingScreen />,
 });
 import SaveStatusIndicator, { SaveStatusIcon } from '@/components/SaveStatusIndicator';
 import GlobalShortcuts from '@/components/GlobalShortcuts';
@@ -299,7 +292,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     router.push('/');
   };
 
-  if (currentUser === null)  return <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }} />;
+  if (currentUser === null) return <InitialLoadingScreen />;
   if (currentUser === false) return (
     <LoginScreen
       onLogin={(user, isNew) => {
