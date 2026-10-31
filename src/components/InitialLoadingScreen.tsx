@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import Typography from '@mui/material/Typography';
-import ParkIcon from '@mui/icons-material/Park';
+import Image from 'next/image';
 
 export default function InitialLoadingScreen() {
   return (
@@ -19,7 +19,7 @@ export default function InitialLoadingScreen() {
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <ParkIcon sx={{ color: 'primary.main', fontSize: 36 }} />
+        <Image src="/favicon.svg" alt="" width={36} height={36} loading="eager" unoptimized />
         <Typography variant="h5" sx={{ fontWeight: 700, color: 'primary.main', letterSpacing: '-0.3px' }}>
           Canopy
         </Typography>

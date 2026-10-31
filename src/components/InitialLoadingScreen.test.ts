@@ -10,5 +10,7 @@ describe('InitialLoadingScreen', () => {
     expect(markup).toContain('role="status"');
     expect(markup).toContain('Canopy');
     expect(markup).toContain('Loading your planner');
+    expect(markup).toContain('src="/favicon.svg"');
+    expect(markup).toContain('loading="eager"');
   });
 });

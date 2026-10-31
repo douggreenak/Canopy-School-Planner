@@ -44,6 +44,22 @@ export async function verifyPassword(password: string, stored: string): Promise<
   }
 }
 
+function getSessionToken(request: Request): string | null {
+  const authHeader = request.headers.get('authorization') ?? '';
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const bearerToken = bearerMatch?.[1];
+
+  const cookieHeader = request.headers.get('cookie') ?? '';
+  const cookieMatch = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]*)`));
+  const cookieToken = cookieMatch?.[1];
+
+  return bearerToken || cookieToken || null;
+}
+
+export function hasSessionToken(request: Request): boolean {
+  return getSessionToken(request) !== null;
+}
+
 export async function createSession(userId: string): Promise<{ cookie: string }> {
   const token = randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
@@ -55,15 +71,7 @@ export async function createSession(userId: string): Promise<{ cookie: string }>
 }
 
 export async function getSessionUserId(request: Request): Promise<string | null> {
-  const authHeader = request.headers.get('authorization') ?? '';
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const bearerToken = bearerMatch?.[1];
-
-  const cookieHeader = request.headers.get('cookie') ?? '';
-  const cookieMatch = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]*)`));
-  const cookieToken = cookieMatch?.[1];
-
-  const token = bearerToken || cookieToken;
+  const token = getSessionToken(request);
   if (!token) return null;
 
   const session = await getDbSession(token);

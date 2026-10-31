@@ -15,6 +15,7 @@ import {
   hashPassword,
   verifyPassword,
   createSession,
+  hasSessionToken,
   getSessionUserId,
   deleteSession,
   clearSessionCookie,
@@ -74,6 +75,7 @@ async function ensureDb() {
 
 export async function GET(request: Request) {
   try {
+    if (!hasSessionToken(request)) return Response.json({ user: null });
     await ensureDb();
     const userId = await getSessionUserId(request);
     if (!userId) return Response.json({ user: null });
