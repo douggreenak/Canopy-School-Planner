@@ -197,6 +197,9 @@ export interface AppSettings {
   lastSyncAt?: string;
   // Scheduled automatic PowerSchool sync.
   powerschoolAutoSync?: { enabled: boolean };
+  // JSON array (stored as a string) of assignment keys whose zero-grade
+  // warning the user dismissed. Synced across web and the Apple apps.
+  dismissedZeroAssignments?: string;
 }
 
 export interface DaySchedule {

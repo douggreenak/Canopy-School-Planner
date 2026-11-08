@@ -7,6 +7,8 @@ const ALLOWED_KEYS = new Set([
   'lunchTimes', 'lathropMode', 'early_out_schedule',
   'themeMode', 'accentColor', 'lastSyncAt', 'timezone',
   'powerschoolAutoSync',
+  // JSON array of assignment keys whose "you got a 0" warning was dismissed.
+  'dismissedZeroAssignments',
 ]);
 
 const MAX_VALUE_LEN = 10_000;

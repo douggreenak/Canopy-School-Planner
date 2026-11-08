@@ -35,6 +35,7 @@ import { buildHeatmap } from '@/lib/heatmap';
 import { buildDueCountMap } from '@/lib/dueCounts';
 import dynamic from 'next/dynamic';
 import PowerSchoolLoginWarning from '@/components/PowerSchoolLoginWarning';
+import ZeroGradeBanner from '@/components/ZeroGradeBanner';
 // Only one of Day/Week/Year is ever visible at once (tab-switched) — deferring
 // the other two to their own chunks means a visit that never touches the
 // Week or Year tab never pays for their JS at all.
@@ -200,6 +201,7 @@ export default function Dashboard() {
       )}
 
       <PowerSchoolLoginWarning />
+      <ZeroGradeBanner />
 
       {/* Header */}
       <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
