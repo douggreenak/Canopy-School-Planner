@@ -10,11 +10,41 @@ Live at **[canopy.apexengineeringak.com](https://canopy.apexengineeringak.com)**
 
 ## Screenshots
 
-Screenshots are intentionally not committed to this repository: the app displays
-real student data (names, ID numbers, teachers, grades), and a public repo's git
-history is permanent. To see the UI, run it locally with a demo account. If you
-generate screenshots with `scripts/take-screenshots.mjs`, only do so against
-clearly fake data — `docs/screenshots/` is git-ignored for that reason.
+### Dashboard
+Day, Week, Year, and Heatmap views of your schedule — with at-a-glance stats for today's classes, homework, and exams.
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+### Grades
+Overall GPA, per-class grade bars, category breakdown, missing-work triage, and velocity alerts — all synced live from PowerSchool.
+
+![Grades](docs/screenshots/grades.png)
+
+### Grade Detail + Final Exam Calculator
+Drill into any class to see every assignment and category breakdown. The **Final Calc** button shows exactly what score you need on the final exam to reach each letter grade.
+
+![Grade Detail](docs/screenshots/grades-detail.png)
+![Final Exam Calculator](docs/screenshots/final-calc.png)
+
+### Tasks
+Unified homework + task list with quick-add, overdue highlighting, and cross-class deadline rebalancing suggestions.
+
+![Tasks](docs/screenshots/tasks.png)
+
+### Schedule
+Day / Week / Year calendar that treats school as in session every day, with school breaks marked as exceptions, plus bell schedule support and early-dismissal overrides.
+
+![Schedule](docs/screenshots/schedule.png)
+
+### Transcript
+Cumulative unweighted GPA across all synced semesters with per-class breakdown.
+
+![Transcript](docs/screenshots/transcript.png)
+
+### Settings
+Theme, accent color, school info, school breaks, and PowerSchool credentials — everything in one place.
+
+![Settings](docs/screenshots/settings.png)
 
 ---
 

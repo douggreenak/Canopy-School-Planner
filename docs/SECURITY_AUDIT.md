@@ -192,7 +192,7 @@ M2, M3 and L2 above were already fixed when this pass started.
 | Student's own name | not stored (scraped only to confirm login) | n/a |
 
 ## Fixed in this pass
-- **Real student data committed to the public repo** — `docs/screenshots/*.png` showed a real student's S-number, teacher name, school, classes and grades. Removed from the tree, dir git-ignored, README updated. **Git history still contains them** — see "Needs your action".
+- **Real student data committed to the public repo** — `docs/screenshots/*.png` showed a real student's S-number, teacher name, school, classes and grades. The account shown belongs to the project owner, who confirmed that's fine, so the screenshots have been restored.
 - **SSRF** — the user-supplied PowerSchool URL was opened by server-side Chromium unchecked. Now must be public `https://` hostnames (no IPs, localhost, `.local/.internal`, embedded credentials). Enforced in every route and centrally in `powerschool.ts` (covers cron/local sync too). `src/lib/safeUrl.ts`.
 - **Session tokens stored raw** → now hashed; existing sessions migrate transparently (nobody is logged out).
 - **PowerSchool username unencrypted** → encrypted; no longer returned by the generic `/api/settings`.
@@ -205,10 +205,9 @@ M2, M3 and L2 above were already fixed when this pass started.
 - Settings API now strictly validates `lathropMode`, `themeMode`, `powerschoolAutoSync` (H4); other keys stay free-form.
 
 ## Needs your action (not done in code)
-1. **Purge screenshots from git history** (`git filter-repo --path docs/screenshots --invert-paths`, force-push) and tell GitHub to drop cached views; consider the student's ID exposed. Forks/clones made earlier keep copies.
-2. Set `CREDENTIAL_KEY`, `CRON_SECRET`, `DATABASE_SSL=true` in production; a non-default `ADMIN_PASSWORD`.
-3. Enable encryption-at-rest and backups encryption at the DB provider.
-4. Self-hosted sync runner: restrict egress so hostnames can't resolve to private ranges (DNS-rebinding case `safeUrl.ts` cannot see).
+1. Set `CREDENTIAL_KEY`, `CRON_SECRET`, `DATABASE_SSL=true` in production; a non-default `ADMIN_PASSWORD`.
+2. Enable encryption-at-rest and backups encryption at the DB provider.
+3. Self-hosted sync runner: restrict egress so hostnames can't resolve to private ranges (DNS-rebinding case `safeUrl.ts` cannot see).
 
 ## Remaining known risks
 - Grades/classes/assignment text are plaintext in MySQL (H3 trade-off stands).
