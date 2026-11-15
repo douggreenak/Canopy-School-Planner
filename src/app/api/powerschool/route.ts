@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { after } from 'next/server';
 import { getPowerSchoolCredentials, getSyncStatus } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
+import { checkPowerSchoolUrl } from '@/lib/safeUrl';
 import { runPowerSchoolSync, startPowerSchoolSync } from '@/lib/powerschoolSync';
 
 // Kicks off a sync and returns immediately (syncId + status:'running') — the
@@ -31,6 +32,9 @@ export async function POST(request: NextRequest) {
       error: 'Missing PowerSchool credentials. Save them in Settings first.',
     }, { status: 400 });
   }
+
+  const urlCheck = checkPowerSchoolUrl(url);
+  if (!urlCheck.ok) return Response.json({ success: false, error: urlCheck.error }, { status: 400 });
 
   const syncId = await startPowerSchoolSync(userId);
   if (!syncId) {

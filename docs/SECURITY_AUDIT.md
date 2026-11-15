@@ -170,3 +170,45 @@ A deleted account's data (and the admin stats that reference it) is gone immedia
 9. Everything else (H4, L1–L3) — fold into normal hardening work, no urgency.
 
 No code was modified as part of this audit, per the request.
+
+---
+
+# Addendum — student-data audit (pass 2)
+
+Focus: where student names, ID/S-numbers, PowerSchool logins, grades, classes and
+schedules live, and how they could leak. Items C1–C3, H1 (warning), H2 (IP limit),
+M2, M3 and L2 above were already fixed when this pass started.
+
+## Where student data lives
+| Data | Location | At rest |
+|---|---|---|
+| PowerSchool password | `settings` (`powerschoolPassword`), `school_accounts.password` | AES-256-GCM |
+| PowerSchool username (usually the S-number) | `settings`, `school_accounts.username` | **now** AES-256-GCM (`enc1:` prefix; legacy plaintext upgraded on read) |
+| PowerSchool URL | `settings`, `school_accounts.url` | plaintext (not sensitive; now validated) |
+| Classes, teachers (+ email-derived names), rooms, grades, assignments, exams, tasks | `classes`, `homework`, `exams`, `tasks`, `grade_history`, `sync_log` | plaintext (see H3 — use DB-level encryption at rest) |
+| App username / password hash | `users` | scrypt hash |
+| Session tokens | `sessions` | **now** SHA-256 hashed |
+| Calendar feed token | `settings.calendarToken` | plaintext (it is a bearer secret shown to its owner) |
+| Student's own name | not stored (scraped only to confirm login) | n/a |
+
+## Fixed in this pass
+- **Real student data committed to the public repo** — `docs/screenshots/*.png` showed a real student's S-number, teacher name, school, classes and grades. Removed from the tree, dir git-ignored, README updated. **Git history still contains them** — see "Needs your action".
+- **SSRF** — the user-supplied PowerSchool URL was opened by server-side Chromium unchecked. Now must be public `https://` hostnames (no IPs, localhost, `.local/.internal`, embedded credentials). Enforced in every route and centrally in `powerschool.ts` (covers cron/local sync too). `src/lib/safeUrl.ts`.
+- **Session tokens stored raw** → now hashed; existing sessions migrate transparently (nobody is logged out).
+- **PowerSchool username unencrypted** → encrypted; no longer returned by the generic `/api/settings`.
+- **`CREDENTIAL_KEY` migration trap** — setting it on a deployment that had been using the `DATABASE_URL` fallback silently orphaned every saved login. Decrypt now falls back to the legacy key.
+- **Passwords**: min length 1 → 8 for new/changed passwords; per-account login throttle in addition to per-IP; changing a password signs out all other sessions; expired sessions purged.
+- `Cache-Control: no-store` on all `/api/*` responses; opt-in `DATABASE_SSL=true` for verified TLS to MySQL; verify route no longer echoes raw error text.
+
+## Needs your action (not done in code)
+1. **Purge screenshots from git history** (`git filter-repo --path docs/screenshots --invert-paths`, force-push) and tell GitHub to drop cached views; consider the student's ID exposed. Forks/clones made earlier keep copies.
+2. Set `CREDENTIAL_KEY`, `CRON_SECRET`, `DATABASE_SSL=true` in production; a non-default `ADMIN_PASSWORD`.
+3. Enable encryption-at-rest and backups encryption at the DB provider.
+4. Self-hosted sync runner: restrict egress so hostnames can't resolve to private ranges (DNS-rebinding case `safeUrl.ts` cannot see).
+
+## Remaining known risks
+- Grades/classes/assignment text are plaintext in MySQL (H3 trade-off stands).
+- Calendar feed URL carries `userId` + token in the query string (logged by proxies/browsers); it exposes class names, teachers and homework to anyone with the link. Regenerate if shared.
+- Sync debug logs (`powerschool_sync_status.log`) can contain raw page-row text; they're user-scoped and deleted with the account.
+- Rate limits are in-memory (per warm instance); use platform rate limiting for a hard guarantee.
+- No audit log of who accessed what.

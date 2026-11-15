@@ -54,6 +54,13 @@ export async function createSession(userId: string): Promise<{ cookie: string }>
   return { cookie };
 }
 
+/** The raw session token on a request (cookie or bearer), or null. */
+export function getSessionToken(request: Request): string | null {
+  const bearerMatch = (request.headers.get('authorization') ?? '').match(/^Bearer\s+(.+)$/i);
+  const cookieMatch = (request.headers.get('cookie') ?? '').match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]*)`));
+  return bearerMatch?.[1] || cookieMatch?.[1] || null;
+}
+
 export async function getSessionUserId(request: Request): Promise<string | null> {
   const authHeader = request.headers.get('authorization') ?? '';
   const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);

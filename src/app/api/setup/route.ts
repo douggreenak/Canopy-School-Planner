@@ -13,6 +13,7 @@ import {
   setSyncStatus,
 } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
+import { checkPowerSchoolUrl } from '@/lib/safeUrl';
 
 function unauth() {
   return Response.json({ error: 'Unauthorized' }, { status: 401 });
@@ -69,6 +70,8 @@ export async function POST(request: NextRequest) {
       if (!url || !username || !password) {
         return Response.json({ success: false, error: 'URL, username, and password are all required.' });
       }
+      const urlCheck = checkPowerSchoolUrl(url);
+      if (!urlCheck.ok) return Response.json({ success: false, error: urlCheck.error });
       await setPowerSchoolCredentials(userId, url, username, password);
       // Re-saving the login is the fix for a "PowerSchool rejected your
       // password" sync failure — clear that failed status so the warning

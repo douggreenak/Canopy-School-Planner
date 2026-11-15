@@ -42,3 +42,7 @@ config.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Screenshots of the running app show real student data — never commit them.
+docs/screenshots/*
+!docs/screenshots/login.png

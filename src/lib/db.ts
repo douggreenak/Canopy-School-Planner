@@ -22,7 +22,12 @@ import { detectApFromName, resolveIsApOnSync } from '@/lib/apDetection';
 let _pool: Pool | null = null;
 function getDb(): Pool {
   if (!_pool) {
-    _pool = mysql.createPool(process.env.DATABASE_URL!);
+    // Opt-in: set DATABASE_SSL=true to require an encrypted, certificate-
+    // verified connection to MySQL. Off by default so deployments whose
+    // provider doesn't offer TLS keep working; turn it on for any hosted DB.
+    _pool = process.env.DATABASE_SSL === 'true'
+      ? mysql.createPool({ uri: process.env.DATABASE_URL!, ssl: { rejectUnauthorized: true } })
+      : mysql.createPool(process.env.DATABASE_URL!);
   }
   return _pool;
 }
@@ -667,25 +672,58 @@ export async function deleteUserAndAllData(userId: string): Promise<void> {
 
 // ---- Sessions ----
 
+// Session tokens are stored as a SHA-256 hash, never raw: a leaked database
+// row (backup, SQL dump, read-only DB access) can't be replayed as a login
+// cookie. The browser still holds the raw token; we hash it on every lookup.
+// Sessions created before this change were stored raw, so lookups fall back
+// to the raw value once and migrate that row in place — nobody gets logged out.
+function hashSessionToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
 export async function createDbSession(id: string, userId: string, expiresAt: Date): Promise<void> {
+  // Opportunistic cleanup so expired sessions (which still tie a user id to a
+  // row) don't pile up forever.
+  await execute(`DELETE FROM sessions WHERE expires_at < NOW()`).catch(() => {});
   await execute(
     `INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)`,
-    [id, userId, expiresAt.toISOString().slice(0, 19).replace('T', ' ')],
+    [hashSessionToken(id), userId, expiresAt.toISOString().slice(0, 19).replace('T', ' ')],
   );
 }
 
 export async function getDbSession(id: string): Promise<{ userId: string; expiresAt: Date } | null> {
-  const rows = await query<RowDataPacket>(
+  const hashed = hashSessionToken(id);
+  let rows = await query<RowDataPacket>(
     `SELECT user_id, expires_at FROM sessions WHERE id = ?`,
-    [id],
+    [hashed],
   );
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    rows = await query<RowDataPacket>(
+      `SELECT user_id, expires_at FROM sessions WHERE id = ?`,
+      [id],
+    );
+    if (rows.length === 0) return null;
+    // Legacy raw-token row: upgrade it to the hashed form.
+    await execute(`UPDATE sessions SET id = ? WHERE id = ?`, [hashed, id]).catch(() => {});
+  }
   const row = rows[0];
   return { userId: row.user_id as string, expiresAt: new Date(row.expires_at as string) };
 }
 
 export async function deleteDbSession(id: string): Promise<void> {
-  await execute(`DELETE FROM sessions WHERE id = ?`, [id]);
+  await execute(`DELETE FROM sessions WHERE id IN (?, ?)`, [hashSessionToken(id), id]);
+}
+
+/** Sign a user out everywhere except (optionally) the session making the request. */
+export async function deleteOtherSessions(userId: string, keepToken?: string): Promise<void> {
+  if (!keepToken) {
+    await execute(`DELETE FROM sessions WHERE user_id = ?`, [userId]);
+    return;
+  }
+  await execute(
+    `DELETE FROM sessions WHERE user_id = ? AND id NOT IN (?, ?)`,
+    [userId, hashSessionToken(keepToken), keepToken],
+  );
 }
 
 // ---- Classes ----
@@ -966,7 +1004,9 @@ export async function deleteDisruption(id: string, userId: string): Promise<void
 // Credential keys are managed via getPowerSchoolCredentials and must never be
 // returned through the generic settings bag (the password is stored encrypted,
 // and even the ciphertext should not be shipped to the client).
-const CREDENTIAL_SETTING_KEYS = new Set(['powerschoolPassword']);
+// The username is excluded too: it's stored encrypted (and is the student's ID),
+// and /api/setup already returns the decrypted value to its owner.
+const CREDENTIAL_SETTING_KEYS = new Set(['powerschoolPassword', 'powerschoolUsername']);
 
 export async function getSettings(userId: string): Promise<Partial<AppSettings>> {
   const rows = await query<RowDataPacket>(
@@ -1067,20 +1107,31 @@ const CRED_TAG_LENGTH = 16;
 
 let warnedMissingCredentialKey = false;
 
+function deriveKey(secret: string): Buffer {
+  // Derive a stable 32-byte key from whatever secret is available.
+  return crypto.createHash('sha256').update(secret).digest();
+}
+
 function credentialKey(): Buffer {
   if (!process.env.CREDENTIAL_KEY && !warnedMissingCredentialKey) {
     // Once per process, not once per encrypt/decrypt call — this runs on
-    // every PowerSchool credential read/write. Behavior is unchanged (still
-    // falls back to deriving from DATABASE_URL) so this can't break a
-    // deployment that currently relies on the fallback; it's visibility
-    // only. See docs/SECURITY_AUDIT.md (H1) for why a dedicated
-    // CREDENTIAL_KEY is recommended instead.
+    // every PowerSchool credential read/write. Still falls back to deriving
+    // from DATABASE_URL so a deployment relying on that keeps working.
     warnedMissingCredentialKey = true;
     console.warn('[SECURITY] CREDENTIAL_KEY is not set — falling back to deriving the PowerSchool-password encryption key from DATABASE_URL. Set a dedicated CREDENTIAL_KEY (e.g. `openssl rand -hex 32`) so rotating the database URL does not also silently break decryption of every stored PowerSchool password.');
   }
-  const secret = process.env.CREDENTIAL_KEY || process.env.DATABASE_URL || '';
-  // Derive a stable 32-byte key from whatever secret is available.
-  return crypto.createHash('sha256').update(secret).digest();
+  return deriveKey(process.env.CREDENTIAL_KEY || process.env.DATABASE_URL || '');
+}
+
+/**
+ * Key used before CREDENTIAL_KEY was set (derived from DATABASE_URL). Only
+ * consulted on decrypt, and only when a dedicated key is now configured, so
+ * switching an existing deployment onto CREDENTIAL_KEY doesn't strand every
+ * previously-saved PowerSchool login.
+ */
+function legacyCredentialKey(): Buffer | null {
+  if (!process.env.CREDENTIAL_KEY || !process.env.DATABASE_URL) return null;
+  return deriveKey(process.env.DATABASE_URL);
 }
 
 export function encryptCredential(plaintext: string): string {
@@ -1091,20 +1142,50 @@ export function encryptCredential(plaintext: string): string {
   return Buffer.concat([iv, authTag, encrypted]).toString('base64');
 }
 
+function decryptWithKey(packed: Buffer, key: Buffer): string {
+  const iv = packed.subarray(0, CRED_IV_LENGTH);
+  const authTag = packed.subarray(CRED_IV_LENGTH, CRED_IV_LENGTH + CRED_TAG_LENGTH);
+  const data = packed.subarray(CRED_IV_LENGTH + CRED_TAG_LENGTH);
+  const decipher = crypto.createDecipheriv(CRED_ALGORITHM, key, iv);
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+}
+
 export function decryptCredential(ciphertext: string): string {
   const packed = Buffer.from(ciphertext, 'base64');
   if (packed.length < CRED_IV_LENGTH + CRED_TAG_LENGTH + 1) {
     throw new Error('Invalid credential ciphertext.');
   }
-  const iv = packed.subarray(0, CRED_IV_LENGTH);
-  const authTag = packed.subarray(CRED_IV_LENGTH, CRED_IV_LENGTH + CRED_TAG_LENGTH);
-  const data = packed.subarray(CRED_IV_LENGTH + CRED_TAG_LENGTH);
-  const decipher = crypto.createDecipheriv(CRED_ALGORITHM, credentialKey(), iv);
-  decipher.setAuthTag(authTag);
-  return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+  try {
+    return decryptWithKey(packed, credentialKey());
+  } catch (err) {
+    const legacy = legacyCredentialKey();
+    if (!legacy) throw err;
+    return decryptWithKey(packed, legacy);
+  }
 }
 
-// ---- PowerSchool credentials (per-user, password encrypted at rest) ----
+// The PowerSchool login name is usually the student's ID/S-number, so it's
+// treated as student PII and encrypted at rest too. Values written before this
+// change are plain text; the "enc1:" prefix tells the two apart so old rows
+// still read correctly and are upgraded the next time they're read.
+const ENCRYPTED_FIELD_PREFIX = 'enc1:';
+
+function encryptField(plaintext: string): string {
+  return plaintext ? ENCRYPTED_FIELD_PREFIX + encryptCredential(plaintext) : plaintext;
+}
+
+function decryptField(stored: string): { value: string; wasPlaintext: boolean } {
+  if (!stored) return { value: '', wasPlaintext: false };
+  if (!stored.startsWith(ENCRYPTED_FIELD_PREFIX)) return { value: stored, wasPlaintext: true };
+  try {
+    return { value: decryptCredential(stored.slice(ENCRYPTED_FIELD_PREFIX.length)), wasPlaintext: false };
+  } catch {
+    return { value: '', wasPlaintext: false };
+  }
+}
+
+// ---- PowerSchool credentials (per-user, username + password encrypted at rest) ----
 
 export interface PowerSchoolCredentials {
   url: string;
@@ -1125,7 +1206,17 @@ export async function getPowerSchoolCredentials(userId: string): Promise<PowerSc
     const key = row.key as string;
     const value = (row.value as string) ?? '';
     if (key === 'powerschoolUrl') url = value;
-    else if (key === 'powerschoolUsername') username = value;
+    else if (key === 'powerschoolUsername') {
+      const d = decryptField(value);
+      username = d.value;
+      if (d.wasPlaintext && username) {
+        // Best-effort upgrade of a legacy plaintext row; never fail a read over it.
+        execute(
+          `UPDATE settings SET value = ? WHERE user_id = ? AND \`key\` = 'powerschoolUsername'`,
+          [encryptField(username), userId],
+        ).catch(() => {});
+      }
+    }
     else if (key === 'powerschoolPassword' && value) {
       try {
         password = decryptCredential(value);
@@ -1148,7 +1239,7 @@ export async function setPowerSchoolCredentials(
                      ON DUPLICATE KEY UPDATE value = VALUES(value)`;
   await runBatchedWrites([
     { sql: upsertSql, params: [userId, 'powerschoolUrl', url] },
-    { sql: upsertSql, params: [userId, 'powerschoolUsername', username] },
+    { sql: upsertSql, params: [userId, 'powerschoolUsername', encryptField(username)] },
     { sql: upsertSql, params: [userId, 'powerschoolPassword', encryptCredential(password)] },
   ]);
 }
@@ -1182,7 +1273,7 @@ export async function getSchoolAccounts(userId: string): Promise<SchoolAccount[]
     id: r.id as string,
     schoolName: (r.school_name as string) || '',
     url: (r.url as string) || '',
-    username: (r.username as string) || '',
+    username: decryptField((r.username as string) || '').value,
     password: (() => {
       const raw = r.password as string;
       if (!raw) return '';
@@ -1201,7 +1292,7 @@ export async function addSchoolAccount(
   const id = uuid();
   await execute(
     `INSERT INTO school_accounts (id, user_id, school_name, url, username, password) VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, userId, schoolName, url, username, encryptCredential(password)],
+    [id, userId, schoolName, url, encryptField(username), encryptCredential(password)],
   );
   return id;
 }
@@ -1218,12 +1309,12 @@ export async function updateSchoolAccount(
   if (password) {
     await execute(
       `UPDATE school_accounts SET school_name = ?, url = ?, username = ?, password = ? WHERE id = ? AND user_id = ?`,
-      [schoolName, url, username, encryptCredential(password), id, userId],
+      [schoolName, url, encryptField(username), encryptCredential(password), id, userId],
     );
   } else {
     await execute(
       `UPDATE school_accounts SET school_name = ?, url = ?, username = ? WHERE id = ? AND user_id = ?`,
-      [schoolName, url, username, id, userId],
+      [schoolName, url, encryptField(username), id, userId],
     );
   }
 }

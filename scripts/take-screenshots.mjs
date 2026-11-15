@@ -3,6 +3,10 @@
  * Usage: node scripts/take-screenshots.mjs [base-url]
  * Default base URL: http://localhost:3000
  *
+ * PRIVACY: this captures whatever the app shows. Run it ONLY against fake/demo
+ * data — never a database with real student grades, names, or ID numbers, and
+ * never commit the output (docs/screenshots/ is git-ignored for that reason).
+ *
  * Creates a throwaway demo account, visits each key page,
  * saves PNGs to docs/screenshots/, then signs out.
  */

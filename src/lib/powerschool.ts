@@ -3,6 +3,7 @@
 // Handles multiple PowerSchool portal layouts (SIS, Student/Guardian).
 // Falls back to multiple selector strategies.
 // ============================================================
+import { assertPowerSchoolUrl } from '@/lib/safeUrl';
 import puppeteer from 'puppeteer-core';
 import type { Browser, Page } from 'puppeteer-core';
 import chromium from '@sparticuz/chromium-min';
@@ -506,7 +507,7 @@ async function loginToPowerSchool(browser: Browser, creds: PowerSchoolCredential
  */
 export async function verifyPowerSchoolLogin(creds: PowerSchoolCredentials): Promise<{ ok: boolean; error?: string; log: string[] }> {
   const log: string[] = [];
-  const baseUrl = new URL(creds.url).origin;
+  const baseUrl = assertPowerSchoolUrl(creds.url);
   const browser = await launchBrowser();
   try {
     await loginToPowerSchool(browser, creds, baseUrl, log);
@@ -532,7 +533,7 @@ export async function scrapePowerSchool(
   const log: string[] = [];
   // Extract just the origin (scheme + host) so any sub-URL works
   // e.g. "https://premier.k12northstar.org/guardian/home.html" → "https://premier.k12northstar.org"
-  const baseUrl = new URL(creds.url).origin;
+  const baseUrl = assertPowerSchoolUrl(creds.url);
 
   const browser = sharedBrowser ?? await launchBrowser();
   let page: Page | undefined;

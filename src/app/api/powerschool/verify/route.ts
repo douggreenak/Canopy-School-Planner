@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getPowerSchoolCredentials } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 import { verifyPowerSchoolLogin } from '@/lib/powerschool';
+import { checkPowerSchoolUrl } from '@/lib/safeUrl';
 
 // Fast credential check (login only — no scraping) for the onboarding wizard's
 // PowerSchool step: catches a mistyped username/password in a few seconds
@@ -22,10 +23,13 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: false, error: 'Enter a URL, username, and password first.' }, { status: 400 });
   }
 
+  const urlCheck = checkPowerSchoolUrl(url);
+  if (!urlCheck.ok) return Response.json({ ok: false, error: urlCheck.error }, { status: 400 });
+
   try {
     const result = await verifyPowerSchoolLogin({ url, username, password });
     return Response.json(result);
-  } catch (error) {
-    return Response.json({ ok: false, error: (error as Error).message || 'Verification failed.', log: [] }, { status: 500 });
+  } catch {
+    return Response.json({ ok: false, error: 'Verification failed.', log: [] }, { status: 500 });
   }
 }

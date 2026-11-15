@@ -9,6 +9,7 @@ import {
 } from '@/lib/db';
 import { getSessionUserId } from '@/lib/auth';
 import { scrapePowerSchool } from '@/lib/powerschool';
+import { checkPowerSchoolUrl } from '@/lib/safeUrl';
 
 // Manages ADDITIONAL schools beyond a user's primary PowerSchool login (see
 // /api/powerschool and /api/setup for that one, untouched). Secondary to
@@ -57,6 +58,8 @@ export async function POST(request: NextRequest) {
   if (!schoolName || !url || !username || !password) {
     return Response.json({ error: 'School name, URL, username, and password are all required.' }, { status: 400 });
   }
+  const urlCheck = checkPowerSchoolUrl(url);
+  if (!urlCheck.ok) return Response.json({ error: urlCheck.error }, { status: 400 });
   const id = await addSchoolAccount(userId, schoolName, url, username, password);
   return Response.json({ success: true, id });
 }
@@ -68,6 +71,8 @@ export async function PUT(request: NextRequest) {
   if (!id || !schoolName || !url || !username) {
     return Response.json({ error: 'Missing required fields' }, { status: 400 });
   }
+  const urlCheck = checkPowerSchoolUrl(url);
+  if (!urlCheck.ok) return Response.json({ error: urlCheck.error }, { status: 400 });
   await updateSchoolAccount(userId, id, schoolName, url, username, password || '');
   return Response.json({ success: true });
 }

@@ -82,3 +82,38 @@ describe('deleteUserAndAllData', () => {
     expect(mocks.connection.release).toHaveBeenCalledOnce();
   });
 });
+
+describe('credential + session encryption', () => {
+  async function loadDb(env: Record<string, string | undefined>) {
+    vi.resetModules();
+    process.env.DATABASE_URL = 'mysql://test:test@localhost/test';
+    for (const [k, v] of Object.entries(env)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    return import('./db');
+  }
+
+  it('round-trips credentials and never stores them readable', async () => {
+    const db = await loadDb({ CREDENTIAL_KEY: 'k1' });
+    const ct = db.encryptCredential('s175476');
+    expect(ct).not.toContain('s175476');
+    expect(db.decryptCredential(ct)).toBe('s175476');
+  });
+
+  it('still decrypts values made with the DATABASE_URL-derived key after CREDENTIAL_KEY is set', async () => {
+    const legacy = await loadDb({ CREDENTIAL_KEY: undefined });
+    const ct = legacy.encryptCredential('hunter2');
+    const upgraded = await loadDb({ CREDENTIAL_KEY: 'brand-new-dedicated-key' });
+    expect(upgraded.decryptCredential(ct)).toBe('hunter2');
+  });
+
+  it('stores only a hash of the session token', async () => {
+    const db = await loadDb({ CREDENTIAL_KEY: 'k1' });
+    mocks.pool.execute.mockResolvedValue([[], []]);
+    await db.createDbSession('raw-token-abc', 'u1', new Date(Date.now() + 1000));
+    const insert = mocks.pool.execute.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO sessions'));
+    expect(insert).toBeTruthy();
+    expect(insert![1][0]).not.toBe('raw-token-abc');
+    expect(insert![1][0]).toMatch(/^[0-9a-f]{64}$/);
+  });
+});

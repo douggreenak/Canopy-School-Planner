@@ -19,11 +19,21 @@ const securityHeaders = [
   ] : []),
 ];
 
+// Student grades/classes/schedules come back from /api/*. Tell browsers and any
+// shared proxy/CDN never to cache those responses (shared school computers,
+// back-button history, intermediary caches).
+const apiNoStoreHeaders = [
+  { key: 'Cache-Control', value: 'no-store, max-age=0' },
+];
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   serverExternalPackages: ['puppeteer-core', '@sparticuz/chromium-min', 'mysql2'],
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders }];
+    return [
+      { source: '/:path*', headers: securityHeaders },
+      { source: '/api/:path*', headers: apiNoStoreHeaders },
+    ];
   },
   ...(process.env.NODE_ENV === 'development' ? {
     allowedDevOrigins: [

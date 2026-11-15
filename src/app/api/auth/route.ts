@@ -10,6 +10,7 @@ import {
   deleteUserAndAllData,
   initializeDatabase,
   setSetting,
+  deleteOtherSessions,
 } from '@/lib/db';
 import {
   hashPassword,
@@ -17,12 +18,15 @@ import {
   createSession,
   getSessionUserId,
   deleteSession,
+  getSessionToken,
   clearSessionCookie,
 } from '@/lib/auth';
 
 const MAX_USERNAME_LEN = 128;
 const MAX_PASSWORD_LEN = 1024;
-const MIN_PASSWORD_LEN = 1;
+// Applies to NEW passwords only (register / change). Existing accounts with
+// shorter passwords can still sign in; they just can't pick a short one again.
+const MIN_PASSWORD_LEN = 8;
 
 // A simple per-IP sliding-window limit on login/register attempts — in-
 // memory, so it only holds across warm serverless invocations on the same
@@ -34,7 +38,29 @@ const RATE_LIMITS: Record<'login' | 'register', { max: number; windowMs: number 
   login: { max: 10, windowMs: 5 * 60 * 1000 },
   register: { max: 10, windowMs: 60 * 60 * 1000 },
 };
+// Per-account cap on top of the per-IP one, so an attacker rotating IPs still
+// can't hammer a single student's account. Deliberately looser than the IP
+// limit so a shared school network can't lock one student out by accident.
+const USERNAME_LIMIT = { max: 30, windowMs: 15 * 60 * 1000 };
 const attemptLog = new Map<string, number[]>();
+
+function pruneAttemptLog(now: number) {
+  // Keep the in-memory map from growing without bound on a long-lived instance.
+  if (attemptLog.size < 5000) return;
+  for (const [k, v] of attemptLog) {
+    if (v.every((t) => now - t > 60 * 60 * 1000)) attemptLog.delete(k);
+  }
+}
+
+function isUsernameRateLimited(username: string): boolean {
+  const now = Date.now();
+  pruneAttemptLog(now);
+  const key = `login-user:${username.trim().toLowerCase()}`;
+  const recent = (attemptLog.get(key) ?? []).filter((t) => now - t < USERNAME_LIMIT.windowMs);
+  recent.push(now);
+  attemptLog.set(key, recent);
+  return recent.length > USERNAME_LIMIT.max;
+}
 
 function clientIp(request: Request): string {
   const forwardedFor = request.headers.get('x-forwarded-for');
@@ -137,6 +163,9 @@ export async function POST(request: NextRequest) {
       if (password.length > MAX_PASSWORD_LEN) {
         return Response.json({ error: 'Invalid username or password.' }, { status: 401 });
       }
+      if (isUsernameRateLimited(String(username))) {
+        return Response.json({ error: 'Too many attempts. Please try again later.' }, { status: 429 });
+      }
       const user = await getUserByUsername(username.trim());
       if (!user) {
         return Response.json({ error: 'Invalid username or password.' }, { status: 401 });
@@ -175,6 +204,9 @@ export async function POST(request: NextRequest) {
       if (!valid) return Response.json({ error: 'Current password is incorrect.' }, { status: 401 });
       const newHash = await hashPassword(newPassword);
       await updateUserPassword(userId, newHash);
+      // A password change should sign out every OTHER device (a stolen or
+      // forgotten session shouldn't survive it) while keeping this one.
+      await deleteOtherSessions(userId, getSessionToken(request) ?? undefined).catch(() => {});
       return Response.json({ success: true });
     }
 
