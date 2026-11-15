@@ -1521,6 +1521,17 @@ function toSqlDateTime(iso?: string): string | null {
 }
 
 /** Upsert this user's sync status row. Also acts as a simple per-user lock — check `status !== 'running'` before starting a new sync. */
+// The scraper emits verbose debug lines that dump raw rows/headers from the
+// student's PowerSchool pages. Useful while developing a parser, but they would
+// otherwise be persisted in the database (and served to the browser) on every
+// sync. Drop them, and mask any "key=value" credential-looking text, before storage.
+const SYNC_LOG_DEBUG_LINE = /^\s*(bodyRow \(|headers:)|Matrix debug/;
+function scrubSyncLog(lines: string[]): string[] {
+  return lines
+    .filter((l) => typeof l === 'string' && !SYNC_LOG_DEBUG_LINE.test(l))
+    .map((l) => l.replace(/(password|passwd|pwd|token|secret)\s*[=:]\s*\S+/gi, '$1=[redacted]'));
+}
+
 export async function setSyncStatus(
   userId: string,
   data: Partial<SyncStatusRow> & { syncId: string; status: SyncStatusRow['status'] },
@@ -1535,7 +1546,7 @@ export async function setSyncStatus(
     [
       userId, data.syncId, data.status,
       toSqlDateTime(data.startedAt), toSqlDateTime(data.finishedAt),
-      data.log ? JSON.stringify(data.log) : null,
+      data.log ? JSON.stringify(scrubSyncLog(data.log)) : null,
       data.result ? JSON.stringify(data.result) : null,
       data.error ?? null,
     ],

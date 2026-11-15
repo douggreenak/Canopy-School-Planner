@@ -1,12 +1,31 @@
 import { NextRequest } from 'next/server';
-import { timingSafeEqual } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 import dayjs from 'dayjs';
 import { getClasses, getExams, getHomework, getDisruptions, getSettings } from '@/lib/db';
 import { generateCalendarFeed } from '@/lib/calendar';
 
 function safeTokenCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  // Hash first so unequal lengths don't short-circuit (and leak) timing.
+  return timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
+}
+
+// Cap FAILED token guesses per client IP (in-memory, per warm instance). The
+// token has 122 bits of entropy so guessing is already infeasible; this just
+// stops the endpoint being used to hammer the database with bogus requests.
+const FAIL_WINDOW_MS = 10 * 60 * 1000;
+const FAIL_MAX = 30;
+const failures = new Map<string, number[]>();
+function clientIp(request: Request): string {
+  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+}
+function tooManyFailures(ip: string): boolean {
+  const now = Date.now();
+  if (failures.size > 5000) for (const [k, v] of failures) if (v.every((t) => now - t > FAIL_WINDOW_MS)) failures.delete(k);
+  return (failures.get(ip) ?? []).filter((t) => now - t < FAIL_WINDOW_MS).length >= FAIL_MAX;
+}
+function recordFailure(ip: string) {
+  const now = Date.now();
+  failures.set(ip, [...(failures.get(ip) ?? []).filter((t) => now - t < FAIL_WINDOW_MS), now]);
 }
 
 export async function GET(request: NextRequest) {
@@ -16,6 +35,8 @@ export async function GET(request: NextRequest) {
     // userId scopes the feed to one user's data; included in the URL when the
     // user copies their calendar link from Settings.
     const userId = searchParams.get('userId') ?? '';
+    const ip = clientIp(request);
+    if (tooManyFailures(ip)) return new Response('Too many requests', { status: 429 });
 
     if (!userId) {
       return new Response('Missing userId parameter', { status: 400 });
@@ -24,6 +45,7 @@ export async function GET(request: NextRequest) {
     const freshSettings = await getSettings(userId);
     const validToken = freshSettings.calendarToken as string | undefined;
     if (!validToken || !token || !safeTokenCompare(token, validToken)) {
+      recordFailure(ip);
       return new Response('Unauthorized', { status: 401 });
     }
 
@@ -94,6 +116,8 @@ export async function GET(request: NextRequest) {
         'Content-Type': 'text/calendar; charset=utf-8',
         'Content-Disposition': 'attachment; filename="school-schedule.ics"',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'X-Robots-Tag': 'noindex, nofollow',
+        'Referrer-Policy': 'no-referrer',
       },
     });
   } catch {

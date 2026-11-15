@@ -200,6 +200,10 @@ M2, M3 and L2 above were already fixed when this pass started.
 - **Passwords**: min length 1 → 8 for new/changed passwords; per-account login throttle in addition to per-IP; changing a password signs out all other sessions; expired sessions purged.
 - `Cache-Control: no-store` on all `/api/*` responses; opt-in `DATABASE_SSL=true` for verified TLS to MySQL; verify route no longer echoes raw error text.
 
+- Sync debug lines that dumped raw PowerSchool page rows/headers are no longer persisted or served (`scrubSyncLog` in `db.ts`); credential-looking text is masked.
+- Calendar feed: failed-token rate limit per IP, constant-time compare, `noindex` + `no-referrer` headers. Cron secret compare is now constant-time.
+- Settings API now strictly validates `lathropMode`, `themeMode`, `powerschoolAutoSync` (H4); other keys stay free-form.
+
 ## Needs your action (not done in code)
 1. **Purge screenshots from git history** (`git filter-repo --path docs/screenshots --invert-paths`, force-push) and tell GitHub to drop cached views; consider the student's ID exposed. Forks/clones made earlier keep copies.
 2. Set `CREDENTIAL_KEY`, `CRON_SECRET`, `DATABASE_SSL=true` in production; a non-default `ADMIN_PASSWORD`.
@@ -209,6 +213,5 @@ M2, M3 and L2 above were already fixed when this pass started.
 ## Remaining known risks
 - Grades/classes/assignment text are plaintext in MySQL (H3 trade-off stands).
 - Calendar feed URL carries `userId` + token in the query string (logged by proxies/browsers); it exposes class names, teachers and homework to anyone with the link. Regenerate if shared.
-- Sync debug logs (`powerschool_sync_status.log`) can contain raw page-row text; they're user-scoped and deleted with the account.
 - Rate limits are in-memory (per warm instance); use platform rate limiting for a hard guarantee.
 - No audit log of who accessed what.

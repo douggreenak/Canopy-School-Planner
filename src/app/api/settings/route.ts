@@ -18,6 +18,18 @@ function unauth() {
 function validateSetting(key: string, value: string): string | null {
   if (!ALLOWED_KEYS.has(key)) return `Key "${key}" is not allowed.`;
   if (typeof value === 'string' && value.length > MAX_VALUE_LEN) return `Value for "${key}" is too long.`;
+  // Only keys whose accepted values are known and fixed are checked strictly;
+  // the rest stay free-form so nothing the UI already sends gets rejected.
+  if (key === 'lathropMode' && value !== 'true' && value !== 'false') return `Value for "${key}" must be true or false.`;
+  if (key === 'themeMode' && !['light', 'dark', 'system'].includes(value)) return `Invalid theme mode.`;
+  if (key === 'powerschoolAutoSync') {
+    try {
+      const parsed = JSON.parse(value);
+      if (!parsed || typeof parsed !== 'object' || typeof parsed.enabled !== 'boolean') throw new Error();
+    } catch {
+      return `Value for "${key}" must be {"enabled": true|false}.`;
+    }
+  }
   return null;
 }
 

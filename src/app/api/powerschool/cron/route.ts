@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { createHash, timingSafeEqual } from 'crypto';
 import { getUsersWithAutoSyncEnabled, getPowerSchoolCredentials, getSyncStatus } from '@/lib/db';
 import { runPowerSchoolSync, startPowerSchoolSync } from '@/lib/powerschoolSync';
 import { launchBrowser } from '@/lib/powerschool';
@@ -33,6 +34,13 @@ const SAFETY_DEADLINE_MS = 250_000;
 // for tomorrow's tick" instead of a timeout mid-scrape.
 // Vercel Cron docs: a cached/static response means the invocation never runs
 // or logs, so force this route to execute on every call.
+// Constant-time comparison (hash both sides so differing lengths don't leak).
+function secretsMatch(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
@@ -56,7 +64,7 @@ export async function GET(request: NextRequest) {
   if (!process.env.CRON_SECRET) {
     console.error('[PowerSchool cron] CRON_SECRET is not set in this deployment — rejecting the scheduled call, so NO scheduled syncs will run. Set CRON_SECRET in the Vercel project env vars and redeploy.');
   }
-  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!process.env.CRON_SECRET || !secretsMatch(authHeader, `Bearer ${process.env.CRON_SECRET}`)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
