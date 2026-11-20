@@ -1,7 +1,7 @@
 // ============================================================
 // MySQL Database Layer (mysql2)
 // ============================================================
-import mysql, { type Pool, type RowDataPacket, type ExecuteValues, type QueryValues } from 'mysql2/promise';
+import mysql, { type Pool, type RowDataPacket, type ResultSetHeader, type ExecuteValues, type QueryValues } from 'mysql2/promise';
 import crypto from 'crypto';
 import type {
   SchoolClass,
@@ -377,6 +377,49 @@ export async function initializeDatabase() {
     await addColumnIfMissing('settings', 'user_id', "VARCHAR(191) NOT NULL DEFAULT ''");
     await execute(`ALTER TABLE settings DROP PRIMARY KEY`);
     await execute(`ALTER TABLE settings ADD PRIMARY KEY (user_id, \`key\`)`);
+  }
+
+  await backfillSyncLogTimezone();
+}
+
+// One-time fix for sync_log rows written while occurred_at came from the
+// column's DEFAULT NOW() (DB session timezone). New rows are stamped from the
+// app clock, so shift the old ones by (app-server offset - DB offset) to put
+// every row on the same basis. Guarded by a marker row so it runs exactly once
+// even across concurrent cold starts (INSERT IGNORE claims it atomically).
+async function backfillSyncLogTimezone(): Promise<void> {
+  const MARKER = 'sync_log_occurred_at_tz_v1';
+  await execute(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    name VARCHAR(191) PRIMARY KEY,
+    applied_at DATETIME DEFAULT NOW()
+  )`);
+  const [claim] = await getDb().execute<ResultSetHeader>(
+    `INSERT IGNORE INTO schema_migrations (name) VALUES (?)`,
+    [MARKER],
+  );
+  if (claim.affectedRows === 0) return; // already applied (or being applied)
+  try {
+    const [off] = await query<RowDataPacket>(
+      `SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), NOW()) AS offset_min`,
+    );
+    const dbOffsetMin = Math.round(Number(off.offset_min) / 15) * 15;
+    const serverOffsetMin = -new Date().getTimezoneOffset();
+    const shiftMin = serverOffsetMin - dbOffsetMin;
+    if (shiftMin !== 0) {
+      // Only rows written before the app-clock fix shipped (0c3fd36, pushed
+      // 2026-11-20 ~05:32 UTC; cutoff padded for deploy time). Old rows are
+      // stored on the DB's wall clock, so express the cutoff on that basis.
+      await execute(
+        `UPDATE sync_log SET occurred_at = occurred_at + INTERVAL ? MINUTE
+         WHERE occurred_at < TIMESTAMP('2026-11-20 05:35:00') + INTERVAL ? MINUTE`,
+        [shiftMin, dbOffsetMin],
+      );
+    }
+    console.info('[db] sync_log timezone backfill applied', { dbOffsetMin, serverOffsetMin, shiftMin });
+  } catch (err) {
+    // Release the claim so the next init retries instead of silently skipping.
+    await execute(`DELETE FROM schema_migrations WHERE name = ?`, [MARKER]).catch(() => {});
+    throw err;
   }
 }
 
