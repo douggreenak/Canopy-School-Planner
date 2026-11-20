@@ -350,6 +350,21 @@ async function newScrapeTab(browser: Browser): Promise<Page> {
   return tab;
 }
 
+// Decides what a post-submit alert means. Only a definite credential rejection
+// ("login failed") is treated as a bad password — that status is sticky: the
+// scheduled sync stops retrying and a warning banner asks the student to
+// re-enter their password. Lockouts, throttling and unrecognised messages are
+// 'blocked' (retried on the next run, no password banner), and an alert on a
+// page where the login form is gone (already signed in) is ignored.
+const LOCKOUT_ALERT = /lock|disabled|suspend|too many|attempts|temporar|try again|expired|maintenance|unavailable|not available/i;
+const REJECTED_ALERT = /invalid|incorrect|wrong|not recogni[sz]ed|unrecogni[sz]ed|do(es)? not match|not valid/i;
+export function classifyLoginAlert(alertText: string, formVisible: boolean): 'ok' | 'rejected' | 'blocked' {
+  if (!alertText || !formVisible) return 'ok';
+  if (LOCKOUT_ALERT.test(alertText)) return 'blocked';
+  if (REJECTED_ALERT.test(alertText)) return 'rejected';
+  return 'blocked';
+}
+
 async function loginToPowerSchool(browser: Browser, creds: PowerSchoolCredentials, baseUrl: string, log: string[]): Promise<Page> {
   const page = await browser.newPage();
   await setupPageEnvironment(page);
@@ -447,18 +462,31 @@ async function loginToPowerSchool(browser: Browser, creds: PowerSchoolCredential
   // Give the DOM a moment to settle regardless of which promise won
   await new Promise((r) => setTimeout(r, 800));
 
-  // Check for login errors (visible error alert)
-  const loginError = await page.evaluate(() => {
+  // Check for login errors. Stylesheets are blocked on this page, so CSS can't
+  // tell us which alerts are actually shown — a hidden, pre-rendered alert box
+  // (or a notice on the post-login home page) looks "visible" here. The login
+  // form still being on screen is the reliable signal that the login did not
+  // go through; alert text only decides *why*.
+  const { alertText, formVisible } = await page.evaluate(() => {
     const alertEl = document.querySelector('.feedback-alert, .alert-danger, .error-message, #feedback-alert');
-    const text = alertEl?.textContent?.trim();
-    // Some alerts exist in the DOM even when there's no error — only treat
-    // non-empty text that isn't a bare whitespace/placeholder as a real error.
-    if (!text || text.length < 3) return null;
-    return text;
+    const text = alertEl?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    return {
+      alertText: text.length < 3 ? '' : text,
+      formVisible: !!document.querySelector('#fieldAccount, #fieldPassword'),
+    };
   });
 
-  if (loginError) {
-    throw new Error(`PowerSchool login failed: ${loginError}`);
+  const verdict = classifyLoginAlert(alertText, formVisible);
+  if (alertText) {
+    // PowerSchool's own message (no credentials in it) — the only way to tell a
+    // real bad password from a lockout/throttle after the fact.
+    console.warn('[PowerSchool login] alert seen', { verdict, formVisible, text: alertText.slice(0, 120) });
+  }
+  if (verdict === 'rejected') {
+    throw new Error(`PowerSchool login failed: ${alertText}`);
+  }
+  if (verdict === 'blocked') {
+    throw new Error(`PowerSchool sign-in blocked: ${alertText}`);
   }
 
   // Some PowerSchool instances complete login in-place (no page navigation),

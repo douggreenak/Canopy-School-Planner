@@ -33,7 +33,7 @@ async function scrapeWithRetry(creds: PowerSchoolCreds, sharedBrowser?: Browser)
     return await scrapePowerSchool(creds, sharedBrowser);
   } catch (err) {
     const msg = (err as Error).message ?? '';
-    if (/login failed|invalid (username|password)/i.test(msg) || !TRANSIENT_ERROR.test(msg)) throw err;
+    if (/login failed|sign-in blocked|invalid (username|password)/i.test(msg) || !TRANSIENT_ERROR.test(msg)) throw err;
     console.warn('[PowerSchool sync] transient failure; retrying once with a fresh browser.');
     return await scrapePowerSchool(creds);
   }
@@ -41,6 +41,12 @@ async function scrapeWithRetry(creds: PowerSchoolCreds, sharedBrowser?: Browser)
 
 function safeSyncError(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
+  if (/sign-in blocked/i.test(message)) {
+    // Lockout / throttle / unrecognised login-page message: not (provably) a
+    // bad password, so it must not trigger the "check your password" banner
+    // or the sticky skip — the next scheduled run simply tries again.
+    return 'PowerSchool could not complete the sign-in right now. It will retry automatically.';
+  }
   if (/login failed|invalid (username|password)|incorrect (username|password)/i.test(message)) {
     return 'PowerSchool login failed. Check your saved credentials and try again.';
   }

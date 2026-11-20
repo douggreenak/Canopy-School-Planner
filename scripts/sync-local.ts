@@ -6,7 +6,7 @@
 // cron / systemd on any machine without opening any HTTP ports.
 //
 // Concurrency:
-//   Controlled via `SYNC_CONCURRENCY` in .env (defaults to 2).
+//   Controlled via `SYNC_CONCURRENCY` in .env (defaults to 1).
 //   When SYNC_CONCURRENCY > 1, multiple users sync concurrently in
 //   parallel worker lanes. Each lane manages its own headless browser
 //   instance, ensuring complete session / cookie isolation between students.
@@ -30,7 +30,9 @@ function getConcurrencyLimit(): number {
   if (Number.isFinite(envVal) && envVal >= 1) {
     return Math.min(envVal, 10); // cap at reasonable max to prevent runaway processes
   }
-  return 2; // sensible default for home / VPS servers
+  // Default 1: every lane logs in from this machine's single IP, and districts
+  // throttle/lock concurrent logins from one address. Raise only if it's safe.
+  return 1;
 }
 
 async function main(): Promise<void> {
