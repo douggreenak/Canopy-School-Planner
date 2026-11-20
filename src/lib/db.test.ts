@@ -116,4 +116,26 @@ describe('credential + session encryption', () => {
     expect(insert![1][0]).not.toBe('raw-token-abc');
     expect(insert![1][0]).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it('purges sync_log entries older than retention period', async () => {
+    const db = await loadDb({});
+    mocks.pool.query.mockResolvedValue([[], []]);
+    await db.purgeSyncLog('user-abc', 90);
+    const deleteCall = mocks.pool.query.mock.calls.find(([sql]) =>
+      String(sql).includes('DELETE FROM sync_log WHERE user_id = ? AND occurred_at < DATE_SUB(NOW(), INTERVAL ? DAY)')
+    );
+    expect(deleteCall).toBeTruthy();
+    expect(deleteCall![1]).toEqual(['user-abc', 90]);
+  });
+
+  it('clears stale error entries from sync_log on successful sync', async () => {
+    const db = await loadDb({});
+    mocks.pool.query.mockResolvedValue([[], []]);
+    await db.clearStaleSyncErrors('user-abc');
+    const deleteCall = mocks.pool.query.mock.calls.find(([sql]) =>
+      String(sql).includes("DELETE FROM sync_log WHERE user_id = ? AND change_type = 'error'")
+    );
+    expect(deleteCall).toBeTruthy();
+    expect(deleteCall![1]).toEqual(['user-abc']);
+  });
 });

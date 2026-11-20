@@ -13,6 +13,8 @@ import {
   syncClassesFromSource,
   syncHomeworkFromSource,
   addSyncLogEntries,
+  purgeSyncLog,
+  clearStaleSyncErrors,
   addGradeHistoryEntries,
   setSyncStatus,
   setSetting,
@@ -204,6 +206,12 @@ async function runPowerSchoolSyncInner(userId: string, creds: PowerSchoolCreds, 
       },
       error: null,
     });
+
+    // On success: clear any stale error entries so the UI doesn't show old
+    // one-off glitches as permanent failures, then trim the log to 90 days.
+    // Wrapped in .catch so a cleanup failure never marks the sync as failed.
+    await clearStaleSyncErrors(userId).catch(() => {});
+    await purgeSyncLog(userId, 90).catch(() => {});
   } catch (error) {
     const safeMsg = safeSyncError(error);
     console.error('[PowerSchool sync] failed', { reason: safeMsg });

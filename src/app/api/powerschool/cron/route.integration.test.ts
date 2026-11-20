@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
   getClasses: vi.fn(),
   updateClass: vi.fn(),
+  clearStaleSyncErrors: vi.fn(),
+  purgeSyncLog: vi.fn(),
   statuses: [] as Array<{ userId: string; status: string }>,
 }));
 
@@ -35,6 +37,8 @@ vi.mock('@/lib/db', () => ({
   getSettings: mocks.getSettings,
   getClasses: mocks.getClasses,
   updateClass: mocks.updateClass,
+  clearStaleSyncErrors: mocks.clearStaleSyncErrors,
+  purgeSyncLog: mocks.purgeSyncLog,
 }));
 
 vi.mock('@/lib/powerschool', () => ({
@@ -109,6 +113,8 @@ beforeEach(() => {
   mocks.getClasses.mockResolvedValue([]);
   mocks.updateClass.mockResolvedValue(undefined);
   mocks.releaseSyncLock.mockResolvedValue(undefined);
+  mocks.clearStaleSyncErrors.mockResolvedValue(undefined);
+  mocks.purgeSyncLog.mockResolvedValue(undefined);
   mocks.closeBrowser.mockResolvedValue(undefined);
 });
 

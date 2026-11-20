@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   updateClass: vi.fn(),
   tryAcquireSyncLock: vi.fn(),
   releaseSyncLock: vi.fn(),
+  clearStaleSyncErrors: vi.fn(),
+  purgeSyncLog: vi.fn(),
 }));
 
 vi.mock('@/lib/powerschool', () => ({ scrapePowerSchool: mocks.scrapePowerSchool }));
@@ -35,6 +37,8 @@ vi.mock('@/lib/db', () => ({
   updateClass: mocks.updateClass,
   tryAcquireSyncLock: mocks.tryAcquireSyncLock,
   releaseSyncLock: mocks.releaseSyncLock,
+  clearStaleSyncErrors: mocks.clearStaleSyncErrors,
+  purgeSyncLog: mocks.purgeSyncLog,
 }));
 
 const { runPowerSchoolSync } = await import('@/lib/powerschoolSync');
@@ -56,6 +60,8 @@ beforeEach(() => {
   mocks.setSetting.mockResolvedValue(undefined);
   mocks.addSyncLogEntries.mockResolvedValue(undefined);
   mocks.releaseSyncLock.mockResolvedValue(undefined);
+  mocks.clearStaleSyncErrors.mockResolvedValue(undefined);
+  mocks.purgeSyncLog.mockResolvedValue(undefined);
   // Lathrop Mode off by default in these tests — its own behavior is
   // covered by the dedicated describe block below.
   mocks.getSettings.mockResolvedValue({ lathropMode: 'false' });

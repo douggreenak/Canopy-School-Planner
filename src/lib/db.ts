@@ -1491,6 +1491,29 @@ export async function addSyncLogEntries(
   );
 }
 
+/**
+ * Deletes sync_log entries older than `retentionDays` for a user.
+ * Called after every successful sync to keep the log from growing indefinitely.
+ */
+export async function purgeSyncLog(userId: string, retentionDays = 90): Promise<void> {
+  await query(
+    `DELETE FROM sync_log WHERE user_id = ? AND occurred_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+    [userId, retentionDays],
+  );
+}
+
+/**
+ * Removes all `error` changeType entries from a user's sync_log.
+ * Called after a successful sync so stale one-off glitch errors don't
+ * permanently show as failures in the UI.
+ */
+export async function clearStaleSyncErrors(userId: string): Promise<void> {
+  await query(
+    `DELETE FROM sync_log WHERE user_id = ? AND change_type = 'error'`,
+    [userId],
+  );
+}
+
 // ---- PowerSchool sync status (background/scheduled sync progress) ----
 
 export interface SyncStatusRow {
