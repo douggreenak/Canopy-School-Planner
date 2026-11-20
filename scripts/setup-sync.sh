@@ -439,6 +439,8 @@ Wants=network-online.target
 Type=oneshot
 User=${current_user}
 WorkingDirectory=${PROJECT_DIR}
+ExecStartPre=/usr/bin/git -C ${PROJECT_DIR} pull --ff-only
+ExecStartPre=/usr/bin/npm --prefix ${PROJECT_DIR} ci --omit=dev --prefer-offline
 ExecStart=${npx_path} tsx scripts/run-sync.ts
 StandardOutput=journal
 StandardError=journal
