@@ -1434,11 +1434,16 @@ export async function addSyncLogEntries(
   entries: Omit<SyncLogEntry, 'id' | 'occurredAt'>[],
 ): Promise<void> {
   if (entries.length === 0) return;
+  // Stamp occurred_at from the app clock rather than the column's DEFAULT
+  // NOW(): NOW() uses the DB session timezone, which the driver then reads
+  // back as server-local time, shifting the sync log's timestamps. A JS Date
+  // round-trips through the driver as the same instant (as lastSyncAt does).
+  const occurredAt = new Date();
   await runBatchedWrites(
     entries.map((e) => ({
-      sql: `INSERT INTO sync_log (id, user_id, sync_id, entity_type, entity_id, class_id, label, change_type, detail)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      params: [uuid(), userId, e.syncId, e.entityType, e.entityId, e.classId ?? null, e.label, e.changeType, e.detail],
+      sql: `INSERT INTO sync_log (id, user_id, sync_id, entity_type, entity_id, class_id, label, change_type, detail, occurred_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [uuid(), userId, e.syncId, e.entityType, e.entityId, e.classId ?? null, e.label, e.changeType, e.detail, occurredAt],
     })),
   );
 }
