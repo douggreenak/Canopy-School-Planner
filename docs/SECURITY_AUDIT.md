@@ -214,3 +214,30 @@ M2, M3 and L2 above were already fixed when this pass started.
 - Calendar feed URL carries `userId` + token in the query string (logged by proxies/browsers); it exposes class names, teachers and homework to anyone with the link. Regenerate if shared.
 - Rate limits are in-memory (per warm instance); use platform rate limiting for a hard guarantee.
 - No audit log of who accessed what.
+
+---
+
+# Addendum — pass 3 (storage review across web + Apple apps)
+
+Verified the pass-2 fixes against the current source and reviewed the iOS/watch
+app. Changes made without altering any API behavior, so existing installed apps
+keep working:
+
+- **Local secrets:** `config.json` (Google service-account key, PowerSchool
+  login for the local sync runner) and `.env.local` were world-readable (`644`);
+  now `600`. They are gitignored and were never committed. **Rotate** the
+  service-account key and PowerSchool password if those files were ever shared.
+- **Watch token:** Keychain item now `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
+  (no backup/migration to other devices); re-applied on the next phone hand-off.
+- **Watch snapshot (grades/homework):** moved from plain `UserDefaults` to a file
+  with data protection, excluded from backups; the legacy copy is migrated then removed.
+- **HTTPS only:** the iOS `canopyBaseURL` override and any base URL sent to the
+  watch must be `https://` (plain HTTP allowed only in debug builds), so the
+  session token can't be redirected to cleartext.
+- **Sounds:** the watch check-off chime (`WKInterfaceDevice.play(.success)`) was removed.
+
+Still open (needs an app/server change that could affect installed versions, or
+your infrastructure): calendar-feed URL carries `userId` + token in the query
+string; sessions last 30 days with no idle expiry; rate limits are in-memory;
+grades are plaintext in MySQL (use provider encryption at rest); no audit log.
+

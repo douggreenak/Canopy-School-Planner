@@ -10,6 +10,11 @@ Live at **[canopy.apexengineeringak.com](https://canopy.apexengineeringak.com)**
 
 ## Screenshots
 
+### Sign in
+Username/password accounts with server-side sessions; new accounts are walked through a short setup wizard.
+
+![Login](docs/screenshots/login.png)
+
 ### Dashboard
 Day, Week, Year, and Heatmap views of your schedule — with at-a-glance stats for today's classes, homework, and exams.
 
@@ -26,6 +31,11 @@ Drill into any class to see every assignment and category breakdown. The **Final
 ![Grade Detail](docs/screenshots/grades-detail.png)
 ![Final Exam Calculator](docs/screenshots/final-calc.png)
 
+### Exams
+Upcoming and past exams with countdowns and grade-stakes framing.
+
+![Exams](docs/screenshots/exams.png)
+
 ### Tasks
 Unified homework + task list with quick-add, overdue highlighting, and cross-class deadline rebalancing suggestions.
 
@@ -35,6 +45,11 @@ Unified homework + task list with quick-add, overdue highlighting, and cross-cla
 Day / Week / Year calendar that treats school as in session every day, with school breaks marked as exceptions, plus bell schedule support and early-dismissal overrides.
 
 ![Schedule](docs/screenshots/schedule.png)
+
+### Sync Log
+Reverse-chronological feed of every grade change and new assignment detected at sync time.
+
+![Sync Log](docs/screenshots/sync-log.png)
 
 ### Transcript
 Cumulative unweighted GPA across all synced semesters with per-class breakdown.
@@ -78,6 +93,7 @@ Theme, accent color, school info, school breaks, and PowerSchool credentials —
 - **Admin dashboard** — aggregate user/content stats with zero private data exposed
 - **Dark / light / system theme** — plus 15 accent color choices
 - **Vercel + MySQL** — zero-ops deployment
+- **Apple companion apps** — native iOS/macOS app and an Apple Watch app that use the same account and API ([Canopy-Apple-Device-Client](https://github.com/douggreenak/Canopy-Apple-Device-Client)); the apps make no sounds
 
 ---
 
@@ -86,7 +102,7 @@ Theme, accent color, school info, school breaks, and PowerSchool credentials —
 | Layer | Technology |
 |---|---|
 | Framework | Next.js 16 (App Router) |
-| UI | Material UI (MUI) v6 + Emotion |
+| UI | Material UI (MUI) v9 + Emotion |
 | Language | TypeScript / React 19 |
 | Database | MySQL 8.0+ (or MariaDB) |
 | Date handling | dayjs |
@@ -202,6 +218,23 @@ To change the admin password, update the env var in Vercel and redeploy — the 
    - `ADMIN_USERNAME` + `ADMIN_PASSWORD`
    - `CHROMIUM_EXECUTABLE_PATH` (if using Puppeteer on Vercel — see [@sparticuz/chromium](https://github.com/Sparticuz/chromium))
 4. Deploy
+
+---
+
+## Privacy & Security
+
+Canopy stores student data (classes, grades, assignments, schedules, PowerSchool logins), so it is handled conservatively:
+
+- **Credentials** — PowerSchool usernames and passwords are encrypted at rest with AES-256-GCM (`CREDENTIAL_KEY`) and never returned to the browser or apps; app passwords are scrypt-hashed.
+- **Sessions** — tokens are stored hashed; cookies are `HttpOnly`, `SameSite=Strict`, and `Secure` in production. All `/api/*` responses send `Cache-Control: no-store`.
+- **Network** — PowerSchool URLs must be public `https://` hosts (SSRF guard); set `DATABASE_SSL=true` for verified TLS to MySQL.
+- **Logs** — sync debug output is scrubbed of credentials and raw page rows before it is stored or served.
+- **Local files** — `config.json` and `.env.local` hold secrets for local/self-hosted sync and are gitignored. Keep them private to your user: `chmod 600 config.json .env.local`.
+- **Deleting an account** removes every per-user row (settings, classes, homework, exams, tasks, grade history, sync log, sessions, school accounts).
+- **Apple apps** — the watch session token lives in the Keychain (this-device-only), the watch's cached grades are a protected file excluded from backups, and the apps only send the session over HTTPS.
+- **Database at rest** — grades and class text are plaintext columns; enable encryption at rest at your database provider.
+
+See [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) for the full audit and remaining known risks.
 
 ---
 
