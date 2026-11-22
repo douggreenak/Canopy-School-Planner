@@ -168,7 +168,7 @@ Open [http://localhost:3000](http://localhost:3000). Create an account on first 
 In **Settings**:
 - Set school name and timezone — school is treated as in session every day by default, so add breaks (summer, winter, etc.) as "No School" disruptions on the Schedule page to mark exceptions
 - Enter PowerSchool URL + credentials for sync
-- Enable **Lathrop Mode** to auto-apply the Lathrop HS bell schedule after each sync
+- Enable **Lathrop Mode** to auto-apply the Lathrop HS bell schedule after each sync. In Lathrop Mode every Early Out uses the official Lathrop early-out schedule (P1 7:30–8:10, P2 8:15–8:55, P3 9:00–9:40, Break 9:40–9:50, P4 9:50–10:30, P5 10:35–11:15, P6 11:20–12:00, Lunch 12:00–12:30, buses 12:37); it is fixed and not editable
 
 ---
 

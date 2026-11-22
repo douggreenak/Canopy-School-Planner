@@ -41,7 +41,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import { useClasses, useDisruptions, useSettings, useHomework, useTasks, apiPost, apiPut, apiDelete, useEnterConfirm } from '@/lib/hooks';
 import { buildDueCountMap } from '@/lib/dueCounts';
-import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, generateAssemblyOverrides, getWeekSchedule, buildLathropEarlyOutTemplate, weekViewStart } from '@/lib/schedule';
+import { generateEarlyOutOverrides, generateLateStartOverrides, generateOneToSixOverrides, generateAssemblyOverrides, getWeekSchedule, generateLathropEarlyOutOverrides, weekViewStart } from '@/lib/schedule';
 import dynamic from 'next/dynamic';
 // Only one of Day/Week/Year is ever visible at once (tab-switched) — deferring
 // the other two to their own chunks means a visit that never touches the
@@ -112,7 +112,11 @@ function SchedulePageInner() {
     const v = (settingsData as unknown as { lathropMode?: unknown })?.lathropMode;
     return v === true || v === 'true';
   }, [settingsData]);
+  // Lathrop Mode always uses the official Lathrop early-out bell schedule
+  // (generateLathropEarlyOutOverrides); the saved template only applies to
+  // non-Lathrop schools.
   const earlyOutTemplate = useMemo(() => {
+    if (isLathrop) return undefined;
     const raw = (settingsData as unknown as { early_out_schedule?: unknown })?.early_out_schedule;
     if (raw) {
       try {
@@ -121,10 +125,10 @@ function SchedulePageInner() {
         for (const [k, v] of Object.entries(parsed as Record<string, { startTime: string; endTime: string }>)) tpl[Number(k)] = v;
         return tpl;
       } catch {
-        // fall through to Lathrop default / undefined below
+        // fall through to proportional scaling
       }
     }
-    return isLathrop ? buildLathropEarlyOutTemplate() : undefined;
+    return undefined;
   }, [settingsData, isLathrop]);
 
   const { data: classes, loading: cLoading } = useClasses();
@@ -240,7 +244,9 @@ function SchedulePageInner() {
     const dayClasses = dayOfWeek >= 0 ? classes.filter((c) => c.days.includes(dayOfWeek)) : classes;
     let overrides: PeriodOverride[] = [];
     if (form.type === 'early_out') {
-      overrides = generateEarlyOutOverrides(dayClasses, autoTime, dayOfWeek >= 0 ? dayOfWeek : undefined, earlyOutTemplate);
+      overrides = isLathrop
+        ? generateLathropEarlyOutOverrides(dayOfWeek >= 0 ? classesForSchedule.filter((c) => c.days.includes(dayOfWeek)) : classesForSchedule)
+        : generateEarlyOutOverrides(dayClasses, autoTime, dayOfWeek >= 0 ? dayOfWeek : undefined, earlyOutTemplate);
     } else if (form.type === 'late_start') {
       overrides = generateLateStartOverrides(dayClasses, autoTime, dayOfWeek >= 0 ? dayOfWeek : undefined);
     } else if (form.type === 'no_school') {

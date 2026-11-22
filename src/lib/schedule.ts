@@ -10,6 +10,14 @@ import { ASSEMBLY_PERIOD } from './disruptionTypes';
 
 dayjs.extend(isoWeek);
 
+/**
+ * Lathrop High's official Early Out bell schedule. In Lathrop Mode every early
+ * out uses exactly this — it is not user-editable and ignores any saved
+ * custom template. Breaks/lunch/buses are part of the official sheet:
+ *   BREAK 9:40-9:50 (the natural gap between P3 and P4),
+ *   LUNCH 12:00-12:30 (placed as the synthetic Lunch class, period 0),
+ *   BUSES LEAVE 12:37.
+ */
 export const LATHROP_EARLY_OUT: Record<number, { startTime: string; endTime: string }> = {
   1: { startTime: '07:30', endTime: '08:10' },
   2: { startTime: '08:15', endTime: '08:55' },
@@ -18,14 +26,34 @@ export const LATHROP_EARLY_OUT: Record<number, { startTime: string; endTime: str
   5: { startTime: '10:35', endTime: '11:15' },
   6: { startTime: '11:20', endTime: '12:00' },
 };
+export const LATHROP_EARLY_OUT_BREAK = { startTime: '09:40', endTime: '09:50' };
+export const LATHROP_EARLY_OUT_LUNCH = { startTime: '12:00', endTime: '12:30' };
+export const LATHROP_EARLY_OUT_BUSES = '12:37';
 
-export function buildLathropEarlyOutTemplate(classes?: SchoolClass[]): Record<number, { startTime: string; endTime: string }> {
-  const tpl = { ...LATHROP_EARLY_OUT };
-  if (classes) {
-    const extClass = classes.find((c) => /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(c.name));
-    if (extClass) tpl[extClass.period] = { startTime: '07:30', endTime: '08:10' };
+/** The fixed Lathrop early-out template (periods 1-6). `classes` is accepted for backward compatibility and ignored. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function buildLathropEarlyOutTemplate(_classes?: SchoolClass[]): Record<number, { startTime: string; endTime: string }> {
+  return { ...LATHROP_EARLY_OUT };
+}
+
+/**
+ * Period overrides for a Lathrop-mode early out: periods 1-6 at their official
+ * times, Lunch (period 0, the synthetic `__lunch__` class) at 12:00-12:30, and
+ * any Extension/Advisory block cancelled (the early-out sheet has none).
+ */
+export function generateLathropEarlyOutOverrides(
+  classes: SchoolClass[],
+): { period: number; startTime: string; endTime: string; cancelled: boolean }[] {
+  const out: { period: number; startTime: string; endTime: string; cancelled: boolean }[] = [];
+  let hasLunch = false;
+  for (const c of classes) {
+    if (c.id === '__lunch__') { hasLunch = true; continue; }
+    const t = LATHROP_EARLY_OUT[c.period];
+    if (t) out.push({ period: c.period, startTime: t.startTime, endTime: t.endTime, cancelled: false });
+    else if (isLathropExtensionClass(c.name)) out.push({ period: c.period, startTime: c.startTime, endTime: c.endTime, cancelled: true });
   }
-  return tpl;
+  if (hasLunch) out.push({ period: 0, ...LATHROP_EARLY_OUT_LUNCH, cancelled: false });
+  return out.sort((a, b) => parseMinutes(a.startTime) - parseMinutes(b.startTime));
 }
 
 type LathropSlot = 'ext' | 1 | 2 | 3 | 4 | 5 | 6;

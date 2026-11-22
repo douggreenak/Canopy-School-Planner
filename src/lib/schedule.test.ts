@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateAssemblyOverrides } from './schedule';
+import { generateAssemblyOverrides, generateLathropEarlyOutOverrides, buildLathropEarlyOutTemplate } from './schedule';
 import { buildDaySchedule, generateCalendarFeed } from './calendar';
 import { ASSEMBLY_PERIOD } from './disruptionTypes';
 import type { SchoolClass, ScheduleDisruption } from '@/types';
@@ -91,5 +91,29 @@ describe('buildDaySchedule with an assembly disruption', () => {
     // excluded and replaced by a one-off event at the compressed 07:30 start.
     expect(ics).toMatch(/EXDATE[^\n]*20260204T081300/);
     expect(ics).toContain('DTSTART;TZID=America/Anchorage:20260204T073000');
+  });
+});
+
+describe('Lathrop early-out schedule', () => {
+  const cls = (id: string, name: string, period: number): SchoolClass =>
+    ({ id, name, teacher: '', room: '', color: '#000', period, startTime: '08:00', endTime: '08:50', days: [1, 2, 3, 4, 5], semester: '' }) as SchoolClass;
+
+  it('always returns the fixed official template, ignoring classes', () => {
+    const tpl = buildLathropEarlyOutTemplate([cls('x', 'Advisory', 7)]);
+    expect(Object.keys(tpl)).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(tpl[1]).toEqual({ startTime: '07:30', endTime: '08:10' });
+    expect(tpl[4]).toEqual({ startTime: '09:50', endTime: '10:30' });
+    expect(tpl[6]).toEqual({ startTime: '11:20', endTime: '12:00' });
+  });
+
+  it('places periods 1-6, lunch 12:00-12:30, and cancels extension', () => {
+    const classes = [1, 2, 3, 4, 5, 6].map((p) => cls(`c${p}`, `Class ${p}`, p));
+    classes.push(cls('__lunch__', 'Lunch', 0), cls('ext', 'Extension', 7));
+    const o = generateLathropEarlyOutOverrides(classes);
+    expect(o.find((x) => x.period === 0)).toMatchObject({ startTime: '12:00', endTime: '12:30', cancelled: false });
+    expect(o.find((x) => x.period === 7)?.cancelled).toBe(true);
+    expect(o.find((x) => x.period === 3)).toMatchObject({ startTime: '09:00', endTime: '09:40' });
+    // Nothing is scheduled inside the 9:40-9:50 break
+    expect(o.filter((x) => !x.cancelled && x.startTime < '09:50' && x.endTime > '09:40')).toHaveLength(0);
   });
 });

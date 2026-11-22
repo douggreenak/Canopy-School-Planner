@@ -289,13 +289,14 @@ function SettingsInner() {
         // else: no saved row at all (no PowerSchool connected yet, or a
         // connection from before the opt-out default shipped) — leave the
         // optimistic `true` default in place.
-        if (s.early_out_schedule) {
+        if (isLathrop) {
+          // Lathrop Mode: the official early-out schedule is fixed.
+          setEarlyOutSchedule(buildLathropEarlyOutTemplate());
+        } else if (s.early_out_schedule) {
           const raw = typeof s.early_out_schedule === 'string' ? JSON.parse(s.early_out_schedule) : s.early_out_schedule;
           const tpl: Record<number, { startTime: string; endTime: string }> = {};
           for (const [k, v] of Object.entries(raw)) tpl[Number(k)] = v as { startTime: string; endTime: string };
           setEarlyOutSchedule(tpl);
-        } else if (isLathrop) {
-          setEarlyOutSchedule(buildLathropEarlyOutTemplate());
         }
       })
       .catch(() => {});
@@ -327,12 +328,6 @@ function SettingsInner() {
       .then(() => bellSaveStatus.markSaved())
       .catch(() => bellSaveStatus.markError());
   }, 600);
-
-  const applyLathropEarlyOut = () => {
-    const next = buildLathropEarlyOutTemplate(importedClasses ?? undefined);
-    setEarlyOutSchedule(next);
-    debouncedSaveEarlyOut(next);
-  };
 
   const updateEarlyOutTime = (period: number, field: 'startTime' | 'endTime', value: string) => {
     setEarlyOutSchedule((prev) => {
@@ -429,11 +424,10 @@ function SettingsInner() {
       body: JSON.stringify({ key: 'lathropMode', value: enabled }),
     }).catch(() => {});
     if (enabled) {
-      if (Object.keys(earlyOutSchedule).length === 0) {
-        const tpl = buildLathropEarlyOutTemplate(importedClasses ?? undefined);
-        setEarlyOutSchedule(tpl);
-        debouncedSaveEarlyOut(tpl);
-      }
+      // Lathrop Mode always uses the official early-out schedule.
+      const tpl = buildLathropEarlyOutTemplate();
+      setEarlyOutSchedule(tpl);
+      debouncedSaveEarlyOut(tpl);
       // Applies the full weekly bell schedule right away — previously this
       // only happened after the *next* PowerSchool sync (or a manual click
       // of "Apply Default Bell Schedule"), so turning the toggle on didn't
@@ -809,12 +803,12 @@ function SettingsInner() {
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>Early-Out Schedule</Typography>
-              {lathropMode && (
-                <Button size="small" variant="outlined" onClick={applyLathropEarlyOut} sx={{ py: 0.25, fontSize: '0.7rem' }}>
-                  Auto-fill Lathrop
-                </Button>
-              )}
             </Box>
+            {lathropMode && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                Lathrop Mode is on, so every early out uses the official Lathrop schedule: periods below, Break 9:40–9:50, Lunch 12:00–12:30, buses leave 12:37. Turn Lathrop Mode off to set custom times.
+              </Typography>
+            )}
 
             {/* Period rows */}
             <Stack spacing={1} sx={{ mb: 1.5 }}>
@@ -838,6 +832,7 @@ function SettingsInner() {
                         type="time"
                         label="Start"
                         value={times.startTime}
+                        disabled={lathropMode}
                         onChange={(e) => updateEarlyOutTime(period, 'startTime', e.target.value)}
                         slotProps={{ inputLabel: { shrink: true } }}
                         sx={{ width: { xs: 118, sm: 130 } }}
@@ -848,11 +843,12 @@ function SettingsInner() {
                         type="time"
                         label="End"
                         value={times.endTime}
+                        disabled={lathropMode}
                         onChange={(e) => updateEarlyOutTime(period, 'endTime', e.target.value)}
                         slotProps={{ inputLabel: { shrink: true } }}
                         sx={{ width: { xs: 118, sm: 130 } }}
                       />
-                      <IconButton size="small" onClick={() => removeEarlyOutPeriod(period)} color="error">
+                      <IconButton size="small" disabled={lathropMode} onClick={() => removeEarlyOutPeriod(period)} color="error">
                         <DeleteForeverIcon fontSize="small" />
                       </IconButton>
                     </Box>
@@ -861,7 +857,7 @@ function SettingsInner() {
             </Stack>
 
             {/* Quick-add from classes */}
-            {importedClasses && importedClasses.filter((c) => !earlyOutSchedule[c.period]).length > 0 && (
+            {!lathropMode && importedClasses && importedClasses.filter((c) => !earlyOutSchedule[c.period]).length > 0 && (
               <Box sx={{ mb: 2 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
                   Add from your classes:
