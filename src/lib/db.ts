@@ -25,9 +25,17 @@ function getDb(): Pool {
     // Opt-in: set DATABASE_SSL=true to require an encrypted, certificate-
     // verified connection to MySQL. Off by default so deployments whose
     // provider doesn't offer TLS keep working; turn it on for any hosted DB.
-    _pool = process.env.DATABASE_SSL === 'true'
-      ? mysql.createPool({ uri: process.env.DATABASE_URL!, ssl: { rejectUnauthorized: true } })
-      : mysql.createPool(process.env.DATABASE_URL!);
+    // Strip Postgres-only URL params (sslmode, channel_binding) that mysql2
+    // doesn't understand; honour sslmode=require/verify-* as a TLS request.
+    const url = new URL(process.env.DATABASE_URL!);
+    const sslMode = url.searchParams.get('sslmode');
+    url.searchParams.delete('sslmode');
+    url.searchParams.delete('channel_binding');
+    const wantSsl = process.env.DATABASE_SSL === 'true' ||
+      (sslMode !== null && sslMode !== 'disable');
+    _pool = wantSsl
+      ? mysql.createPool({ uri: url.toString(), ssl: { rejectUnauthorized: true } })
+      : mysql.createPool(url.toString());
   }
   return _pool;
 }

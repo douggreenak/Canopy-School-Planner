@@ -228,7 +228,10 @@ export async function POST(request: NextRequest) {
     }
 
     return Response.json({ error: 'Unknown action' }, { status: 400 });
-  } catch {
+  } catch (err) {
+    // Log the failure (message/code only — never request bodies or secrets).
+    const e = err as { code?: string; message?: string };
+    console.error('[auth] unhandled error:', e?.code ?? '', e?.message ?? String(err));
     return Response.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
