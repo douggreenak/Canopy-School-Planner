@@ -27,7 +27,14 @@ function getDb(): Pool {
     // provider doesn't offer TLS keep working; turn it on for any hosted DB.
     // Strip Postgres-only URL params (sslmode, channel_binding) that mysql2
     // doesn't understand; honour sslmode=require/verify-* as a TLS request.
-    const url = new URL(process.env.DATABASE_URL!);
+    // GoDaddy's Secrets panel provides DB_HOST/DB_PORT/DB_NAME/DB_USER/
+    // DB_PASSWORD; use those when DATABASE_URL isn't set.
+    const e = process.env;
+    const raw = e.DATABASE_URL ||
+      (e.DB_HOST && e.DB_NAME && e.DB_USER
+        ? `mysql://${encodeURIComponent(e.DB_USER)}:${encodeURIComponent(e.DB_PASSWORD ?? '')}@${e.DB_HOST}:${e.DB_PORT || 3306}/${e.DB_NAME}`
+        : '');
+    const url = new URL(raw);
     const sslMode = url.searchParams.get('sslmode');
     url.searchParams.delete('sslmode');
     url.searchParams.delete('channel_binding');
