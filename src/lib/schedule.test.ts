@@ -117,3 +117,24 @@ describe('Lathrop early-out schedule', () => {
     expect(o.filter((x) => !x.cancelled && x.startTime < '09:50' && x.endTime > '09:40')).toHaveLength(0);
   });
 });
+
+describe('applyLathropEarlyOuts', () => {
+  it('replaces stale early-out overrides with the official schedule and leaves other types alone', async () => {
+    const { applyLathropEarlyOuts } = await import('./schedule');
+    const mk = (period: number, name: string) => ({
+      id: String(period), name, teacher: '', room: '', color: '#fff', period,
+      startTime: '08:00', endTime: '09:00', days: [3], semester: '',
+    });
+    const classes = [mk(7, 'Ext Seminar 9-12 169'), mk(2, 'AP Lit')] as never[];
+    const stale = [{ period: 2, startTime: '08:13', endTime: '09:20', cancelled: false }];
+    const out = applyLathropEarlyOuts([
+      { id: 'a', date: '2026-11-25', type: 'early_out', label: '', periodOverrides: stale },
+      { id: 'b', date: '2026-11-24', type: '1_6', label: '', periodOverrides: stale },
+    ] as never[], classes);
+    const eo = out[0].periodOverrides;
+    expect(eo.find((o) => o.period === 2)).toMatchObject({ startTime: '08:15', endTime: '08:55', cancelled: false });
+    expect(eo.find((o) => o.period === 7)?.cancelled).toBe(true);
+    expect(eo.find((o) => o.period === 0)).toMatchObject({ startTime: '12:00', endTime: '12:30' });
+    expect(out[1].periodOverrides).toBe(stale);
+  });
+});

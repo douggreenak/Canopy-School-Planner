@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from 'crypto';
 import dayjs from 'dayjs';
 import { getClasses, getExams, getHomework, getDisruptions, getSettings } from '@/lib/db';
 import { generateCalendarFeed } from '@/lib/calendar';
+import { applyLathropEarlyOuts } from '@/lib/schedule';
 
 function safeTokenCompare(a: string, b: string): boolean {
   // Hash first so unequal lengths don't short-circuit (and leak) timing.
@@ -49,12 +50,16 @@ export async function GET(request: NextRequest) {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    const [classes, exams, homework, disruptions] = await Promise.all([
+    const [classes, exams, homework, rawDisruptions] = await Promise.all([
       getClasses(userId),
       getExams(userId),
       getHomework(userId),
       getDisruptions(userId),
     ]);
+    // Lathrop Mode: early-outs always use the official bell schedule.
+    const disruptions = String((freshSettings as Record<string, unknown>).lathropMode) === 'true'
+      ? applyLathropEarlyOuts(rawDisruptions, classes)
+      : rawDisruptions;
 
     // School has no configured start/end date — classes recur indefinitely,
     // with `no_school` disruptions (e.g. breaks) as the exceptions. The feed

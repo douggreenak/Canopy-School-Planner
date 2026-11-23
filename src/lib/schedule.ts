@@ -73,6 +73,27 @@ const LATHROP_WEEK_TEMPLATE: Record<number, Partial<Record<LathropSlot, { start:
   5: { 1: { start: '07:30', end: '08:24' }, 2: { start: '08:31', end: '09:25' }, 3: { start: '09:32', end: '10:26' }, 4: { start: '11:04', end: '11:58' }, 5: { start: '12:05', end: '12:59' }, 6: { start: '13:06', end: '14:00' } },
 };
 
+/**
+ * Lathrop Mode: every early-out always follows the official bell schedule, no
+ * matter what overrides were stored when the disruption was created (older
+ * early-outs hold proportional/legacy times). Applied on read so the web app,
+ * the calendar feed and the installed iOS/watch apps all see the same times
+ * without rewriting stored data. Returns new objects; input is not mutated.
+ */
+export function applyLathropEarlyOuts(
+  disruptions: ScheduleDisruption[],
+  classes: SchoolClass[],
+): ScheduleDisruption[] {
+  return disruptions.map((d) => {
+    if (d.type !== 'early_out') return d;
+    const dow = dayjs(d.date).day();
+    const dayClasses = classes.filter((c) => c.days.includes(dow));
+    // Lunch is a synthetic class the client adds; always emit its override.
+    const lunch = { id: '__lunch__', period: 0 } as SchoolClass;
+    return { ...d, periodOverrides: generateLathropEarlyOutOverrides([...dayClasses, lunch]) };
+  });
+}
+
 function isLathropExtensionClass(name: string): boolean {
   return /\b(ext|extension|seminar|advisory|homeroom)\b/i.test(name || '');
 }
