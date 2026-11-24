@@ -299,9 +299,10 @@ export default function WeekView({ schedule, weekStart, onClassClick, dueCounts,
           sx={{
             overflowY: 'auto',
             maxHeight: BODY_MAX_HEIGHT,
-            // Stop touch-scroll from bubbling to the page once the grid's own
-            // scroll reaches its limits (prevents iOS "rubber-band" page scroll).
-            overscrollBehavior: 'contain',
+            // Default overscroll chaining on purpose: once the grid reaches its
+            // top/bottom, further wheel/touch scrolling continues on the page.
+            // (`contain` here used to trap the user inside the calendar.)
+            overscrollBehavior: 'auto',
           }}
         >
           <Box

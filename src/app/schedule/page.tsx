@@ -58,6 +58,7 @@ import DisruptionCalendar, { DISRUPTION_TYPES } from '@/components/DisruptionCal
 import { WEEKDAY_NAMES, ASSEMBLY_PERIOD } from '@/lib/disruptionTypes';
 import { buildDaySchedule, disruptionCoversDate } from '@/lib/calendar';
 import { computeDayBounds } from '@/lib/calendarMetrics';
+import CustomScheduleEditor from '@/components/CustomScheduleEditor';
 import type { ScheduleDisruption, PeriodOverride, ScheduleEntry } from '@/types';
 import { v4 as uuid } from 'uuid';
 
@@ -547,7 +548,19 @@ function SchedulePageInner() {
               </Grid>
             )}
 
-            {form.periodOverrides.length > 0 && (
+            {form.type === 'custom' && (
+              <Grid size={12}>
+                <CustomScheduleEditor
+                  classes={classesForSchedule}
+                  value={form.periodOverrides}
+                  onChange={(next) => setForm({ ...form, periodOverrides: next })}
+                  lathrop={isLathrop}
+                  defaultDay={form.date ? dayjs(form.date).day() : 1}
+                />
+              </Grid>
+            )}
+
+            {form.type !== 'custom' && form.periodOverrides.length > 0 && (
               <Grid size={12}>
                 <Typography variant="subtitle2" sx={{ mb: 1 }}>Period Overrides</Typography>
                 <Stack spacing={1}>

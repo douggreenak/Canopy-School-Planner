@@ -43,7 +43,7 @@ export function buildDaySchedule(
   // Tue/Thu block still runs on a straight 1-6 day).
   // An early out is likewise always a straight 1-6 day (see
   // generateLathropEarlyOutOverrides), so it gets the same treatment.
-  const oneToSixPeriods = disruption?.type === '1_6' || disruption?.type === 'early_out'
+  const oneToSixPeriods = disruption?.type === '1_6' || disruption?.type === 'early_out' || disruption?.type === 'custom'
     ? new Set(disruption.periodOverrides.map((o) => o.period))
     : null;
 
