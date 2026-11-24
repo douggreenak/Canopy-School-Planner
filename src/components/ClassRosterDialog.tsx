@@ -18,8 +18,8 @@ import EventIcon from '@mui/icons-material/Event';
 import EditIcon from '@mui/icons-material/Edit';
 import dayjs from 'dayjs';
 import { useMemo } from 'react';
-import { useHomework, useTasks } from '@/lib/hooks';
-import { nextMeetingDate } from '@/lib/schedule';
+import { useHomework, useTasks, useClasses, useDisruptions } from '@/lib/hooks';
+import { nextMeetingDate, nextClassMeetingDate } from '@/lib/schedule';
 import { contrastTextFor } from '@/lib/theme';
 import { relativeDueLabel } from '@/lib/grades';
 import type { SchoolClass } from '@/types';
@@ -40,6 +40,8 @@ interface ClassRosterDialogProps {
 export default function ClassRosterDialog({ cls, onClose, onEdit }: ClassRosterDialogProps) {
   const { data: homework } = useHomework();
   const { data: tasks } = useTasks();
+  const { data: allClasses } = useClasses();
+  const { data: disruptions } = useDisruptions();
 
   const items = useMemo(() => {
     if (!cls) return [];
@@ -55,7 +57,7 @@ export default function ClassRosterDialog({ cls, onClose, onEdit }: ClassRosterD
   const openItems = items.filter((i) => !i.completed);
   const doneItems = items.filter((i) => i.completed);
 
-  const next = cls ? nextMeetingDate(cls.days) : '';
+  const next = !cls ? '' : allClasses && disruptions ? nextClassMeetingDate(cls, allClasses, disruptions) : nextMeetingDate(cls.days);
 
   return (
     <Dialog open={!!cls} onClose={onClose} maxWidth="xs" fullWidth>

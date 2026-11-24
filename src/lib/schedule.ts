@@ -43,6 +43,7 @@ export function buildLathropEarlyOutTemplate(_classes?: SchoolClass[]): Record<n
  */
 export function generateLathropEarlyOutOverrides(
   classes: SchoolClass[],
+  dayOfWeek?: number,
 ): { period: number; startTime: string; endTime: string; cancelled: boolean }[] {
   const out: { period: number; startTime: string; endTime: string; cancelled: boolean }[] = [];
   let hasLunch = false;
@@ -50,7 +51,7 @@ export function generateLathropEarlyOutOverrides(
     if (c.id === '__lunch__') { hasLunch = true; continue; }
     const t = LATHROP_EARLY_OUT[c.period];
     if (t) out.push({ period: c.period, startTime: t.startTime, endTime: t.endTime, cancelled: false });
-    else if (isLathropExtensionClass(c.name)) out.push({ period: c.period, startTime: c.startTime, endTime: c.endTime, cancelled: true });
+    else if (isLathropExtensionClass(c.name) && (dayOfWeek === undefined || c.days.includes(dayOfWeek))) out.push({ period: c.period, startTime: c.startTime, endTime: c.endTime, cancelled: true });
   }
   if (hasLunch) out.push({ period: 0, ...LATHROP_EARLY_OUT_LUNCH, cancelled: false });
   return out.sort((a, b) => parseMinutes(a.startTime) - parseMinutes(b.startTime));
@@ -87,10 +88,11 @@ export function applyLathropEarlyOuts(
   return disruptions.map((d) => {
     if (d.type !== 'early_out') return d;
     const dow = dayjs(d.date).day();
-    const dayClasses = classes.filter((c) => c.days.includes(dow));
+    // An early out is always a straight 1-6 day, so every period meets —
+    // not just the classes that normally meet on this weekday.
     // Lunch is a synthetic class the client adds; always emit its override.
     const lunch = { id: '__lunch__', period: 0 } as SchoolClass;
-    return { ...d, periodOverrides: generateLathropEarlyOutOverrides([...dayClasses, lunch]) };
+    return { ...d, periodOverrides: generateLathropEarlyOutOverrides([...classes, lunch], dow) };
   });
 }
 
@@ -163,6 +165,30 @@ export function nextMeetingDate(days: number[], from: Date = new Date()): string
     if (days.includes(candidate.day())) return candidate.format('YYYY-MM-DD');
   }
   return '';
+}
+
+/**
+ * Next date a specific class actually meets, accounting for schedule
+ * disruptions: skips no-school days/breaks and cancelled periods, follows
+ * "different day" swaps, and treats 1-6 / early-out days as meeting every
+ * period. Skips today (see nextMeetingDate). Falls back to the plain weekly
+ * pattern if nothing is found within `horizonDays` (e.g. a very long break).
+ */
+export function nextClassMeetingDate(
+  cls: SchoolClass,
+  classes: SchoolClass[],
+  disruptions: ScheduleDisruption[],
+  from: Date = new Date(),
+  horizonDays = 400,
+): string {
+  const start = dayjs(from);
+  const pool = classes.some((c) => c.id === cls.id) ? classes : [...classes, cls];
+  for (let i = 1; i <= horizonDays; i++) {
+    const date = start.add(i, 'day').format('YYYY-MM-DD');
+    const day = buildDaySchedule(date, pool, disruptions);
+    if (day.classes.some((e) => e.classInfo.id === cls.id && !e.cancelled)) return date;
+  }
+  return nextMeetingDate(cls.days || [], from);
 }
 
 /**

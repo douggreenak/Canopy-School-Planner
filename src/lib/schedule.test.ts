@@ -138,3 +138,48 @@ describe('applyLathropEarlyOuts', () => {
     expect(out[1].periodOverrides).toBe(stale);
   });
 });
+
+describe('Lathrop early out is a straight 1-6 day', () => {
+  it('shows every period even if the class does not normally meet that weekday', async () => {
+    const { applyLathropEarlyOuts } = await import('./schedule');
+    const { buildDaySchedule } = await import('./calendar');
+    // Wednesday (3). P1 normally meets Tue/Thu only; P2 meets Wed.
+    const mk = (period: number, days: number[]) => ({
+      id: String(period), name: 'C' + period, teacher: '', room: '', color: '#fff', period,
+      startTime: '08:00', endTime: '09:00', days, semester: '',
+    });
+    const lunch = { id: '__lunch__', name: 'Lunch', teacher: '', room: '', color: '#888', period: 0, startTime: '10:26', endTime: '10:57', days: [1, 2, 3, 4, 5], semester: '' };
+    const classes = [mk(1, [2, 4]), mk(2, [3]), lunch] as never[];
+    const dis = applyLathropEarlyOuts([{ id: 'x', date: '2026-11-25', type: 'early_out', label: '', periodOverrides: [] }] as never[], classes);
+    const day = buildDaySchedule('2026-11-25', classes, dis);
+    const byPeriod = Object.fromEntries(day.classes.map((e) => [e.classInfo.period, e]));
+    expect(byPeriod[1]).toMatchObject({ startTime: '07:30', endTime: '08:10' });
+    expect(byPeriod[2]).toMatchObject({ startTime: '08:15', endTime: '08:55' });
+    expect(byPeriod[0]).toMatchObject({ startTime: '12:00', endTime: '12:30' });
+  });
+});
+
+describe('nextClassMeetingDate', () => {
+  const cls = { id: 'a', name: 'A', teacher: '', room: '', color: '#fff', period: 1, startTime: '08:00', endTime: '09:00', days: [1, 3], semester: '' } as never;
+  const from = new Date('2026-11-22T12:00:00'); // Sunday
+  it('returns the next weekly meeting with no disruptions', async () => {
+    const { nextClassMeetingDate } = await import('./schedule');
+    expect(nextClassMeetingDate(cls, [cls], [], from)).toBe('2026-11-23');
+  });
+  it('skips a no-school day', async () => {
+    const { nextClassMeetingDate } = await import('./schedule');
+    const dis = [{ id: 'n', date: '2026-11-23', type: 'no_school', label: '', periodOverrides: [] }] as never[];
+    expect(nextClassMeetingDate(cls, [cls], dis, from)).toBe('2026-11-25');
+  });
+  it('skips a multi-day break', async () => {
+    const { nextClassMeetingDate } = await import('./schedule');
+    const dis = [{ id: 'n', date: '2026-11-23', endDate: '2026-11-29', type: 'no_school', label: '', periodOverrides: [] }] as never[];
+    expect(nextClassMeetingDate(cls, [cls], dis, from)).toBe('2026-11-30');
+  });
+  it('picks a class that meets on a 1-6 day even if not normally scheduled', async () => {
+    const { nextClassMeetingDate } = await import('./schedule');
+    const dis = [{ id: 'o', date: '2026-11-24', type: '1_6', label: '', periodOverrides: [{ period: 1, startTime: '08:00', endTime: '09:00', cancelled: false }] }] as never[];
+    const noMonday = [{ id: 'n', date: '2026-11-23', type: 'no_school', label: '', periodOverrides: [] }, ...dis] as never[];
+    expect(nextClassMeetingDate(cls, [cls], noMonday, from)).toBe('2026-11-24');
+  });
+});

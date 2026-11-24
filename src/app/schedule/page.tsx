@@ -245,7 +245,7 @@ function SchedulePageInner() {
     let overrides: PeriodOverride[] = [];
     if (form.type === 'early_out') {
       overrides = isLathrop
-        ? generateLathropEarlyOutOverrides(dayOfWeek >= 0 ? classesForSchedule.filter((c) => c.days.includes(dayOfWeek)) : classesForSchedule)
+        ? generateLathropEarlyOutOverrides(classesForSchedule, dayOfWeek >= 0 ? dayOfWeek : undefined)
         : generateEarlyOutOverrides(dayClasses, autoTime, dayOfWeek >= 0 ? dayOfWeek : undefined, earlyOutTemplate);
     } else if (form.type === 'late_start') {
       overrides = generateLateStartOverrides(dayClasses, autoTime, dayOfWeek >= 0 ? dayOfWeek : undefined);
@@ -276,8 +276,12 @@ function SchedulePageInner() {
   const formValid = !!form.date && (form.type !== 'day_swap' || form.sourceDayOfWeek !== undefined);
 
   const handleSave = async () => {
-    if (editing) await apiPut('/api/disruptions', form);
-    else await apiPost('/api/disruptions', form);
+    // Lathrop early outs are always the official schedule — no manual step.
+    const payload = form.type === 'early_out' && isLathrop
+      ? { ...form, periodOverrides: generateLathropEarlyOutOverrides(classesForSchedule, form.date ? dayjs(form.date).day() : undefined) }
+      : form;
+    if (editing) await apiPut('/api/disruptions', payload);
+    else await apiPost('/api/disruptions', payload);
     setDialogOpen(false);
     refetch();
   };
@@ -517,14 +521,16 @@ function SchedulePageInner() {
             {(form.type === 'early_out' || form.type === 'late_start' || form.type === '1_6' || form.type === 'assembly') && (
               <Grid size={12}>
                 <Alert severity="info" sx={{ mb: 1 }}>
-                  {form.type === '1_6'
+                  {form.type === 'early_out' && isLathrop
+                    ? 'Lathrop early outs are always a straight 1-6 day on the official Early Out Bell Schedule (P1 7:30–8:10 … P6 11:20–12:00, Lunch 12:00–12:30, buses 12:37). Nothing to choose — just save.'
+                    : form.type === '1_6'
                     ? 'Auto-generate a straight 1-6 schedule: every period meets once, in order, using each class’s standard period time — overriding the normal A/B block pattern for this day.'
                     : form.type === 'assembly'
                     ? 'Auto-generate a compressed schedule: the Extension/Advisory block is dropped, every other period that normally meets this day runs back-to-back, Lunch keeps its usual relative position, and a 45-minute Assembly block is added at the end. This is a general compression, not necessarily the school’s exact published assembly-day times — adjust below if needed.'
                     : `Auto-generate adjusted times: set the ${form.type === 'early_out' ? 'new end time' : 'new start time'} and periods will be proportionally adjusted.`}
                 </Alert>
                 <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                  {(form.type === 'early_out' || form.type === 'late_start') && (
+                  {((form.type === 'early_out' && !isLathrop) || form.type === 'late_start') && (
                     <TextField
                       label={form.type === 'early_out' ? 'Early End Time' : 'Late Start Time'}
                       type="time"

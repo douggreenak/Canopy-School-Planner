@@ -38,7 +38,7 @@ import MeetingRoomOutlinedIcon from '@mui/icons-material/MeetingRoomOutlined';
 import LaptopOutlinedIcon from '@mui/icons-material/LaptopOutlined';
 import { useHomework, useTasks, useClasses, useDisruptions, apiPost, apiPut, apiDelete, useEnterConfirm } from '@/lib/hooks';
 import { buildDaySchedule } from '@/lib/calendar';
-import { nextMeetingDate } from '@/lib/schedule';
+import { nextMeetingDate, nextClassMeetingDate } from '@/lib/schedule';
 import { suggestRebalancing } from '@/lib/heatmap';
 import { completedForStage, loadLastStageTemplate, saveLastStageTemplate } from '@/lib/stages';
 import dynamic from 'next/dynamic';
@@ -421,7 +421,7 @@ export default function TasksPage() {
   // ---- Quick add homework ----
 
   const quickAddHomework = async (cls: SchoolClass) => {
-    const due = nextMeetingDate(cls.days || []) || dayjs().add(1, 'day').format('YYYY-MM-DD');
+    const due = (classes && disruptions ? nextClassMeetingDate(cls, classes, disruptions) : nextMeetingDate(cls.days || [])) || dayjs().add(1, 'day').format('YYYY-MM-DD');
     const task: Task = { id: uuid(), title: 'Homework', description: '', dueDate: due, completed: false, priority: 'medium', category: 'Homework', classId: cls.id, stages: loadLastStageTemplate(), dueTiming: 'in_class' };
     mutateTasks((prev) => prev ? [task, ...prev] : [task]);
     try {

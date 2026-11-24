@@ -41,7 +41,9 @@ export function buildDaySchedule(
   // every period in its overrides meets that day even if the class doesn't
   // normally meet on this weekday (e.g. a period that's only part of the
   // Tue/Thu block still runs on a straight 1-6 day).
-  const oneToSixPeriods = disruption?.type === '1_6'
+  // An early out is likewise always a straight 1-6 day (see
+  // generateLathropEarlyOutOverrides), so it gets the same treatment.
+  const oneToSixPeriods = disruption?.type === '1_6' || disruption?.type === 'early_out'
     ? new Set(disruption.periodOverrides.map((o) => o.period))
     : null;
 
