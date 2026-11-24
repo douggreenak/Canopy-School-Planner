@@ -61,6 +61,7 @@ describe('deleteUserAndAllData', () => {
       'DELETE FROM `sessions` WHERE user_id = ?',
       'DELETE FROM `school_accounts` WHERE user_id = ?',
       'DELETE FROM `grade_history` WHERE user_id = ?',
+      'DELETE FROM `archived_classes` WHERE user_id = ?',
       'DELETE FROM `sync_log` WHERE user_id = ?',
       'DELETE FROM `powerschool_sync_status` WHERE user_id = ?',
       'DELETE FROM `powerschool_sync_lock` WHERE user_id = ?',

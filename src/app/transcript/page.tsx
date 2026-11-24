@@ -18,7 +18,8 @@ import Divider from '@mui/material/Divider';
 import { alpha, useTheme } from '@mui/material/styles';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import SchoolIcon from '@mui/icons-material/School';
-import { useGradeHistory, useClasses } from '@/lib/hooks';
+import { useGradeHistory, useClasses, useArchivedClasses } from '@/lib/hooks';
+import { schoolYearOf } from '@/lib/schoolYear';
 import { gradeColor, letterFromPercent } from '@/lib/grades';
 import { unweightedGpaPoints, weightedGpaPoints } from '@/lib/gradeEngine';
 import type { GradeHistoryEntry } from '@/types';
@@ -31,6 +32,14 @@ type SemesterRow = {
   capturedAt: string;
 };
 
+// PowerSchool snapshots are all tagged semester "Current", so on their own two
+// school years would merge into one row. Group by the school year the snapshot
+// was taken in (e.g. "2025-26"), keeping a real semester name when there is one.
+function snapshotLabel(e: GradeHistoryEntry): string {
+  const year = schoolYearOf(e.capturedAt);
+  return e.semester && e.semester !== 'Current' ? `${year} · ${e.semester}` : year;
+}
+
 function buildTranscript(
   history: GradeHistoryEntry[],
   classNames: Map<string, string>,
@@ -40,7 +49,7 @@ function buildTranscript(
   const latestBySemesterAndClass = new Map<string, GradeHistoryEntry>();
   for (const e of history) {
     if (e.gradePercent == null) continue;
-    const key = `${e.semester}||${e.classId}`;
+    const key = `${snapshotLabel(e)}||${e.classId}`;
     const existing = latestBySemesterAndClass.get(key);
     if (!existing || dayjs(e.capturedAt).isAfter(dayjs(existing.capturedAt))) {
       latestBySemesterAndClass.set(key, e);
@@ -50,9 +59,10 @@ function buildTranscript(
   // Group by semester
   const bySemester = new Map<string, GradeHistoryEntry[]>();
   for (const e of latestBySemesterAndClass.values()) {
-    const arr = bySemester.get(e.semester) ?? [];
+    const label = snapshotLabel(e);
+    const arr = bySemester.get(label) ?? [];
     arr.push(e);
-    bySemester.set(e.semester, arr);
+    bySemester.set(label, arr);
   }
 
   const rows: SemesterRow[] = [];
@@ -95,18 +105,23 @@ export default function TranscriptPage() {
   const theme = useTheme();
   const { data: history, loading } = useGradeHistory();
   const { data: classes } = useClasses();
+  // Past-year classes PowerSchool has since dropped — keeps their names and AP
+  // flags so older school years still render properly.
+  const { data: archived } = useArchivedClasses();
 
   const classNames = useMemo(() => {
     const m = new Map<string, string>();
+    (archived ?? []).forEach((c) => m.set(c.id, c.name));
     (classes ?? []).forEach((c) => m.set(c.id, c.name));
     return m;
-  }, [classes]);
+  }, [classes, archived]);
 
   const classAp = useMemo(() => {
     const m = new Map<string, boolean>();
+    (archived ?? []).forEach((c) => m.set(c.id, !!c.isAp));
     (classes ?? []).forEach((c) => m.set(c.id, !!c.isAp));
     return m;
-  }, [classes]);
+  }, [classes, archived]);
 
   const transcript = useMemo(
     () => (history ? buildTranscript(history, classNames, classAp) : []),

@@ -17,6 +17,7 @@ import type {
 import { v4 as uuid } from 'uuid';
 import { parseStages } from '@/lib/stages';
 import { detectApFromName, resolveIsApOnSync } from '@/lib/apDetection';
+import { schoolYearOf } from '@/lib/schoolYear';
 
 // A single connection pool reused across requests/invocations.
 let _pool: Pool | null = null;
@@ -284,6 +285,26 @@ export async function initializeDatabase() {
     )
   `);
   await createIndexIfMissing('idx_grade_history_class', 'grade_history', `user_id, class_id, captured_at`);
+
+  // archived_classes — a snapshot of each PowerSchool class at the moment it
+  // disappears from a sync (school-year rollover, dropped class), so past
+  // years stay available for reference after the live class row is removed.
+  // Purely additive: nothing the installed iOS app reads is changed.
+  await execute(`
+    CREATE TABLE IF NOT EXISTS archived_classes (
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL DEFAULT '',
+      name TEXT NOT NULL,
+      teacher TEXT NOT NULL,
+      period INTEGER NOT NULL DEFAULT 0,
+      grade VARCHAR(10),
+      grade_percent DECIMAL(10,4),
+      is_ap TINYINT(1) NOT NULL DEFAULT 0,
+      school_year VARCHAR(20) NOT NULL DEFAULT '',
+      archived_at DATETIME DEFAULT NOW()
+    )
+  `);
+  await createIndexIfMissing('idx_archived_classes_user', 'archived_classes', `user_id, school_year`);
 
   // sync_log
   await execute(`
@@ -712,6 +733,7 @@ export async function deleteUserAndAllData(userId: string): Promise<void> {
       'sessions',
       'school_accounts',
       'grade_history',
+      'archived_classes',
       'sync_log',
       'powerschool_sync_status',
       'powerschool_sync_lock',
@@ -1644,6 +1666,66 @@ export async function setSyncStatus(
 const normalizeName = (s?: string | null) =>
   s ? s.replace(/ /g, ' ').replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase() : '';
 
+/**
+ * Upserts for archived_classes. The school year is taken from the class's most
+ * recent grade snapshot (so a class last seen in June is filed under that
+ * year even if the removal is noticed in August); falls back to today.
+ */
+async function buildArchiveWrites(
+  classes: SchoolClass[],
+  userId: string,
+): Promise<Array<{ sql: string; params: unknown[] }>> {
+  if (classes.length === 0) return [];
+  const { clause, params } = inClause(classes.map((c) => c.id));
+  const rows = await query<RowDataPacket>(
+    `SELECT class_id, MAX(captured_at) AS last_at FROM grade_history
+     WHERE user_id = ? AND class_id ${clause} GROUP BY class_id`,
+    [userId, ...params],
+  );
+  const lastAt = new Map(rows.map((r) => [r.class_id as string, r.last_at as Date | string]));
+  return classes.map((c) => ({
+    sql: `INSERT INTO archived_classes (id, user_id, name, teacher, period, grade, grade_percent, is_ap, school_year)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE name = VALUES(name), teacher = VALUES(teacher), period = VALUES(period),
+            grade = VALUES(grade), grade_percent = VALUES(grade_percent), is_ap = VALUES(is_ap),
+            school_year = VALUES(school_year)`,
+    params: [
+      c.id, userId, c.name, c.teacher ?? '', c.period ?? 0, c.grade ?? null, c.gradePercent ?? null,
+      c.isAp ? 1 : 0, schoolYearOf(lastAt.get(c.id) ?? new Date()),
+    ],
+  }));
+}
+
+export interface ArchivedClass {
+  id: string;
+  name: string;
+  teacher: string;
+  period: number;
+  grade?: string;
+  gradePercent?: number;
+  isAp: boolean;
+  schoolYear: string;
+  archivedAt: string;
+}
+
+export async function getArchivedClasses(userId: string): Promise<ArchivedClass[]> {
+  const rows = await query<RowDataPacket>(
+    `SELECT * FROM archived_classes WHERE user_id = ? ORDER BY school_year DESC, period`,
+    [userId],
+  );
+  return rows.map((r) => ({
+    id: r.id as string,
+    name: r.name as string,
+    teacher: (r.teacher as string) || '',
+    period: Number(r.period) || 0,
+    grade: (r.grade as string) || undefined,
+    gradePercent: r.grade_percent != null ? Number(r.grade_percent) : undefined,
+    isAp: !!r.is_ap,
+    schoolYear: r.school_year as string,
+    archivedAt: r.archived_at instanceof Date ? (r.archived_at as Date).toISOString() : String(r.archived_at),
+  }));
+}
+
 export async function syncClassesFromSource(
   source: 'powerschool' | 'classroom',
   incoming: SchoolClass[],
@@ -1787,6 +1869,9 @@ export async function syncClassesFromSource(
       }
     }
     if (toDeleteIds.length > 0) {
+      // Keep a snapshot of every class about to be removed (new school year,
+      // dropped class) so it stays available under past years.
+      writeQueries.push(...(await buildArchiveWrites(deleteCandidates, userId)));
       const { clause, params } = inClause(toDeleteIds);
       writeQueries.push({ sql: `DELETE FROM classes WHERE id ${clause} AND user_id = ?`, params: [...params, userId] });
     }

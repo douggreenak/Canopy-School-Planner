@@ -352,6 +352,14 @@ export function useGradeHistory(classId?: string) {
   return useFetch<GradeHistoryEntry[]>(url);
 }
 
+export interface ArchivedClassRow {
+  id: string; name: string; teacher: string; period: number;
+  grade?: string; gradePercent?: number; isAp: boolean; schoolYear: string; archivedAt: string;
+}
+export function useArchivedClasses() {
+  return useFetch<ArchivedClassRow[]>('/api/archive');
+}
+
 export function useSyncLog(classId?: string, limit = 200) {
   const url = classId
     ? `/api/sync-log?classId=${encodeURIComponent(classId)}&limit=${limit}`

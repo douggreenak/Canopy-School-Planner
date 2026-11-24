@@ -58,6 +58,7 @@ import DisruptionCalendar, { DISRUPTION_TYPES } from '@/components/DisruptionCal
 import { WEEKDAY_NAMES, ASSEMBLY_PERIOD } from '@/lib/disruptionTypes';
 import { buildDaySchedule, disruptionCoversDate } from '@/lib/calendar';
 import { computeDayBounds } from '@/lib/calendarMetrics';
+import { breakPresets, type BreakPreset } from '@/lib/breaks';
 import CustomScheduleEditor from '@/components/CustomScheduleEditor';
 import type { ScheduleDisruption, PeriodOverride, ScheduleEntry } from '@/types';
 import { v4 as uuid } from 'uuid';
@@ -218,6 +219,12 @@ function SchedulePageInner() {
       setEditing(null);
       setForm({ id: uuid(), date: dayjs().format('YYYY-MM-DD'), type: 'early_out', label: '', periodOverrides: [] });
     }
+    setDialogOpen(true);
+  };
+
+  const openBreakPreset = (b: BreakPreset) => {
+    setEditing(null);
+    setForm({ id: uuid(), date: b.date, endDate: b.endDate, type: 'no_school', label: b.label, periodOverrides: [] });
     setDialogOpen(true);
   };
 
@@ -428,6 +435,20 @@ function SchedulePageInner() {
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
           School is treated as in session every day by default — add a &quot;No School&quot; entry with an end date to mark a break (summer, winter, etc.) or any other day off.
         </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+          <Typography variant="caption" color="text.secondary">Quick add a break:</Typography>
+          {breakPresets().map((b) => (
+            <Chip
+              key={b.key}
+              size="small"
+              variant="outlined"
+              icon={<AddIcon />}
+              label={b.label}
+              data-testid={`break-${b.key}`}
+              onClick={() => openBreakPreset(b)}
+            />
+          ))}
+        </Box>
         <DisruptionCalendar
           disruptions={disruptions ?? []}
           onAdd={openDialogForDate}
