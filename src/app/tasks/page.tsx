@@ -780,7 +780,7 @@ export default function TasksPage() {
         <DialogTitle>Clear all done?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Permanently delete <strong>{doneCount} completed {doneCount === 1 ? 'item' : 'items'}</strong>. This can't be undone.
+            Permanently delete <strong>{doneCount} completed {doneCount === 1 ? 'item' : 'items'}</strong>. This can&apos;t be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>

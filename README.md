@@ -69,8 +69,9 @@ Theme, accent color, school info, school breaks, and PowerSchool credentials —
 - **Dashboard** — Day/Week/Year calendar views + Heatmap tab; stat chips for today's classes, homework, and exams
 - **Classes** — manage classes with colors, meeting days, period times, and teacher/room info; drag to reorder, click a card for a quick view of when it next meets and its open/done items, edit from there
 - **Schedule** — full calendar that treats school as in session every day, with breaks (summer, winter, etc.) marked as exceptions, plus bell-schedule support and early-dismissal overrides; the calendar/ICS feed always reflects the latest schedule and disruptions, regenerated fresh on every request
+- **Disruptions** — early out, late start, no school, assembly, 1-6, different-day swap, and **Custom**: a drag-and-drop day builder (start from a normal weekday, 1-6 or early out; drag blocks to move, drag edges to resize, cancel what doesn't meet). In Lathrop Mode an early out is always the official 1-6 Early Out Bell Schedule — no time to pick. One-click **break presets** (summer, Thanksgiving, winter, spring) pre-fill the dates
 - **Exams** — upcoming exam list with countdown and grade-impact preview
-- **Tasks** — unified to-do combining PowerSchool homework + custom tasks; filterable, quick-add, bulk clear
+- **Tasks** — unified to-do combining PowerSchool homework + custom tasks; filterable, quick-add, bulk clear; “due next class” skips no-school days, breaks and cancelled periods
 - **Multiple schools** — secondary to the single-school default: a user who takes classes at more than one school (each with its own PowerSchool login) can add the extra ones from Settings → Other Schools without changing anything about the single-school experience
 
 ### Grade Analytics
@@ -87,6 +88,7 @@ Theme, accent color, school info, school breaks, and PowerSchool credentials —
 - **Rebalancing suggestions** — inline captions flag tasks that cluster with other deadlines (same user-created-only rule as the heatmap)
 - **PowerSchool change log** — reverse-chron feed of every grade change and new assignment detected at sync time
 - **Cross-semester GPA** — cumulative unweighted GPA estimate from all synced semesters
+- **Past school years** — when PowerSchool moves to a new year, last year's classes are archived (name, teacher, final grade, AP flag) before they're removed, and the Transcript groups grades by school year (e.g. 2025-26)
 
 ### Platform & Auth
 - **Multi-user auth** — username/password accounts with server-side sessions
@@ -237,6 +239,29 @@ Canopy stores student data (classes, grades, assignments, schedules, PowerSchool
 See [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) for the full audit and remaining known risks.
 
 ---
+
+## Testing & CI
+
+Tests never touch production. Everything runs against a **throwaway local database** (`canopy_test*`, on this machine only) with fictional demo data; a guard aborts the run if the database URL points anywhere else.
+
+| Command | What it does |
+|---|---|
+| `npm run test:unit` | Fast unit tests (schedule logic, grades, disruptions, break presets, …) |
+| `npm run test:e2e` | Builds the app, starts it against a throwaway MariaDB (`scripts/test-db.sh`), then runs API, database (school-year rollover, privacy, account deletion) and **real-browser** tests (drag-and-drop editor, week-view scrolling, break presets, next-class dates, transcript) with Chrome |
+| `npm run check` | Lint + types + unit + e2e — everything CI runs |
+| `npm run ship` | `git push origin HEAD:staging` — see below |
+
+Needs `brew install mariadb` (or any MariaDB/MySQL on your PATH) and Google Chrome for the browser tests; set `CHROME_PATH` if Chrome is elsewhere.
+
+**Before every push** a git hook (`.githooks/pre-push`, enabled automatically by `npm install`) runs the checks. `SKIP_E2E=1 git push` skips only the slow browser tests.
+
+**Cloud CI (close your laptop):** `.github/workflows/ci.yml` runs the same checks on GitHub (with a MariaDB service container). To let GitHub gate the deploy, push to the `staging` branch instead of `main`:
+
+```bash
+npm run ship        # = git push origin HEAD:staging
+```
+
+`.github/workflows/promote.yml` then runs the full CI in the cloud and, **only if it passes**, fast-forwards `main` to that commit (which Vercel deploys). A failed run leaves `main` untouched. (If `main` has branch protection requiring pull requests, allow GitHub Actions to push to it.)
 
 ## Further reading
 

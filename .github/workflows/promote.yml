@@ -1,0 +1,41 @@
+name: Test, then promote to main
+
+# Workflow for "push, then close the laptop":
+#   git push origin HEAD:staging        (or: npm run ship)
+# GitHub runs the full CI below in the cloud. Only if it is green does the
+# `promote` job fast-forward `main` to the same commit — which is what Vercel
+# deploys. If anything fails, main is left untouched.
+on:
+  push:
+    branches: [staging]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  promote:
+    name: Fast-forward main
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Fast-forward main to the tested commit
+        run: |
+          git fetch origin main
+          # Refuses (fails) unless this is a clean fast-forward, so a green run
+          # can never overwrite someone else's newer commit on main.
+          git merge-base --is-ancestor origin/main "${GITHUB_SHA}" \
+            || { echo "main has commits that are not in staging — merge main into staging and push again."; exit 1; }
+          git push origin "${GITHUB_SHA}:refs/heads/main"

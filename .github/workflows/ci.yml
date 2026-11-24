@@ -1,8 +1,13 @@
 name: CI
 
+# Runs on every push to main, on pull requests, and — via `workflow_call` — as
+# the gate in promote.yml. Everything here uses a throwaway database inside the
+# runner; production is never contacted and no secrets are needed.
 on:
   push:
+    branches-ignore: [staging]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -12,27 +17,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
+  checks:
+    name: Lint, types & unit tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
+      - run: npm ci
       - name: Lint
-        run: npm run lint -- src/app/api src/lib/db.ts src/lib/db.test.ts src/lib/powerschoolSync.ts src/lib/powerschoolSync.test.ts scripts/run-sync.ts scripts/sync-local.ts
+        run: npm run lint:ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm run test:unit
 
-      - name: Test
-        run: npm test
-
-      - name: Build
+  e2e:
+    name: Integration & browser tests (local demo data)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "1"
+          MARIADB_DATABASE: canopy_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      # Local service container only — scripts/run-tests.mjs refuses anything
+      # that is not a local canopy_test* database.
+      TEST_DATABASE_URL: mysql://root@127.0.0.1:3306/canopy_test
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build + API, database and browser tests
+        run: npm run test:e2e
+      - name: Build (production, no test database)
         run: npm run build

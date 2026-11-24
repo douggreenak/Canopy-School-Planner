@@ -149,6 +149,9 @@ export default function CustomScheduleEditor({ classes, value, onChange, lathrop
                 </Box>
               ))}
               {value.map((o, i) => {
+                // Cancelled periods leave the grid (they would otherwise sit on
+                // top of live blocks and swallow drags) — see the restore row below.
+                if (o.cancelled) return null;
                 const start = parseMinutes(o.startTime);
                 const end = parseMinutes(o.endTime);
                 const color = colorFor(o.period);
@@ -216,6 +219,22 @@ export default function CustomScheduleEditor({ classes, value, onChange, lathrop
               })}
             </Box>
           </Box>
+          {value.some((o) => o.cancelled) && (
+            <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 1, alignItems: 'center' }}>
+              <Typography variant="caption" color="text.secondary">Cancelled — tap to restore:</Typography>
+              {value.map((o, i) => o.cancelled && (
+                <Chip
+                  key={`${o.period}-${i}`}
+                  size="small"
+                  variant="outlined"
+                  icon={<RestoreIcon />}
+                  label={nameFor(o.period)}
+                  data-testid={`cancelled-${o.period}`}
+                  onClick={() => update(i, { ...o, cancelled: false })}
+                />
+              ))}
+            </Stack>
+          )}
           {overlaps.size > 0 && (
             <Alert severity="warning" sx={{ mt: 1 }}>Some blocks overlap (outlined in red). Move or resize them, or cancel one.</Alert>
           )}

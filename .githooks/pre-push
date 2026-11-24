@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Runs before every `git push`: lint, type check, unit tests, then the
+# integration + browser tests against a throwaway LOCAL database.
+# Skip the slow browser tests with SKIP_E2E=1, or everything with `git push --no-verify`.
+# Pushing to the `staging` branch skips this — the cloud CI is the gate there.
+set -e
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  [ "$remote_ref" = "refs/heads/staging" ] && exit 0
+done
+cd "$(git rev-parse --show-toplevel)"
+echo "▶ pre-push checks (lint, types, unit tests)…"
+npm run --silent lint:ci
+npm run --silent typecheck
+npm run --silent test:unit
+if [ "${SKIP_E2E:-}" != "1" ]; then
+  echo "▶ integration + browser tests (local throwaway database)…"
+  npm run --silent test:e2e
+fi
+echo "✔ all checks passed"

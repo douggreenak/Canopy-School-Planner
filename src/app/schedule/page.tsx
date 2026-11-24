@@ -60,7 +60,7 @@ import { buildDaySchedule, disruptionCoversDate } from '@/lib/calendar';
 import { computeDayBounds } from '@/lib/calendarMetrics';
 import { breakPresets, type BreakPreset } from '@/lib/breaks';
 import CustomScheduleEditor from '@/components/CustomScheduleEditor';
-import type { ScheduleDisruption, PeriodOverride, ScheduleEntry } from '@/types';
+import type { ScheduleDisruption, PeriodOverride, ScheduleEntry, SchoolClass } from '@/types';
 import { v4 as uuid } from 'uuid';
 
 dayjs.extend(isoWeek);
@@ -151,7 +151,7 @@ function SchedulePageInner() {
   const [autoTime, setAutoTime] = useState('13:00');
   const [confirmDelete, setConfirmDelete] = useState<ScheduleDisruption | null>(null);
 
-  const lunchClass = useMemo(() => {
+  const lunchClass = useMemo((): SchoolClass => {
     const dt = { ...DEFAULT_LUNCH_TIMES, ...lunchTimes };
     return {
       id: '__lunch__',
@@ -165,7 +165,7 @@ function SchedulePageInner() {
       days: [1, 2, 3, 4, 5],
       semester: '',
       dayTimes: dt,
-    } as any;
+    };
   }, [lunchTimes]);
 
   const classesForSchedule = useMemo(() => {

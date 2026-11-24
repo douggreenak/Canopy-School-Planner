@@ -18,6 +18,7 @@ import { v4 as uuid } from 'uuid';
 import { parseStages } from '@/lib/stages';
 import { detectApFromName, resolveIsApOnSync } from '@/lib/apDetection';
 import { schoolYearOf } from '@/lib/schoolYear';
+import { assertSafeTestDatabaseUrl } from '@/lib/testGuard';
 
 // A single connection pool reused across requests/invocations.
 let _pool: Pool | null = null;
@@ -35,6 +36,9 @@ function getDb(): Pool {
       (e.DB_HOST && e.DB_NAME && e.DB_USER
         ? `mysql://${encodeURIComponent(e.DB_USER)}:${encodeURIComponent(e.DB_PASSWORD ?? '')}@${e.DB_HOST}:${e.DB_PORT || 3306}/${e.DB_NAME}`
         : '');
+    // Defence in depth: an automated test run (CANOPY_E2E=1) may only ever
+    // talk to a local canopy_test* database, whatever the environment says.
+    if (process.env.CANOPY_E2E === '1') assertSafeTestDatabaseUrl(raw);
     const url = new URL(raw);
     const sslMode = url.searchParams.get('sslmode');
     url.searchParams.delete('sslmode');
