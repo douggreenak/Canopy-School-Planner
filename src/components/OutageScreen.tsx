@@ -5,40 +5,10 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { keyframes } from '@mui/material/styles';
 
 interface CurrentUser { id: string; username: string; role: string }
 
 const RETRY_SECONDS = 15;
-
-const sway = keyframes`
-  0%, 100% { transform: rotate(-1.6deg); }
-  50%      { transform: rotate(1.6deg); }
-`;
-const fall = keyframes`
-  0%   { transform: translate(0, -10vh) rotate(0deg); opacity: 0; }
-  10%  { opacity: 0.9; }
-  100% { transform: translate(var(--drift), 105vh) rotate(var(--spin)); opacity: 0.1; }
-`;
-const pulse = keyframes`
-  0%, 100% { opacity: 0.35; transform: scale(0.9); }
-  50%      { opacity: 1;    transform: scale(1.15); }
-`;
-const bob = keyframes`
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-6px); }
-`;
-
-// Deterministic leaf field (no Math.random → no hydration mismatch).
-const LEAVES = Array.from({ length: 14 }, (_, i) => ({
-  left: (i * 71 + 13) % 100,
-  size: 14 + ((i * 7) % 12),
-  delay: -((i * 1.9) % 16),
-  dur: 11 + ((i * 3) % 9),
-  drift: ((i % 2 ? 1 : -1) * (30 + ((i * 13) % 80))),
-  spin: 200 + ((i * 47) % 400),
-  hue: ['#7bb661', '#a3c97a', '#d9a441', '#e08a3c', '#8fbf6a'][i % 5],
-}));
 
 const MESSAGES = [
   'We can’t reach our database right now. This is on our end, not yours.',
@@ -105,34 +75,13 @@ export default function OutageScreen({ onRecovered }: { onRecovered: (user: Curr
         py: 6,
         color: '#e8f1e4',
         background: 'radial-gradient(ellipse at 50% 20%, #20402c 0%, #11261b 55%, #0a1711 100%)',
-        '@media (prefers-reduced-motion: reduce)': { '& *': { animation: 'none !important' } },
       }}
     >
-      {LEAVES.map((l, i) => (
-        <Box
-          key={i}
-          aria-hidden
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: `${l.left}%`,
-            width: l.size,
-            height: l.size * 0.62,
-            bgcolor: l.hue,
-            borderRadius: '0 100% 0 100%',
-            '--drift': `${l.drift}px`,
-            '--spin': `${l.spin}deg`,
-            animation: `${fall} ${l.dur}s linear ${l.delay}s infinite`,
-            pointerEvents: 'none',
-          }}
-        />
-      ))}
-
-      <Box aria-hidden sx={{ animation: `${bob} 5s ease-in-out infinite`, mb: 1 }}>
+      <Box aria-hidden sx={{ mb: 1 }}>
         <Box
           component="svg"
           viewBox="0 0 200 200"
-          sx={{ width: { xs: 170, sm: 220 }, height: 'auto', transformOrigin: '50% 95%', animation: `${sway} 6s ease-in-out infinite` }}
+          sx={{ width: { xs: 170, sm: 220 }, height: 'auto' }}
         >
           <path d="M96 190 C98 150 94 120 100 92 C106 120 102 150 104 190 Z" fill="#6b4a2f" />
           <path d="M100 130 C86 118 74 112 62 96" stroke="#6b4a2f" strokeWidth="5" fill="none" strokeLinecap="round" />
@@ -161,10 +110,11 @@ export default function OutageScreen({ onRecovered }: { onRecovered: (user: Curr
       <Typography sx={{ mt: 1, maxWidth: 520, color: '#9ab793' }}>
         Your assignments, grades and schedule are safe. We just can’t load them at the moment.
         Keep this tab open and we’ll bring you back automatically once we’re reconnected.
+        Sadly, “the website was down” still won’t count as an excuse for late homework.
       </Typography>
 
       <Box sx={{ mt: 4, display: 'flex', alignItems: 'center', gap: 1.25, color: '#cfe8c8' }}>
-        <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: checking ? '#7bb661' : '#e0a23c', animation: `${pulse} 1.6s ease-in-out infinite` }} />
+        <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: checking ? '#7bb661' : '#e0a23c', }} />
         <Typography variant="body2">
           {checking ? 'Checking the connection…' : `Checking again in ${seconds}s`}
         </Typography>

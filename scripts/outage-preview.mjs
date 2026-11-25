@@ -1,11 +1,10 @@
 /**
  * Renders the outage screen (no database needed — /api/auth is stubbed to 503)
- * and saves docs/screenshots/outage.png plus an animated docs/screenshots/outage.gif.
- * Usage: node scripts/outage-preview.mjs [base-url]   (needs `npm run dev` running; ffmpeg for the gif)
+ * and saves docs/screenshots/outage.png (the screen is static, so no GIF).
+ * Usage: node scripts/outage-preview.mjs [base-url]   (needs `npm run dev` running)
  */
 import puppeteer from 'puppeteer-core';
-import { execFileSync } from 'child_process';
-import { mkdirSync, rmSync } from 'fs';
+import { mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -35,12 +34,5 @@ await page.waitForSelector('[role="status"] h1', { timeout: 60000 });
 await new Promise((r) => setTimeout(r, 1500));
 await page.screenshot({ path: join(OUT, 'outage.png') });
 
-const mp4 = join(OUT, 'outage.mp4');
-const rec = await page.screencast({ path: mp4 });
-await new Promise((r) => setTimeout(r, 7000));
-await rec.stop();
 await browser.close();
-
-execFileSync('ffmpeg', ['-y', '-i', mp4, '-vf', 'fps=15,scale=800:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4', join(OUT, 'outage.gif')], { stdio: 'ignore' });
-rmSync(mp4);
-console.log('saved outage.png and outage.gif');
+console.log('saved outage.png');
