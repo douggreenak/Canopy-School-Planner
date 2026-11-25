@@ -15,8 +15,8 @@ Settings → **API & MCP access** → name it, choose **read-only** (default) or
 | GET `/exams?from&to` | read | |
 | GET `/grade-history?classId&limit` | read | |
 | GET `/upcoming?days=7` | read | overdue + due soon, in your timezone |
-| POST `/tasks` | write | `{title, description?, dueDate?, priority?, category?, classId?}` |
-| PATCH/DELETE `/tasks/{id}` | write | |
+| POST `/tasks` | write | `{title, description?, dueDate?, priority?, category?, classId?, stages?, stageId?}` |
+| PATCH/DELETE `/tasks/{id}` | write | PATCH also takes `stages` (`[{id,label}]`, ≤12; `[]` clears) and `stageId` (`null` = not started). `completed` is derived: true iff `stageId` is the last stage. Tasks and assignments return `stages` and `stageId`. |
 | PATCH `/assignments/{id}` | write | `{completed}` only |
 
 ## MCP (`POST /api/mcp`, Streamable HTTP, stateless)

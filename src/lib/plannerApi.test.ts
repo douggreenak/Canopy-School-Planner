@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { generateApiToken, hashApiToken, scopeAllows } from './apiAuth';
 import { hit, peek, resetRateLimits } from './rateLimit';
-import { serializeClass, serializeAssignment } from './plannerApi';
-import type { SchoolClass, Homework } from '@/types';
+import { serializeClass, serializeAssignment, serializeTask, applyStages } from './plannerApi';
+import type { SchoolClass, Homework, Task } from '@/types';
 
 describe('api tokens', () => {
   it('generates unique 256-bit tokens and hashes them deterministically', () => {
@@ -39,5 +39,35 @@ describe('serializers are allowlists', () => {
     expect(out).not.toContain('user_id');
     const h = { id: 'h', classId: '1', title: 't', description: '', dueDate: '2026-01-01', completed: false, priority: 'low', source: 'manual', sourceId: 'internal' } as Homework;
     expect(JSON.stringify(serializeAssignment(h))).not.toContain('internal');
+  });
+});
+
+describe('task stages over the API', () => {
+  const stages = [{ id: 'a', label: 'Reported' }, { id: 'b', label: 'Fixed' }, { id: 'c', label: 'Closed' }];
+  const base = (): Task => ({ id: 't', title: 'x', description: '', dueDate: '', completed: false, priority: 'medium', category: 'General' });
+
+  it('exposes stages and stageId', () => {
+    const out = serializeTask({ ...base(), stages, stageId: 'b' });
+    expect(out.stages).toEqual(stages);
+    expect(out.stageId).toBe('b');
+    expect(serializeTask(base()).stages).toEqual([]);
+  });
+  it('completed follows the last stage', () => {
+    const t = base();
+    applyStages(t, { stages, stageId: 'b' });
+    expect(t.completed).toBe(false);
+    applyStages(t, { stageId: 'c' });
+    expect(t.completed).toBe(true);
+    applyStages(t, { stageId: undefined });
+    expect(t.stageId).toBeUndefined();
+    expect(t.completed).toBe(false);
+  });
+  it('rejects a stageId outside the pipeline and drops a stale one when stages change', () => {
+    const t = base();
+    applyStages(t, { stages });
+    expect(() => applyStages(t, { stageId: 'zzz' })).toThrow();
+    applyStages(t, { stageId: 'b' });
+    applyStages(t, { stages: [{ id: 'x', label: 'Only' }] });
+    expect(t.stageId).toBeUndefined();
   });
 });

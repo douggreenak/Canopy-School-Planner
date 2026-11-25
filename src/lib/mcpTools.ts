@@ -24,6 +24,9 @@ const taskProps = {
   priority: { type: 'string', enum: ['low', 'medium', 'high'] },
   category: str('Category, e.g. Homework, Study', { maxLength: 100 }),
   classId: str('Optional id of one of the student\'s classes (from list_classes)'),
+  stages: { type: 'array', maxItems: 12, description: 'Optional ordered completion pipeline, e.g. [{"id":"a","label":"Reported"},...]. [] clears it.',
+    items: obj({ id: str('Stable stage id', { maxLength: 100 }), label: str('Stage label', { maxLength: 100 }) }, ['id', 'label']) },
+  stageId: str('Current stage id (must be in stages). Completed becomes true on the last stage.'),
 };
 
 export const TOOLS: McpTool[] = [

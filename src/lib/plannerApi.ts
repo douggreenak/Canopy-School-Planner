@@ -13,7 +13,8 @@ import {
   getClasses, getClassById, getHomework, updateHomework, getExams, getTasks,
   addTask, updateTask, deleteTask, getGradeHistory, getSettings,
 } from './db';
-import type { SchoolClass, Homework, Task, Exam, GradeHistoryEntry } from '@/types';
+import { completedForStage, stageIndex } from './stages';
+import type { SchoolClass, Homework, Task, Exam, GradeHistoryEntry, TaskStage } from '@/types';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -37,12 +38,14 @@ export const serializeAssignment = (h: Homework, className?: string) => ({
   priority: h.priority, dueTiming: h.dueTiming ?? null, category: h.category ?? null,
   score: h.score ?? null, scorePercent: h.scorePercent ?? null, flags: h.flags ?? null,
   teacherNote: h.teacherNote ?? null, source: h.source,
+  stages: h.stages ?? [], stageId: h.stageId ?? null,
 });
 
 export const serializeTask = (t: Task) => ({
   id: t.id, title: t.title, description: t.description, dueDate: t.dueDate,
   completed: t.completed, priority: t.priority, category: t.category,
   classId: t.classId ?? null, dueTiming: t.dueTiming ?? null,
+  stages: t.stages ?? [], stageId: t.stageId ?? null,
 });
 
 export const serializeExam = (e: Exam) => ({
@@ -165,6 +168,24 @@ export async function getUpcoming(userId: string, daysAhead: unknown = 7) {
 export interface TaskInput {
   title?: unknown; description?: unknown; dueDate?: unknown; priority?: unknown;
   category?: unknown; classId?: unknown; completed?: unknown;
+  stages?: unknown; stageId?: unknown;
+}
+
+const MAX_STAGES = 12;
+
+/** Validates a stage pipeline: [{id,label}], 1..12 unique ids, short labels. [] clears it. */
+function checkStages(v: unknown): TaskStage[] {
+  if (!Array.isArray(v) || v.length > MAX_STAGES) throw new ApiError(400, `stages must be an array of at most ${MAX_STAGES} {id,label} objects.`);
+  const seen = new Set<string>();
+  return v.map((s) => {
+    const id = (s as TaskStage)?.id, label = (s as TaskStage)?.label;
+    if (typeof id !== 'string' || !id || id.length > 100 || typeof label !== 'string' || !label.trim() || label.length > 100) {
+      throw new ApiError(400, 'each stage needs a string id and a label (max 100 chars).');
+    }
+    if (seen.has(id)) throw new ApiError(400, 'stage ids must be unique.');
+    seen.add(id);
+    return { id, label: label.trim() };
+  });
 }
 
 async function validateTaskFields(userId: string, i: TaskInput, partial: boolean) {
@@ -193,12 +214,37 @@ async function validateTaskFields(userId: string, i: TaskInput, partial: boolean
     if (typeof i.completed !== 'boolean') throw new ApiError(400, 'completed must be a boolean.');
     out.completed = i.completed;
   }
+  if (i.stages !== undefined) out.stages = checkStages(i.stages);
+  if (i.stageId !== undefined) {
+    if (i.stageId !== null && i.stageId !== '' && typeof i.stageId !== 'string') throw new ApiError(400, 'stageId must be a string or null.');
+    out.stageId = i.stageId || undefined;
+  }
   if (i.classId !== undefined && i.classId !== null && i.classId !== '') {
     // A class id from the caller is only accepted if it is one of THEIR classes.
     if (typeof i.classId !== 'string' || !(await getClassById(i.classId, userId))) throw new ApiError(400, 'classId does not match one of your classes.');
     out.classId = i.classId;
   }
   return out;
+}
+
+/**
+ * Applies stages/stageId from validated input onto `task`, keeping `completed`
+ * derived from the stage (true iff stageId is the last stage). An explicit
+ * `completed` without a stageId is handled by withCompleted instead.
+ */
+export function applyStages(task: Task, f: Partial<Task>): void {
+  if ('stages' in f && f.stages !== undefined) {
+    task.stages = f.stages.length ? f.stages : undefined;
+    if (!task.stages || stageIndex(task.stages, task.stageId) === -1) task.stageId = undefined;
+  }
+  if ('stageId' in f) {
+    const stages = task.stages ?? [];
+    if (f.stageId && stageIndex(stages, f.stageId) === -1) throw new ApiError(400, 'stageId is not one of the task\'s stages.');
+    task.stageId = f.stageId || undefined;
+  }
+  if (('stages' in f || 'stageId' in f) && task.stages?.length) {
+    task.completed = completedForStage(task.stages, task.stageId);
+  }
 }
 
 export async function createTask(userId: string, input: TaskInput) {
@@ -208,6 +254,7 @@ export async function createTask(userId: string, input: TaskInput) {
     completed: f.completed ?? false, priority: f.priority ?? 'medium',
     category: f.category ?? 'General', classId: f.classId,
   };
+  applyStages(task, f);
   await addTask(task, userId);
   return serializeTask(task);
 }
@@ -222,7 +269,10 @@ export async function patchTask(userId: string, id: string, input: TaskInput) {
   const existing = await findTask(userId, id);
   const f = await validateTaskFields(userId, input, true);
   let next: Task = { ...existing, ...f };
-  if (f.completed !== undefined) next = withCompleted(next, f.completed);
+  if ('stages' in f || 'stageId' in f) {
+    next.stages = existing.stages; next.stageId = existing.stageId;
+    applyStages(next, f);
+  } else if (f.completed !== undefined) next = withCompleted(next, f.completed);
   await updateTask(next, userId);
   return serializeTask(next);
 }
