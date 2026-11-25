@@ -48,6 +48,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 // after hydration instead, with zero visual difference (Modal already
 // renders null while closed either way).
 const SetupWizard = dynamic(() => import('@/components/SetupWizard'), { ssr: false });
+const OutageScreen = dynamic(() => import('@/components/OutageScreen'));
 const LoginScreen = dynamic(() => import('@/components/LoginScreen'), {
   // Only matters for a client-side-only mount (e.g. right after Sign Out,
   // with no fresh server render to source HTML from) — the far more common
@@ -241,7 +242,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Router Cache, so every client-side navigation (not just first load)
   // has to hit the server fresh. This client check runs once per full page
   // load (AppShell persists across SPA navigation), so it doesn't repeat.
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null | false>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null | false | 'outage'>(null);
 
   useEffect(() => {
     // apiGet — shares the cache/dedup layer with any other apiGet('/api/auth')
@@ -249,7 +250,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     // currentUserId lookup), so this doesn't fire as a separate request.
     apiGet<{ user: CurrentUser | null }>('/api/auth')
       .then((data) => setCurrentUser(data.user ?? false))
-      .catch(() => setCurrentUser(false));
+      .catch((e: unknown) => {
+        // 503 = the database is unreachable; a network failure means we can't
+        // reach Canopy at all. Either way, don't show a misleading login form.
+        const msg = e instanceof Error ? e.message : '';
+        setCurrentUser(/503|Failed to fetch|NetworkError|Load failed/i.test(msg) ? 'outage' : false);
+      });
   }, []);
 
   const handleNavClick = (path: string) => {
@@ -300,6 +306,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   if (currentUser === null)  return <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }} />;
+  if (currentUser === 'outage') return <OutageScreen onRecovered={(user) => setCurrentUser(user ?? false)} />;
   if (currentUser === false) return (
     <LoginScreen
       onLogin={(user, isNew) => {

@@ -9,6 +9,7 @@ import {
   updateUserPassword,
   deleteUserAndAllData,
   initializeDatabase,
+  isDbUnavailable,
   setSetting,
   deleteOtherSessions,
   revokeAllApiTokens,
@@ -106,7 +107,10 @@ export async function GET(request: Request) {
     if (!userId) return Response.json({ user: null });
     const user = await getUserById(userId);
     return Response.json({ user });
-  } catch {
+  } catch (e) {
+    // Database unreachable → say so (503) so the UI can show the outage page
+    // instead of dumping the user on the login form.
+    if (isDbUnavailable(e)) return Response.json({ error: 'outage' }, { status: 503, headers: { 'Retry-After': '15' } });
     return Response.json({ user: null });
   }
 }

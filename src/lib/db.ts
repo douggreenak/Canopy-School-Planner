@@ -46,10 +46,25 @@ function getDb(): Pool {
     const wantSsl = process.env.DATABASE_SSL === 'true' ||
       (sslMode !== null && sslMode !== 'disable');
     _pool = wantSsl
-      ? mysql.createPool({ uri: url.toString(), ssl: { rejectUnauthorized: true } })
-      : mysql.createPool(url.toString());
+      ? mysql.createPool({ uri: url.toString(), connectTimeout: 4000, ssl: { rejectUnauthorized: true } })
+      : mysql.createPool({ uri: url.toString(), connectTimeout: 4000 });
   }
   return _pool;
+}
+
+const DB_DOWN_CODES = new Set([
+  'ETIMEDOUT', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH',
+  'ENOTFOUND', 'EAI_AGAIN', 'EPIPE', 'PROTOCOL_CONNECTION_LOST', 'PROTOCOL_SEQUENCE_TIMEOUT',
+]);
+
+/** True when an error means the database server can't be reached (an outage),
+ *  as opposed to a bug or bad query. Used to show the outage page. */
+export function isDbUnavailable(e: unknown): boolean {
+  const err = e as { code?: string; cause?: unknown; errors?: unknown[] } | null;
+  if (!err || typeof err !== 'object') return false;
+  if (typeof err.code === 'string' && DB_DOWN_CODES.has(err.code)) return true;
+  if (Array.isArray(err.errors) && err.errors.some(isDbUnavailable)) return true;
+  return err.cause ? isDbUnavailable(err.cause) : false;
 }
 
 // Convenience helper: run a query and return typed rows.

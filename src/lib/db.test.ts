@@ -141,3 +141,18 @@ describe('credential + session encryption', () => {
     expect(deleteCall![1]).toEqual(['user-abc']);
   });
 });
+
+import { isDbUnavailable } from '@/lib/db';
+describe('isDbUnavailable', () => {
+  it('detects unreachable-database errors, including nested ones', () => {
+    expect(isDbUnavailable(Object.assign(new Error('x'), { code: 'ETIMEDOUT' }))).toBe(true);
+    expect(isDbUnavailable(Object.assign(new Error('x'), { code: 'ECONNREFUSED' }))).toBe(true);
+    expect(isDbUnavailable({ cause: { code: 'ENOTFOUND' } })).toBe(true);
+    expect(isDbUnavailable({ errors: [{ code: 'EHOSTUNREACH' }] })).toBe(true);
+  });
+  it('does not treat ordinary errors as an outage', () => {
+    expect(isDbUnavailable(new Error('boom'))).toBe(false);
+    expect(isDbUnavailable({ code: 'ER_DUP_ENTRY' })).toBe(false);
+    expect(isDbUnavailable(null)).toBe(false);
+  });
+});
