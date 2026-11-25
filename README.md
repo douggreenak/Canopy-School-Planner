@@ -61,6 +61,11 @@ Theme, accent color, school info, school breaks, and PowerSchool credentials —
 
 ![Settings](docs/screenshots/settings.png)
 
+### Outage screen
+Shown when the database can't be reached. It re-checks every 15 seconds and returns to the app automatically once the connection is back.
+
+![Outage screen](docs/screenshots/outage.gif)
+
 ---
 
 ## Features

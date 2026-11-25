@@ -41,12 +41,10 @@ const LEAVES = Array.from({ length: 14 }, (_, i) => ({
 }));
 
 const MESSAGES = [
-  'Our database is taking an unscheduled nap. We knocked. It pretended not to hear.',
-  'Somewhere, a server is on a very long coffee break.',
-  'The leaves are fine. It’s the roots that stopped picking up the phone.',
-  'We asked the database for your homework. It said “brb” and left.',
-  'Good news: this is not your fault. Bad news: it’s not your excuse either… yet.',
-  'We’ve tried turning it off and on again. It has opinions about that.',
+  'We can’t reach our database right now. This is on our end, not yours.',
+  'Still can’t connect. We’re working on getting things back.',
+  'Still down. Nothing you’ve entered has been lost.',
+  'The connection hasn’t come back yet. We’ll keep trying for you.',
 ];
 
 export default function OutageScreen({ onRecovered }: { onRecovered: (user: CurrentUser | null) => void }) {
@@ -161,14 +159,14 @@ export default function OutageScreen({ onRecovered }: { onRecovered: (user: Curr
         {message}
       </Typography>
       <Typography sx={{ mt: 1, maxWidth: 520, color: '#9ab793' }}>
-        Your assignments, grades and schedule are safe and sound — we just can’t reach them right now.
-        Unfortunately “the website ate my homework” is not an excuse a teacher will accept, so keep this tab open: it’ll bring you back automatically.
+        Your assignments, grades and schedule are safe. We just can’t load them at the moment.
+        Keep this tab open and we’ll bring you back automatically once we’re reconnected.
       </Typography>
 
       <Box sx={{ mt: 4, display: 'flex', alignItems: 'center', gap: 1.25, color: '#cfe8c8' }}>
         <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: checking ? '#7bb661' : '#e0a23c', animation: `${pulse} 1.6s ease-in-out infinite` }} />
         <Typography variant="body2">
-          {checking ? 'Poking the database with a stick…' : `Checking again in ${seconds}s`}
+          {checking ? 'Checking the connection…' : `Checking again in ${seconds}s`}
         </Typography>
       </Box>
 
@@ -184,7 +182,7 @@ export default function OutageScreen({ onRecovered }: { onRecovered: (user: Curr
 
       {attempts > 0 && (
         <Typography variant="caption" sx={{ mt: 3, color: '#7f9c78' }}>
-          Still down after {attempts} {attempts === 1 ? 'check' : 'checks'}. Still nobody home. We’re on it.
+          Still down after {attempts} {attempts === 1 ? 'check' : 'checks'}.
         </Typography>
       )}
     </Box>
