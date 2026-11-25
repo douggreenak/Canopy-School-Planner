@@ -16,18 +16,23 @@ import { initializeDatabase, findApiTokenByHash, touchApiToken } from './db';
 import { hit, peek } from './rateLimit';
 import { ApiError } from './plannerApi';
 
-export const TOKEN_PREFIX = 'spk_';
-const TOKEN_RE = /^spk_[A-Za-z0-9_-]{43}$/;
+// Two distinct credential kinds: a REST API token (spk_…) works ONLY on
+// /api/v1, an MCP token (spm_…) works ONLY on /api/mcp. Neither is accepted on
+// the other's endpoint, so leaking one never exposes the other surface.
+export type TokenKind = 'api' | 'mcp';
+export const TOKEN_PREFIX: Record<TokenKind, string> = { api: 'spk_', mcp: 'spm_' };
+const TOKEN_RE = /^(spk|spm)_[A-Za-z0-9_-]{43}$/;
 
 export type ApiScope = 'read' | 'write';
 export interface ApiPrincipal { userId: string; tokenId: string; scope: ApiScope }
 
 export const MAX_TOKENS_PER_USER = 10;
-export const MAX_TOKEN_DAYS = 365;
 export const DEFAULT_TOKEN_DAYS = 90;
+/** Longest lifetime per kind: REST tokens 1 year, MCP tokens (long-lived assistant connections) 5 years. */
+export const MAX_TOKEN_DAYS: Record<TokenKind, number> = { api: 365, mcp: 1825 };
 
-export function generateApiToken(): { token: string; hash: string; hint: string } {
-  const token = TOKEN_PREFIX + crypto.randomBytes(32).toString('base64url');
+export function generateApiToken(kind: TokenKind = 'api'): { token: string; hash: string; hint: string } {
+  const token = TOKEN_PREFIX[kind] + crypto.randomBytes(32).toString('base64url');
   return { token, hash: hashApiToken(token), hint: token.slice(-4) };
 }
 
@@ -65,7 +70,7 @@ const TOUCH_INTERVAL_MS = 60 * 1000;
  * Authenticate a request by bearer API token. Returns the principal, or a
  * ready-to-return error Response. The caller must still check scope.
  */
-export async function authenticateApiRequest(request: Request): Promise<ApiPrincipal | Response> {
+export async function authenticateApiRequest(request: Request, kind: TokenKind): Promise<ApiPrincipal | Response> {
   const ip = clientIp(request);
   const failKey = `api-fail:${ip}`;
   const wait = peek(failKey, FAIL_LIMIT.max, FAIL_LIMIT.windowMs);
@@ -84,7 +89,8 @@ export async function authenticateApiRequest(request: Request): Promise<ApiPrinc
 
   await ensureApiDb();
   const row = await findApiTokenByHash(hashApiToken(token));
-  if (!row) return unauthorized();
+  // Wrong-surface tokens are indistinguishable from unknown ones (no oracle).
+  if (!row || row.kind !== kind) return unauthorized();
 
   const limited = hit(`api-token:${row.id}`, TOKEN_LIMIT.max, TOKEN_LIMIT.windowMs);
   if (limited) return jsonError(429, 'Rate limit exceeded.', { 'Retry-After': String(Math.ceil(limited / 1000)) });
@@ -102,7 +108,7 @@ export async function withApiAuth(
   handler: (p: ApiPrincipal) => Promise<Response>,
 ): Promise<Response> {
   try {
-    const auth = await authenticateApiRequest(request);
+    const auth = await authenticateApiRequest(request, 'api');
     if (auth instanceof Response) return auth;
     if (!scopeAllows(auth.scope, scope)) {
       return jsonError(403, 'This token is read-only. Create a token with write access to make changes.');

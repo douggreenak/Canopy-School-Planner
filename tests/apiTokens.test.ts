@@ -5,8 +5,8 @@ import { testDb } from './helpers/db';
 
 const ip = () => ({ 'x-forwarded-for': fakeIp() });
 
-async function mint(s: Session, scope: 'read' | 'write' = 'read', name = 'test'): Promise<{ token: string; id: string }> {
-  const res = await client(s).post('/api/tokens', { name, scope, password: s.password, expiresInDays: 30 });
+async function mint(s: Session, scope: 'read' | 'write' = 'read', name = 'test', kind: 'api' | 'mcp' = 'api'): Promise<{ token: string; id: string }> {
+  const res = await client(s).post('/api/tokens', { name, scope, kind, password: s.password, expiresInDays: 30 });
   expect(res.status).toBe(201);
   return res.json();
 }
@@ -161,7 +161,7 @@ describe('MCP /api/mcp', () => {
   it('rejects unauthenticated requests and cross-site browser origins', async () => {
     const r = await fetch(`${BASE}/api/mcp`, { method: 'POST', body: '{}', headers: { 'content-type': 'application/json', ...ip() } });
     expect(r.status).toBe(401);
-    const s = await register(); const { token } = await mint(s);
+    const s = await register(); const { token } = await mint(s, 'read', 'm', 'mcp');
     const evil = await mcp(token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { origin: 'https://evil.example' });
     expect(evil.status).toBe(403);
     expect((await fetch(`${BASE}/api/mcp`, { method: 'GET', headers: { authorization: `Bearer ${token}` } })).status).toBe(405);
@@ -169,7 +169,7 @@ describe('MCP /api/mcp', () => {
 
   it('initializes, lists only the tools the token scope allows, and answers notifications with 202', async () => {
     const s = await register();
-    const r = await mint(s, 'read'); const w = await mint(s, 'write');
+    const r = await mint(s, 'read', 'm', 'mcp'); const w = await mint(s, 'write', 'm', 'mcp');
     const init = await (await mcp(r.token, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } })).json();
     expect(init.result.protocolVersion).toBe('2025-06-18');
     expect(init.result.serverInfo.name).toBe('canopy-school-planner');
@@ -185,7 +185,7 @@ describe('MCP /api/mcp', () => {
   it('enforces scope and per-user isolation on tool calls', async () => {
     const a = await register(); const b = await register();
     await client(a).post('/api/classes', makeClass(2, 'MCP-Secret-Class', [1]));
-    const ra = await mint(a, 'read'); const wb = await mint(b, 'write');
+    const ra = await mint(a, 'read', 'm', 'mcp'); const wb = await mint(b, 'write', 'm', 'mcp');
 
     expect(JSON.stringify(await call(ra.token, 'list_classes'))).toContain('MCP-Secret-Class');
     expect(JSON.stringify(await call(wb.token, 'list_classes'))).not.toContain('MCP-Secret-Class');
@@ -197,9 +197,32 @@ describe('MCP /api/mcp', () => {
     expect(made.isError).toBeUndefined();
     const id = JSON.parse(made.content[0].text).task.id;
     expect((await call(wb.token, 'update_task', { id, completed: true })).isError).toBeUndefined();
-    const wa = await mint(a, 'write');
+    const wa = await mint(a, 'write', 'm', 'mcp');
     expect((await call(wa.token, 'delete_task', { id })).isError).toBe(true); // not A's task
     expect((await call(wb.token, 'delete_task', { id })).isError).toBeUndefined();
     expect((await call(wb.token, 'bogus_tool'))).toBeUndefined(); // JSON-RPC error, no result
+  });
+
+  it('MCP and REST tokens are distinct: each works only on its own surface', async () => {
+    const s = await register();
+    const api = await mint(s, 'write', 'rest'); const m = await mint(s, 'write', 'mcp', 'mcp');
+    expect(api.token).toMatch(/^spk_/); expect(m.token).toMatch(/^spm_[A-Za-z0-9_-]{43}$/);
+    expect((await v1(api.token, '/classes')).status).toBe(200);
+    expect((await v1(m.token, '/classes')).status).toBe(401);
+    expect((await mcp(m.token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status).toBe(200);
+    expect((await mcp(api.token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status).toBe(401);
+    const list = await client(s).get<{ tokens: { kind: string }[] }>('/api/tokens');
+    expect(list.tokens.map((t) => t.kind).sort()).toEqual(['api', 'mcp']);
+  });
+
+  it('MCP tokens may live up to 5 years; REST tokens are capped at 1 year', async () => {
+    const s = await register();
+    const ok = await client(s).post('/api/tokens', { name: 'long', scope: 'read', kind: 'mcp', password: s.password, expiresInDays: 1825 });
+    expect(ok.status).toBe(201);
+    const body = await ok.json();
+    expect(body.expiresAt - Date.now()).toBeGreaterThan(1824 * 86_400_000);
+    expect((await client(s).post('/api/tokens', { name: 'x', scope: 'read', kind: 'mcp', password: s.password, expiresInDays: 1826 })).status).toBe(400);
+    expect((await client(s).post('/api/tokens', { name: 'x', scope: 'read', kind: 'api', password: s.password, expiresInDays: 366 })).status).toBe(400);
+    expect((await client(s).post('/api/tokens', { name: 'x', scope: 'read', kind: 'bogus', password: s.password })).status).toBe(400);
   });
 });

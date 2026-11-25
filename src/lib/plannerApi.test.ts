@@ -8,6 +8,7 @@ describe('api tokens', () => {
   it('generates unique 256-bit tokens and hashes them deterministically', () => {
     const a = generateApiToken(); const b = generateApiToken();
     expect(a.token).toMatch(/^spk_[A-Za-z0-9_-]{43}$/);
+    expect(generateApiToken('mcp').token).toMatch(/^spm_[A-Za-z0-9_-]{43}$/);
     expect(a.token).not.toBe(b.token);
     expect(a.hash).toBe(hashApiToken(a.token));
     expect(a.hash).toMatch(/^[0-9a-f]{64}$/);

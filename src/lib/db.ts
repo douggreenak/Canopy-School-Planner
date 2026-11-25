@@ -166,12 +166,15 @@ export async function initializeDatabase() {
       token_hash CHAR(64) NOT NULL UNIQUE,
       token_hint VARCHAR(8) NOT NULL,
       scope VARCHAR(16) NOT NULL,
+      kind VARCHAR(8) NOT NULL DEFAULT 'api',
       created_at BIGINT NOT NULL,
       expires_at BIGINT NOT NULL,
       last_used_at BIGINT NULL,
       INDEX idx_api_tokens_user (user_id)
     )
   `);
+  // 'api' tokens work only on /api/v1, 'mcp' tokens only on /api/mcp. Existing rows are API tokens.
+  await addColumnIfMissing('api_tokens', 'kind', "VARCHAR(8) NOT NULL DEFAULT 'api'");
 
   // Data tables
   await execute(`
@@ -837,6 +840,7 @@ export interface ApiTokenRecord {
   name: string;
   hint: string;
   scope: 'read' | 'write';
+  kind: 'api' | 'mcp';
   createdAt: number;
   expiresAt: number;
   lastUsedAt: number | null;
@@ -844,21 +848,21 @@ export interface ApiTokenRecord {
 
 export async function createApiToken(t: {
   id: string; userId: string; name: string; tokenHash: string; hint: string;
-  scope: 'read' | 'write'; createdAt: number; expiresAt: number;
+  scope: 'read' | 'write'; kind: 'api' | 'mcp'; createdAt: number; expiresAt: number;
 }): Promise<void> {
   await execute(
-    `INSERT INTO api_tokens (id, user_id, name, token_hash, token_hint, scope, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [t.id, t.userId, t.name, t.tokenHash, t.hint, t.scope, t.createdAt, t.expiresAt],
+    `INSERT INTO api_tokens (id, user_id, name, token_hash, token_hint, scope, kind, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [t.id, t.userId, t.name, t.tokenHash, t.hint, t.scope, t.kind, t.createdAt, t.expiresAt],
   );
 }
 
 /** Look a token up by the SHA-256 of its raw value. Expired rows are ignored. */
 export async function findApiTokenByHash(tokenHash: string): Promise<
-  { id: string; userId: string; scope: 'read' | 'write'; lastUsedAt: number | null } | null
+  { id: string; userId: string; scope: 'read' | 'write'; kind: 'api' | 'mcp'; lastUsedAt: number | null } | null
 > {
   const rows = await query<RowDataPacket>(
-    `SELECT t.id, t.user_id, t.scope, t.last_used_at
+    `SELECT t.id, t.user_id, t.scope, t.kind, t.last_used_at
        FROM api_tokens t JOIN users u ON u.id = t.user_id
       WHERE t.token_hash = ? AND t.expires_at > ?`,
     [tokenHash, Date.now()],
@@ -869,6 +873,7 @@ export async function findApiTokenByHash(tokenHash: string): Promise<
     id: r.id as string,
     userId: r.user_id as string,
     scope: r.scope === 'write' ? 'write' : 'read',
+    kind: r.kind === 'mcp' ? 'mcp' : 'api',
     lastUsedAt: r.last_used_at === null ? null : Number(r.last_used_at),
   };
 }
@@ -879,7 +884,7 @@ export async function touchApiToken(id: string): Promise<void> {
 
 export async function listApiTokens(userId: string): Promise<ApiTokenRecord[]> {
   const rows = await query<RowDataPacket>(
-    `SELECT id, name, token_hint, scope, created_at, expires_at, last_used_at
+    `SELECT id, name, token_hint, scope, kind, created_at, expires_at, last_used_at
        FROM api_tokens WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC`,
     [userId, Date.now()],
   );
@@ -888,6 +893,7 @@ export async function listApiTokens(userId: string): Promise<ApiTokenRecord[]> {
     name: r.name as string,
     hint: r.token_hint as string,
     scope: r.scope === 'write' ? 'write' : 'read',
+    kind: r.kind === 'mcp' ? 'mcp' : 'api',
     createdAt: Number(r.created_at),
     expiresAt: Number(r.expires_at),
     lastUsedAt: r.last_used_at === null ? null : Number(r.last_used_at),

@@ -3,7 +3,7 @@
 Per-user access to your own planner data for scripts and AI assistants.
 
 ## Get a token
-Settings → **API & MCP access** → name it, choose **read-only** (default) or **read & write**, pick an expiry, confirm your password. The token (`spk_…`) is shown **once**. Up to 10 active tokens; revoke any time. Changing your password revokes all tokens.
+Settings → **API & MCP access** → name it, choose **read-only** (default) or **read & write**, pick an expiry, confirm your password. Pick the **type**: a **REST API token** (`spk_…`, works only on `/api/v1`, max 1 year) or an **MCP token** (`spm_…`, works only on `/api/mcp`, up to **5 years**). The two are not interchangeable — a token of one type is rejected (401) on the other's endpoint. The token is shown **once**. Up to 10 active tokens in total; revoke any time. Changing your password revokes all tokens.
 
 ## REST (`/api/v1`, header `Authorization: Bearer spk_…`)
 | Method & path | Scope | Notes |
@@ -24,9 +24,9 @@ Tools: `list_classes`, `list_assignments`, `list_tasks`, `list_exams`, `get_upco
 
 Claude Code:
 ```
-claude mcp add --transport http canopy https://YOUR-HOST/api/mcp --header "Authorization: Bearer spk_..."
+claude mcp add --transport http canopy https://YOUR-HOST/api/mcp --header "Authorization: Bearer spm_..."
 ```
-Clients that only speak stdio can bridge with `npx mcp-remote https://YOUR-HOST/api/mcp --header "Authorization: Bearer spk_..."`. (OAuth-only connectors, e.g. claude.ai custom connectors, are not supported — tokens are bearer-header only.)
+Clients that only speak stdio can bridge with `npx mcp-remote https://YOUR-HOST/api/mcp --header "Authorization: Bearer spm_..."`. (OAuth-only connectors, e.g. claude.ai custom connectors, are not supported — tokens are bearer-header only.)
 
 ## Security model
 - **Isolation:** a token maps to one user; every query is scoped to that user id. No admin/cross-user mode. Foreign ids (e.g. another student's `classId`) are rejected.

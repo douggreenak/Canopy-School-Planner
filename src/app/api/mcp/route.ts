@@ -71,7 +71,7 @@ async function handle(msg: Rpc, p: ApiPrincipal): Promise<unknown | null> {
 export async function POST(request: Request) {
   if (!originAllowed(request)) return jsonError(403, 'Origin not allowed.');
   try {
-    const auth = await authenticateApiRequest(request);
+    const auth = await authenticateApiRequest(request, 'mcp');
     if (auth instanceof Response) return auth;
 
     const text = await request.text();
