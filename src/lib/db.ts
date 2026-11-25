@@ -154,6 +154,25 @@ export async function initializeDatabase() {
     )
   `);
 
+  // Personal API tokens (REST /api/v1 + MCP). Only a SHA-256 of the token is
+  // stored — the raw value is shown to the user once at creation and can't be
+  // recovered from the database. Timestamps are epoch-millis BIGINTs so expiry
+  // checks never depend on the DB server's timezone.
+  await execute(`
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      token_hash CHAR(64) NOT NULL UNIQUE,
+      token_hint VARCHAR(8) NOT NULL,
+      scope VARCHAR(16) NOT NULL,
+      created_at BIGINT NOT NULL,
+      expires_at BIGINT NOT NULL,
+      last_used_at BIGINT NULL,
+      INDEX idx_api_tokens_user (user_id)
+    )
+  `);
+
   // Data tables
   await execute(`
     CREATE TABLE IF NOT EXISTS classes (
@@ -735,6 +754,7 @@ export async function deleteUserAndAllData(userId: string): Promise<void> {
       'tasks',
       'classes',
       'sessions',
+      'api_tokens',
       'school_accounts',
       'grade_history',
       'archived_classes',
@@ -808,6 +828,83 @@ export async function deleteOtherSessions(userId: string, keepToken?: string): P
     `DELETE FROM sessions WHERE user_id = ? AND id NOT IN (?, ?)`,
     [userId, hashSessionToken(keepToken), keepToken],
   );
+}
+
+// ---- API tokens ----
+
+export interface ApiTokenRecord {
+  id: string;
+  name: string;
+  hint: string;
+  scope: 'read' | 'write';
+  createdAt: number;
+  expiresAt: number;
+  lastUsedAt: number | null;
+}
+
+export async function createApiToken(t: {
+  id: string; userId: string; name: string; tokenHash: string; hint: string;
+  scope: 'read' | 'write'; createdAt: number; expiresAt: number;
+}): Promise<void> {
+  await execute(
+    `INSERT INTO api_tokens (id, user_id, name, token_hash, token_hint, scope, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [t.id, t.userId, t.name, t.tokenHash, t.hint, t.scope, t.createdAt, t.expiresAt],
+  );
+}
+
+/** Look a token up by the SHA-256 of its raw value. Expired rows are ignored. */
+export async function findApiTokenByHash(tokenHash: string): Promise<
+  { id: string; userId: string; scope: 'read' | 'write'; lastUsedAt: number | null } | null
+> {
+  const rows = await query<RowDataPacket>(
+    `SELECT t.id, t.user_id, t.scope, t.last_used_at
+       FROM api_tokens t JOIN users u ON u.id = t.user_id
+      WHERE t.token_hash = ? AND t.expires_at > ?`,
+    [tokenHash, Date.now()],
+  );
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: r.id as string,
+    userId: r.user_id as string,
+    scope: r.scope === 'write' ? 'write' : 'read',
+    lastUsedAt: r.last_used_at === null ? null : Number(r.last_used_at),
+  };
+}
+
+export async function touchApiToken(id: string): Promise<void> {
+  await execute(`UPDATE api_tokens SET last_used_at = ? WHERE id = ?`, [Date.now(), id]);
+}
+
+export async function listApiTokens(userId: string): Promise<ApiTokenRecord[]> {
+  const rows = await query<RowDataPacket>(
+    `SELECT id, name, token_hint, scope, created_at, expires_at, last_used_at
+       FROM api_tokens WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC`,
+    [userId, Date.now()],
+  );
+  return rows.map((r) => ({
+    id: r.id as string,
+    name: r.name as string,
+    hint: r.token_hint as string,
+    scope: r.scope === 'write' ? 'write' : 'read',
+    createdAt: Number(r.created_at),
+    expiresAt: Number(r.expires_at),
+    lastUsedAt: r.last_used_at === null ? null : Number(r.last_used_at),
+  }));
+}
+
+/** Revoke one token — scoped to its owner, so one user can never revoke another's. */
+export async function revokeApiToken(userId: string, id: string): Promise<boolean> {
+  const [res] = await getDb().execute<ResultSetHeader>(
+    `DELETE FROM api_tokens WHERE id = ? AND user_id = ?`,
+    [id, userId],
+  );
+  return res.affectedRows > 0;
+}
+
+export async function revokeAllApiTokens(userId: string): Promise<void> {
+  await execute(`DELETE FROM api_tokens WHERE user_id = ?`, [userId]);
 }
 
 // ---- Classes ----

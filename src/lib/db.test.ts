@@ -59,6 +59,7 @@ describe('deleteUserAndAllData', () => {
       'DELETE FROM `tasks` WHERE user_id = ?',
       'DELETE FROM `classes` WHERE user_id = ?',
       'DELETE FROM `sessions` WHERE user_id = ?',
+      'DELETE FROM `api_tokens` WHERE user_id = ?',
       'DELETE FROM `school_accounts` WHERE user_id = ?',
       'DELETE FROM `grade_history` WHERE user_id = ?',
       'DELETE FROM `archived_classes` WHERE user_id = ?',

@@ -60,6 +60,7 @@ import { useThemeMode } from '@/components/ThemeRegistry';
 import { ACCENT_PRESETS, resolvePresetColors } from '@/lib/theme';
 import TimezonePicker from '@/components/TimezonePicker';
 import OtherSchoolsSection from '@/components/OtherSchoolsSection';
+import ApiAccessSection from '@/components/ApiAccessSection';
 import type { SchoolClass } from '@/types';
 
 export default function SettingsPage() {
@@ -637,6 +638,7 @@ function SettingsInner() {
           { label: 'Class Schedule', id: 'settings-wizard' },
           { label: 'Calendar', id: 'settings-calendar' },
           { label: 'Account', id: 'settings-account' },
+          { label: 'API & MCP', id: 'settings-api' },
         ].map((s) => (
           <Chip
             key={s.id}
@@ -1430,6 +1432,9 @@ function SettingsInner() {
             </Stack>
           </AccordionDetails>
         </Accordion>
+
+        {/* ===== API & MCP ===== */}
+        <ApiAccessSection />
 
         {/* ===== DANGER ZONE ===== */}
         <Accordion

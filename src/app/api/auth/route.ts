@@ -11,6 +11,7 @@ import {
   initializeDatabase,
   setSetting,
   deleteOtherSessions,
+  revokeAllApiTokens,
 } from '@/lib/db';
 import {
   hashPassword,
@@ -207,6 +208,8 @@ export async function POST(request: NextRequest) {
       // A password change should sign out every OTHER device (a stolen or
       // forgotten session shouldn't survive it) while keeping this one.
       await deleteOtherSessions(userId, getSessionToken(request) ?? undefined).catch(() => {});
+      // ...and every API/MCP token, which are equally long-lived credentials.
+      await revokeAllApiTokens(userId).catch(() => {});
       return Response.json({ success: true });
     }
 
