@@ -61,10 +61,23 @@ export async function POST(request: Request) {
       throw new ApiError(409, `You can have at most ${MAX_TOKENS_PER_USER} active tokens. Revoke one first.`);
     }
 
-    const { token, hash, hint } = generateApiToken(kind);
+    // token_hash is UNIQUE in the DB. A collision on 256 random bits is practically impossible,
+    // but if one ever happens, generate a fresh token rather than failing or reusing one.
     const now = Date.now();
     const id = uuid();
-    await createApiToken({ id, userId, name, tokenHash: hash, hint, scope: body.scope, kind, createdAt: now, expiresAt: now + days * 86_400_000 });
+    let token = '';
+    for (let attempt = 0; ; attempt++) {
+      const gen = generateApiToken(kind);
+      try {
+        await createApiToken({ id, userId, name, tokenHash: gen.hash, hint: gen.hint, scope: body.scope, kind, createdAt: now, expiresAt: now + days * 86_400_000 });
+        token = gen.token;
+        break;
+      } catch (err) {
+        const e = err as { code?: string; message?: string };
+        const dup = e?.code === 'ER_DUP_ENTRY' || /duplicate/i.test(e?.message ?? '');
+        if (!dup || attempt >= 2) throw err;
+      }
+    }
     // The raw token is returned exactly once, here, and is never retrievable again.
     return Response.json({ id, name, scope: body.scope, kind, expiresAt: now + days * 86_400_000, token }, { status: 201, headers: NO_STORE });
   } catch (e) { return fail(e); }
