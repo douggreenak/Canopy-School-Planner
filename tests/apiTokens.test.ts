@@ -43,6 +43,17 @@ describe('token management', () => {
     expect(rows[0].token_hash).not.toContain(token);
   });
 
+  it('only failed password checks are throttled: 10 good creations work, 5 bad ones lock the re-check', async () => {
+    const s = await register();
+    for (let i = 0; i < 10; i++) await mint(s, 'read', `t${i}`);
+    expect((await client(s).post('/api/tokens', { name: 'eleventh', scope: 'read', password: s.password })).status).toBe(409); // cap, not a rate limit
+    const s2 = await register();
+    for (let i = 0; i < 5; i++) {
+      expect((await client(s2).post('/api/tokens', { name: 'x', scope: 'read', password: 'wrong-password-1' })).status).toBe(401);
+    }
+    expect((await client(s2).post('/api/tokens', { name: 'x', scope: 'read', password: s2.password })).status).toBe(429);
+  });
+
   it('API tokens cannot manage tokens or reach session-only endpoints; sessions cannot use /api/v1', async () => {
     const s = await register();
     const { token } = await mint(s);

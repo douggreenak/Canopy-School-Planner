@@ -9,7 +9,7 @@ import {
   generateApiToken, ensureApiDb, MAX_TOKENS_PER_USER, MAX_TOKEN_DAYS, DEFAULT_TOKEN_DAYS, readJsonBody,
 } from '@/lib/apiAuth';
 import { ApiError } from '@/lib/plannerApi';
-import { hit } from '@/lib/rateLimit';
+import { hit, peek } from '@/lib/rateLimit';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
@@ -43,9 +43,14 @@ export async function POST(request: Request) {
     if (typeof body.password !== 'string' || !body.password) throw new ApiError(400, 'Enter your password to create a token.');
 
     // Brute-force guard on the password re-check (a stolen session shouldn't be able to grind it).
-    if (hit(`token-pw:${userId}`, 5, 15 * 60 * 1000)) throw new ApiError(429, 'Too many attempts. Try again later.');
+    // Only FAILED attempts count, so normal use isn't throttled.
+    const pwKey = `token-pw:${userId}`;
+    if (peek(pwKey, 5, 15 * 60 * 1000)) throw new ApiError(429, 'Too many attempts. Try again later.');
     const user = await getUserByIdWithHash(userId);
-    if (!user || !(await verifyPassword(body.password, user.passwordHash))) throw new ApiError(401, 'Incorrect password.');
+    if (!user || !(await verifyPassword(body.password, user.passwordHash))) {
+      hit(pwKey, 5, 15 * 60 * 1000);
+      throw new ApiError(401, 'Incorrect password.');
+    }
 
     if ((await listApiTokens(userId)).length >= MAX_TOKENS_PER_USER) {
       throw new ApiError(409, `You can have at most ${MAX_TOKENS_PER_USER} active tokens. Revoke one first.`);
