@@ -5,6 +5,8 @@ import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ApiIcon from '@mui/icons-material/Api';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckIcon from '@mui/icons-material/Check';
 import DeleteIcon from '@mui/icons-material/Delete';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -30,6 +32,14 @@ export default function ApiAccessSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [created, setCreated] = useState<{ token: string; kind: 'api' | 'mcp' } | null>(null);
+  const [copied, setCopied] = useState('');
+  const copy = async (label: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied((c) => (c === label ? '' : c)), 2000);
+    } catch { setError('Could not copy — select the text and copy it manually.'); }
+  };
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   const load = useCallback(async () => {
@@ -70,18 +80,26 @@ export default function ApiAccessSection() {
           is shown once, and can be revoked any time. Treat it like a password. Default to read-only.
         </Typography>
 
-        {created && (
+        {created && (() => { const endpoint = `${origin}${created.kind === 'mcp' ? '/api/mcp' : '/api/v1'}`; return (
           <Alert severity="success" sx={{ mb: 2 }} onClose={() => setCreated(null)}>
             Copy this token now — it won&apos;t be shown again.
-            <Box component="code" sx={{ display: 'block', mt: 1, wordBreak: 'break-all', userSelect: 'all' }}>{created.token}</Box>
-            <Box sx={{ mt: 1, fontSize: '0.8rem' }}>
-              {created.kind === 'mcp'
-                ? <>MCP URL: <code>{origin}/api/mcp</code> (works only there)</>
-                : <>REST base: <code>{origin}/api/v1</code> (works only there)</>}
-              {' '}· header <code>Authorization: Bearer &lt;token&gt;</code>
-            </Box>
+            <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: "center" }}>
+              <Box component="code" sx={{ flex: 1, wordBreak: 'break-all', userSelect: 'all' }}>{created.token}</Box>
+              <Button size="small" variant="outlined" startIcon={copied === 'token' ? <CheckIcon /> : <ContentCopyIcon />} onClick={() => copy('token', created.token)}>
+                {copied === 'token' ? 'Copied' : 'Copy token'}
+              </Button>
+            </Stack>
+            <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: "center" }}>
+              <Box sx={{ flex: 1, fontSize: '0.8rem', wordBreak: 'break-all' }}>
+                {created.kind === 'mcp' ? 'MCP URL' : 'REST base'}: <code>{endpoint}</code> (works only there)
+                {' '}· header <code>Authorization: Bearer &lt;token&gt;</code>
+              </Box>
+              <Button size="small" variant="outlined" startIcon={copied === 'url' ? <CheckIcon /> : <ContentCopyIcon />} onClick={() => copy('url', endpoint)}>
+                {copied === 'url' ? 'Copied' : 'Copy URL'}
+              </Button>
+            </Stack>
           </Alert>
-        )}
+        ); })()}
 
         <Stack spacing={1.5} sx={{ maxWidth: 420, mb: 3 }}>
           <TextField size="small" label="Token name (e.g. Claude Desktop)" value={name} onChange={(e) => setName(e.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />
