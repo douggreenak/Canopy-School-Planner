@@ -28,6 +28,9 @@ const apiNoStoreHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // The local test runner sets CANOPY_LOW_CPU so its full production build
+  // doesn't use every core (it once pinned a laptop at 100%). Unset elsewhere.
+  ...(process.env.CANOPY_LOW_CPU ? { experimental: { cpus: 3, webpackBuildWorker: true } } : {}),
   serverExternalPackages: ['puppeteer-core', '@sparticuz/chromium-min', 'mysql2'],
   async headers() {
     return [

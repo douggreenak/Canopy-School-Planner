@@ -43,7 +43,14 @@ async function cleanup() {
   if (server && !server.killed) server.kill('SIGTERM');
   if (startedDb) spawnSync('bash', [join(root, 'scripts/test-db.sh'), 'stop'], { stdio: 'ignore' });
 }
-process.on('SIGINT', async () => { await cleanup(); process.exit(130); });
+// Clean up on EVERY way out (Ctrl-C, kill, terminal closed, crash) so an
+// orphaned app server / test database can never be left burning CPU.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, async () => { await cleanup(); process.exit(130); });
+}
+process.on('uncaughtException', async (e) => { console.error(e); await cleanup(); process.exit(1); });
+// Run the heavy children at low priority so the machine stays responsive.
+const LOW = ['-n', '15'];
 
 async function waitFor(url, ms) {
   const end = Date.now() + ms;
@@ -81,17 +88,18 @@ async function waitFor(url, ms) {
     CREDENTIAL_KEY: 'e2e-credential-key-not-secret',
     NEXT_TELEMETRY_DISABLED: '1',
     CHROME_PATH: process.env.CHROME_PATH || '',
+    CANOPY_LOW_CPU: '1',
   };
 
   let code = 1;
   try {
     if (process.env.E2E_SKIP_BUILD !== '1') {
       console.log('› building app…');
-      const b = spawnSync('npx', ['next', 'build', '--webpack'], { cwd: root, env: { ...env, NODE_ENV: 'production' }, stdio: 'inherit' });
+      const b = spawnSync('nice', [...LOW, 'npx', 'next', 'build', '--webpack'], { cwd: root, env: { ...env, NODE_ENV: 'production' }, stdio: 'inherit' });
       if (b.status !== 0) throw new Error('build failed');
     }
     console.log(`› starting app on ${BASE} (database: ${new URL(dbUrl).host}/${new URL(dbUrl).pathname.slice(1)})`);
-    server = spawn('npx', ['next', 'start', '-p', PORT, '-H', '127.0.0.1'], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    server = spawn('nice', [...LOW, 'npx', 'next', 'start', '-p', PORT, '-H', '127.0.0.1'], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
     server.stdout.on('data', (d) => process.env.E2E_VERBOSE && process.stdout.write(d));
     server.stderr.on('data', (d) => process.env.E2E_VERBOSE && process.stderr.write(d));
     let exited = false;
@@ -102,7 +110,7 @@ async function waitFor(url, ms) {
     const probe = await fetch(`${BASE}/api/settings`);
     if (!probe.ok || !(probe.headers.get('content-type') || '').includes('json')) throw new Error('unexpected response from app server');
 
-    const t = spawnSync('npx', ['vitest', 'run', '-c', 'vitest.e2e.config.ts', ...process.argv.slice(2)], { cwd: root, env, stdio: 'inherit' });
+    const t = spawnSync('nice', [...LOW, 'npx', 'vitest', 'run', '-c', 'vitest.e2e.config.ts', ...process.argv.slice(2)], { cwd: root, env, stdio: 'inherit' });
     code = t.status ?? 1;
   } catch (e) {
     console.error(String(e));

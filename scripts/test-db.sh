@@ -23,7 +23,7 @@ case "${1:-}" in
     else
       "$SERVER" --initialize-insecure --datadir="$DIR/data" >/dev/null 2>&1
     fi
-    nohup "$SERVER" --datadir="$DIR/data" --port="$PORT" --socket="$SOCK" --bind-address=127.0.0.1 \
+    nohup nice -n 15 "$SERVER" --datadir="$DIR/data" --port="$PORT" --socket="$SOCK" --bind-address=127.0.0.1 \
       --pid-file="$DIR/pid" >"$DIR/server.log" 2>&1 &
     for _ in $(seq 1 60); do
       "$CLIENT" -uroot -S "$SOCK" -e "SELECT 1" >/dev/null 2>&1 && break; sleep 0.5
