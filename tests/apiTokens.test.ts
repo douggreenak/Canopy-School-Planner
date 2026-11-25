@@ -167,6 +167,18 @@ describe('MCP /api/mcp', () => {
     expect((await fetch(`${BASE}/api/mcp`, { method: 'GET', headers: { authorization: `Bearer ${token}` } })).status).toBe(405);
   });
 
+  it('serves the copyable documentation to signed-in users only, different for REST and MCP', async () => {
+    expect((await fetch(`${BASE}/api/tokens/docs?kind=mcp`)).status).toBe(401);
+    const s = await register();
+    const mcpDocs = await client(s).get<{ kind: string; markdown: string }>('/api/tokens/docs?kind=mcp');
+    const apiDocs = await client(s).get<{ kind: string; markdown: string }>('/api/tokens/docs?kind=api');
+    expect(mcpDocs.kind).toBe('mcp'); expect(apiDocs.kind).toBe('api');
+    expect(mcpDocs.markdown).toContain('### `create_task`');
+    expect(mcpDocs.markdown).toContain('/api/mcp');
+    expect(apiDocs.markdown).toContain('### GET `/upcoming`');
+    expect(apiDocs.markdown).not.toContain('### `create_task`');
+  });
+
   it('initializes, lists only the tools the token scope allows, and answers notifications with 202', async () => {
     const s = await register();
     const r = await mint(s, 'read', 'm', 'mcp'); const w = await mint(s, 'write', 'm', 'mcp');

@@ -14,6 +14,7 @@
     "check": "npm run lint:ci && npm run typecheck && npm run test:unit && npm run test:e2e",
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "lint:ci": "eslint src/app/api src/app/schedule src/app/tasks src/app/transcript src/lib/db.ts src/lib/db.test.ts src/lib/apiAuth.ts src/lib/plannerApi.ts src/lib/plannerApi.test.ts src/lib/mcpTools.ts src/lib/rateLimit.ts src/components/ApiAccessSection.tsx src/lib/schedule.ts src/lib/schedule.test.ts src/lib/calendar.ts src/lib/customSchedule.ts src/lib/customSchedule.test.ts src/lib/breaks.ts src/lib/breaks.test.ts src/lib/schoolYear.ts src/lib/schoolYear.test.ts src/lib/testGuard.ts src/lib/testGuard.test.ts src/lib/powerschoolSync.ts src/lib/powerschoolSync.test.ts src/components/CustomScheduleEditor.tsx src/components/ClassRosterDialog.tsx src/components/WeekView.tsx tests vitest.e2e.config.ts scripts/run-sync.ts scripts/sync-local.ts",
+    "docs": "vite-node -c vitest.config.ts scripts/gen-docs.ts",
     "ship": "git push origin HEAD:staging"
   },
   "dependencies": {

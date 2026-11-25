@@ -7,6 +7,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ApiIcon from '@mui/icons-material/Api';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
+import DescriptionIcon from '@mui/icons-material/Description';
 import DeleteIcon from '@mui/icons-material/Delete';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -40,6 +41,18 @@ export default function ApiAccessSection() {
       setTimeout(() => setCopied((c) => (c === label ? '' : c)), 2000);
     } catch { setError('Could not copy — select the text and copy it manually.'); }
   };
+  // Documentation for the selected type (REST or MCP), fetched ahead of time so
+  // the Copy click can write to the clipboard immediately (Safari needs that).
+  const [docs, setDocs] = useState<{ kind: 'api' | 'mcp'; markdown: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/tokens/docs?kind=${kind}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.markdown) setDocs({ kind, markdown: d.markdown }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [kind]);
+  const docsReady = docs?.kind === kind;
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   const load = useCallback(async () => {
@@ -108,6 +121,11 @@ export default function ApiAccessSection() {
             <MenuItem value="api">REST API token (/api/v1)</MenuItem>
             <MenuItem value="mcp">MCP token (/api/mcp, for AI assistants)</MenuItem>
           </TextField>
+          <Button size="small" variant="outlined" startIcon={copied === 'docs' ? <CheckIcon /> : <DescriptionIcon />}
+            disabled={!docsReady} sx={{ alignSelf: 'flex-start' }}
+            onClick={() => docs && copy('docs', docs.markdown.split('https://YOUR-HOST').join(origin))}>
+            {copied === 'docs' ? 'Copied' : kind === 'mcp' ? 'Copy MCP documentation' : 'Copy REST API documentation'}
+          </Button>
           <Stack direction="row" spacing={1.5}>
             <TextField size="small" select fullWidth label="Access" value={scope} onChange={(e) => setScope(e.target.value as 'read' | 'write')}>
               <MenuItem value="read">Read-only</MenuItem>
